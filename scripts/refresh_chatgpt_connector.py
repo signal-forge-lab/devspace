@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh the DevSpace ChatGPT connector app and wait for its version note to advance."""
+"""Refresh the Workbridge ChatGPT connector app and wait for its version note to advance."""
 
 from __future__ import annotations
 
@@ -369,7 +369,7 @@ def send_discord_notification(config: dict[str, Any], content: str) -> None:
 def success_message(metadata: dict[str, Any]) -> str:
     return "\n".join(
         [
-            "DevSpace Connector refresh completed.",
+            "Workbridge Connector refresh completed.",
             f"status: {metadata.get('status')}",
             f"version: {metadata.get('initial_version')} -> {metadata.get('final_version')}",
             f"expected: {metadata.get('expected_version')}",
@@ -381,7 +381,7 @@ def success_message(metadata: dict[str, Any]) -> str:
 def failure_message(metadata: dict[str, Any]) -> str:
     return "\n".join(
         [
-            "DevSpace Connector refresh failed.",
+            "Workbridge Connector refresh failed.",
             f"status: {metadata.get('status')}",
             f"error: {metadata.get('error_class')}: {metadata.get('error')}",
             f"initial_version: {metadata.get('initial_version')}",
@@ -486,7 +486,7 @@ def run(config: dict[str, Any], metadata_out: Path, *, headless: bool = False, n
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Refresh the DevSpace ChatGPT connector app and wait for the version note to advance.")
+    parser = argparse.ArgumentParser(description="Refresh the Workbridge ChatGPT connector app and wait for the version note to advance.")
     parser.add_argument("--config", help="Path to JSON config. Defaults to local config, then example config.")
     parser.add_argument("--metadata-out", help="Path to write run metadata JSON.")
     parser.add_argument("--headless", action="store_true", help="Run Chromium headless. Usually not useful for an already logged-in ChatGPT profile.")

@@ -2,13 +2,13 @@
 
 > 日本語版: [codex-cli-runner.ja.md](./codex-cli-runner.ja.md)
 
-DevSpace now exposes `run_codex_cli`, a ChatGPT-facing MCP tool that calls the local Python wrapper:
+Workbridge now exposes `run_codex_cli`, a ChatGPT-facing MCP tool that calls the local Python wrapper:
 
 ```text
 C:\path\to\your\workspace\labs\codex_cli_runner\run_codex.py
 ```
 
-This is intentionally **not** a Codex Skill. It is registered as a DevSpace MCP tool, so it is visible to ChatGPT clients connected to this DevSpace server. Do not place this workflow under `.agents/skills` or `$HOME/.agents/skills` unless you also want Codex to discover it as a Codex Skill.
+This is intentionally **not** a Codex Skill. It is registered as a Workbridge MCP tool, so it is visible to ChatGPT clients connected to this Workbridge server. Do not place this workflow under `.agents/skills` or `$HOME/.agents/skills` unless you also want Codex to discover it as a Codex Skill.
 
 ## Tool name
 
@@ -18,7 +18,7 @@ run_codex_cli
 
 ## Inputs
 
-- `projectDir`: target project directory for Codex CLI. Must be inside DevSpace allowed roots.
+- `projectDir`: target project directory for Codex CLI. Must be inside Workbridge allowed roots.
 - `instructionFile`: Markdown instruction file. Absolute path or relative path.
 - `sandbox`: optional. `read-only` or `workspace-write`. Defaults to `read-only`.
 - `mode`: optional. `sync` or `detached`. Defaults to `sync`.
@@ -34,7 +34,7 @@ run_codex_cli
 
 `danger-full-access` is intentionally unsupported.
 
-By default, DevSpace passes these options to the Python runner:
+By default, Workbridge passes these options to the Python runner:
 
 ```text
 --model gpt-5.5
@@ -90,7 +90,7 @@ If a limit-related error is detected during the early window, the tool returns `
 Relative `instructionFile` values are resolved in this order:
 
 1. `projectDir`
-2. DevSpace server working directory
+2. Workbridge server working directory
 3. `run_codex.py` directory
 
 The resolved instruction file must exist, be inside allowed roots, and end with `.md`.
@@ -100,8 +100,8 @@ The resolved instruction file must exist, be inside allowed roots, and end with 
 By default, the tool searches for the Python runner at:
 
 ```text
-<DevSpace server cwd>\labs\codex_cli_runner\run_codex.py
-<DevSpace server cwd>\..\..\labs\codex_cli_runner\run_codex.py
+<Workbridge server cwd>\labs\codex_cli_runner\run_codex.py
+<Workbridge server cwd>\..\..\labs\codex_cli_runner\run_codex.py
 ```
 
 You can override the path with:
@@ -110,7 +110,7 @@ You can override the path with:
 DEVSPACE_CODEX_CLI_RUNNER=C:\path\to\your\workspace\labs\codex_cli_runner\run_codex.py
 ```
 
-The resolved runner must exist and be inside DevSpace allowed roots.
+The resolved runner must exist and be inside Workbridge allowed roots.
 
 ## Python command
 
@@ -183,7 +183,7 @@ The underlying Python runner writes Codex results under:
 <ProjectDir>\.codex\runs\
 ```
 
-Detached mode additionally writes DevSpace job files under its own `devspace_codex_<jobId>` run directory.
+Detached mode additionally writes Workbridge job files under its own `devspace_codex_<jobId>` run directory.
 
 ## Limit fallback behavior
 
@@ -204,4 +204,4 @@ This fallback is only recommended for limit-related errors. Other failures such 
 
 ## Deployment note
 
-After changing DevSpace source, rebuild and restart the local DevSpace server. Existing ChatGPT MCP connections may need to be reconnected before the new tool appears.
+After changing Workbridge source, rebuild and restart the local Workbridge server. Existing ChatGPT MCP connections may need to be reconnected before the new tool appears.

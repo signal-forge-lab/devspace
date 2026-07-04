@@ -2,13 +2,13 @@ import { performance } from "node:perf_hooks";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import * as z from "zod/v4";
-import { DEVSPACE_VERIFY_PROFILES, devspaceVerify } from "./devspace-verify.js";
+import { WORKBRIDGE_VERIFY_PROFILES, workbridgeVerify } from "./workbridge-verify.js";
 import type { WorkspaceRegistry } from "./workspaces.js";
 import {
   applyStructuredEdit,
   applyUnifiedPatch,
   checkWorkspaceInvariants,
-  devspaceRouter,
+  workbridgeRouter,
   recordWorkflowEvent,
   resolveLocator,
   type WorkflowMode,
@@ -37,8 +37,8 @@ export interface WorkflowToolNames {
   applyStructuredEdit: "apply_structured_edit";
   checkWorkspaceInvariants: "check_workspace_invariants";
   recordWorkflowEvent: "record_workflow_event";
-  devspaceRouter: "devspace_router";
-  devspaceVerify: "devspace_verify";
+  workbridgeRouter: "workbridge_router";
+  workbridgeVerify: "workbridge_verify";
 }
 
 export interface RegisterWorkflowToolsOptions {
@@ -99,7 +99,7 @@ const routerLimitsSchema = z.object({
 
 const routerRefsSchema = z.record(z.string(), z.string().optional());
 
-const verifyProfileSchema = z.enum(DEVSPACE_VERIFY_PROFILES);
+const verifyProfileSchema = z.enum(WORKBRIDGE_VERIFY_PROFILES);
 
 const runtimeInfoSchema = z.object({
   appName: z.string(),
@@ -144,9 +144,9 @@ export function registerWorkflowTools(options: RegisterWorkflowToolsOptions): vo
 
   registerAppTool(
     server,
-    toolNames.devspaceVerify,
+    toolNames.workbridgeVerify,
     {
-      title: "DevSpace verify",
+      title: "Workbridge verify",
       description:
         "Run fixed verification profiles with bounded output. Use this instead of ad-hoc bash for typecheck, related tests, npm test, build, or git diff check. The profile is an enum; arbitrary shell commands are not accepted. Successful commands return summaries and bounded warning/error tails rather than full stdout.",
       inputSchema: {
@@ -174,15 +174,15 @@ export function registerWorkflowTools(options: RegisterWorkflowToolsOptions): vo
       const startedAt = performance.now();
       try {
         const workspace = workspaces.getWorkspace(workspaceId);
-        const result = await devspaceVerify({ ...input, workspace, workflowMode: input.workflowMode as WorkflowMode | undefined });
+        const result = await workbridgeVerify({ ...input, workspace, workflowMode: input.workflowMode as WorkflowMode | undefined });
         const durationMs = Math.round(performance.now() - startedAt);
         if (input.workflowMode) {
           await recordWorkflowEvent({
             workspace,
             workflowMode: input.workflowMode as WorkflowMode,
-            event: "devspace_verify",
+            event: "workbridge_verify",
             action: input.profile,
-            tool: toolNames.devspaceVerify,
+            tool: toolNames.workbridgeVerify,
             status: result.status,
             testsRun: input.profile.includes("test") || input.profile === "related_tests" || input.profile === "npm_test" ? result.commands.length : undefined,
             outputChars: result.summary.stdoutChars + result.summary.stderrChars,
@@ -190,21 +190,21 @@ export function registerWorkflowTools(options: RegisterWorkflowToolsOptions): vo
             note: result.result,
           });
         }
-        logToolCall({ tool: toolNames.devspaceVerify, workspaceId, operation: `verify_${input.profile}`, resultCharacters: result.result.length, success: result.status === "ok", durationMs });
+        logToolCall({ tool: toolNames.workbridgeVerify, workspaceId, operation: `verify_${input.profile}`, resultCharacters: result.result.length, success: result.status === "ok", durationMs });
         return { content: [textBlock(result.result)], structuredContent: result, isError: result.status !== "ok" };
       } catch (error) {
-        return failed(toolNames.devspaceVerify, workspaceId, undefined, startedAt, error, logToolCall);
+        return failed(toolNames.workbridgeVerify, workspaceId, undefined, startedAt, error, logToolCall);
       }
     },
   );
 
   registerAppTool(
     server,
-    toolNames.devspaceRouter,
+    toolNames.workbridgeRouter,
     {
-      title: "DevSpace router",
+      title: "Workbridge router",
       description:
-        "Route small, structured DevSpace workflow requests. Prefer this over broad bash/read/grep when action + targets + refs + limits can express the task. Do not pass large content, shell commands, patches, or newContent. Router v1 is read-only/planning oriented and can also suggest fixed devspace_verify profiles; use apply_unified_patch or apply_structured_edit for edits after inspection.",
+        "Route small, structured Workbridge workflow requests. Prefer this over broad bash/read/grep when action + targets + refs + limits can express the task. Do not pass large content, shell commands, patches, or newContent. Router v1 is read-only/planning oriented and can also suggest fixed workbridge_verify profiles; use apply_unified_patch or apply_structured_edit for edits after inspection.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace id."),
         workflowMode: workflowModeSchema.describe("Experiment mode for baseline/zip_first/router comparison."),
@@ -237,24 +237,24 @@ export function registerWorkflowTools(options: RegisterWorkflowToolsOptions): vo
       const startedAt = performance.now();
       try {
         const workspace = workspaces.getWorkspace(workspaceId);
-        const result = await devspaceRouter({ ...input, workspace, workflowMode: input.workflowMode as WorkflowMode });
+        const result = await workbridgeRouter({ ...input, workspace, workflowMode: input.workflowMode as WorkflowMode });
         const durationMs = Math.round(performance.now() - startedAt);
         await recordWorkflowEvent({
           workspace,
           workflowMode: input.workflowMode as WorkflowMode,
-          event: "devspace_router",
+          event: "workbridge_router",
           action: input.action,
-          tool: toolNames.devspaceRouter,
+          tool: toolNames.workbridgeRouter,
           status: result.status,
           filesRead: Array.isArray((result.results as { files?: unknown[] }).files) ? ((result.results as { files?: unknown[] }).files?.length ?? 0) : undefined,
           outputChars: result.result.length,
           durationMs,
           note: result.nextRecommendedAction,
         });
-        logToolCall({ tool: toolNames.devspaceRouter, workspaceId, operation: `router_${input.action}`, resultCharacters: result.result.length, success: result.status === "ok", durationMs });
+        logToolCall({ tool: toolNames.workbridgeRouter, workspaceId, operation: `router_${input.action}`, resultCharacters: result.result.length, success: result.status === "ok", durationMs });
         return { content: [textBlock(result.result)], structuredContent: result, isError: result.status !== "ok" };
       } catch (error) {
-        return failed(toolNames.devspaceRouter, workspaceId, undefined, startedAt, error, logToolCall);
+        return failed(toolNames.workbridgeRouter, workspaceId, undefined, startedAt, error, logToolCall);
       }
     },
   );

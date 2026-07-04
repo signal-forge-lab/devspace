@@ -15,7 +15,7 @@ await mkdir(workflowEvents, { recursive: true });
 await writeFile(
   join(logs, "devspace.jsonl"),
   [
-    JSON.stringify({ ts: "2026-07-01T00:00:00.000Z", event: "tool_call", tool: "devspace_verify", operation: "verify_git_status_check", success: true, durationMs: 12, resultCharacters: 34 }),
+    JSON.stringify({ ts: "2026-07-01T00:00:00.000Z", event: "tool_call", tool: "workbridge_verify", operation: "verify_git_status_check", success: true, durationMs: 12, resultCharacters: 34 }),
     JSON.stringify({ ts: "2026-07-01T00:00:01.000Z", event: "tool_call", tool: "bash", operation: "run", success: false, durationMs: 5, error: "MCP output validation invalid_type" }),
     JSON.stringify({ ts: "2026-07-01T00:00:01.500Z", event: "tool_call", tool: "apply_structured_edit", operation: "apply_structured_edit", success: true, durationMs: 6, resultCharacters: 42 }),
     JSON.stringify({ ts: "2026-07-01T00:00:01.600Z", event: "tool_call", tool: "apply_unified_patch", operation: "apply_unified_patch", success: true, durationMs: 8, resultCharacters: 64 }),
@@ -26,11 +26,11 @@ await writeFile(
 
 await writeFile(
   join(workflowEvents, "events.jsonl"),
-  JSON.stringify({ eventId: "wfe_test", createdAt: "2026-07-01T00:00:02.000Z", workflowMode: "router", event: "devspace_verify", action: "git_status_check", tool: "devspace_verify", status: "ok", outputChars: 34, durationMs: 9 }) + "\n",
+  JSON.stringify({ eventId: "wfe_test", createdAt: "2026-07-01T00:00:02.000Z", workflowMode: "router", event: "workbridge_verify", action: "git_status_check", tool: "workbridge_verify", status: "ok", outputChars: 34, durationMs: 9 }) + "\n",
   "utf8",
 );
 
-const { stdout } = await execFileAsync("node", [resolve("scripts/analyze-devspace-logs.mjs"), logs, workflowEvents, "--json"], { cwd: resolve(".") });
+const { stdout } = await execFileAsync("node", [resolve("scripts/analyze-workbridge-logs.mjs"), logs, workflowEvents, "--json"], { cwd: resolve(".") });
 const report = JSON.parse(stdout);
 
 assert.equal(report.workflowEvents.count, 1);
@@ -43,13 +43,13 @@ assert.equal(report.failureCategories.improvementActions[0]?.key, "switch_to_str
 assert.equal(report.efficiencyMetrics.availableMetrics.bashToolCalls, 1);
 assert.equal(report.efficiencyMetrics.availableMetrics.structuredEditCalls, 1);
 assert.equal(report.efficiencyMetrics.availableMetrics.unifiedPatchCalls, 1);
-assert.equal(report.efficiencyMetrics.availableMetrics.devspaceVerifyCalls, 2);
+assert.equal(report.efficiencyMetrics.availableMetrics.workbridgeVerifyCalls, 2);
 assert.equal(report.efficiencyMetrics.availableMetrics.incidentImprovementHintCount, 1);
 assert.equal(report.efficiencyMetrics.availableMetrics.retryAfterFailureCount, 1);
 assert.ok(report.efficiencyMetrics.unavailableMetrics.includes("hostFilteredCallsWithoutToolEvent"));
 
 const htmlPath = join(root, "report.html");
-await execFileAsync("node", [resolve("scripts/analyze-devspace-logs.mjs"), logs, workflowEvents, "--html", htmlPath], { cwd: resolve(".") });
+await execFileAsync("node", [resolve("scripts/analyze-workbridge-logs.mjs"), logs, workflowEvents, "--html", htmlPath], { cwd: resolve(".") });
 const html = await readFile(htmlPath, "utf8");
 assert.match(html, /Verify Profiles/);
 assert.match(html, /Workflow Events/);

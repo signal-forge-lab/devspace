@@ -4,7 +4,7 @@
 >
 > この日本語版は `codex-cli-runner.md` の翻訳です。英語版と日本語版に差分がある場合は、英語版を正とします。
 
-DevSpace は `run_codex_cli` という、ChatGPT から利用するための MCP ツールを公開します。
+Workbridge は `run_codex_cli` という、ChatGPT から利用するための MCP ツールを公開します。
 このツールは、次のローカル Python ラッパーを呼び出します。
 
 ```text
@@ -12,7 +12,7 @@ C:\path\to\your\workspace\labs\codex_cli_runner\run_codex.py
 ```
 
 これは意図的に **Codex Skill ではありません**。
-DevSpace MCP ツールとして登録されているため、この DevSpace サーバーに接続している ChatGPT クライアントから見えるようになります。
+Workbridge MCP ツールとして登録されているため、この Workbridge サーバーに接続している ChatGPT クライアントから見えるようになります。
 
 Codex からも Codex Skill として発見させたい場合を除き、このワークフローを `.agents/skills` や `$HOME/.agents/skills` 配下には置かないでください。
 
@@ -24,7 +24,7 @@ run_codex_cli
 
 ## 入力
 
-- `projectDir`: Codex CLI の対象プロジェクトディレクトリ。DevSpace の allowed roots 配下である必要があります。
+- `projectDir`: Codex CLI の対象プロジェクトディレクトリ。Workbridge の allowed roots 配下である必要があります。
 - `instructionFile`: Markdown の指示ファイル。絶対パスまたは相対パスを指定できます。
 - `sandbox`: 任意。`read-only` または `workspace-write`。デフォルトは `read-only` です。
 - `mode`: 任意。`sync` または `detached`。デフォルトは `sync` です。
@@ -40,7 +40,7 @@ run_codex_cli
 
 `danger-full-access` は意図的にサポートしていません。
 
-DevSpace はデフォルトで、次のオプションをPython runnerへ渡します。
+Workbridge はデフォルトで、次のオプションをPython runnerへ渡します。
 
 ```text
 --model gpt-5.5
@@ -96,13 +96,13 @@ status=started_running
 `instructionFile` が相対パスの場合、次の順で解決します。
 
 1. `projectDir`
-2. DevSpace サーバーの作業ディレクトリ
+2. Workbridge サーバーの作業ディレクトリ
 3. `run_codex.py` の配置ディレクトリ
 
 解決された指示ファイルは、次の条件を満たす必要があります。
 
 - 存在すること
-- DevSpace allowed roots 配下にあること
+- Workbridge allowed roots 配下にあること
 - 拡張子が `.md` であること
 
 ## Runner パスの解決
@@ -110,8 +110,8 @@ status=started_running
 デフォルトでは、このツールは Python runner を次の場所から探します。
 
 ```text
-<DevSpace server cwd>\labs\codex_cli_runner\run_codex.py
-<DevSpace server cwd>\..\..\labs\codex_cli_runner\run_codex.py
+<Workbridge server cwd>\labs\codex_cli_runner\run_codex.py
+<Workbridge server cwd>\..\..\labs\codex_cli_runner\run_codex.py
 ```
 
 パスを明示的に上書きしたい場合は、次の環境変数を使えます。
@@ -120,7 +120,7 @@ status=started_running
 DEVSPACE_CODEX_CLI_RUNNER=C:\path\to\your\workspace\labs\codex_cli_runner\run_codex.py
 ```
 
-解決された runner は、存在しており、DevSpace allowed roots 配下にある必要があります。
+解決された runner は、存在しており、Workbridge allowed roots 配下にある必要があります。
 
 ## Python コマンド
 
@@ -193,7 +193,7 @@ DEVSPACE_PYTHON_COMMAND=python
 <ProjectDir>\.codex\runs\
 ```
 
-`detached` mode では、追加で `devspace_codex_<jobId>` run ディレクトリ配下に DevSpace job ファイルを書き込みます。
+`detached` mode では、追加で `devspace_codex_<jobId>` run ディレクトリ配下に Workbridge job ファイルを書き込みます。
 
 ## limit fallback の挙動
 
@@ -216,6 +216,6 @@ ChatGPT はこの Markdown 指示を使って、同じ作業を続行できま�
 
 ## デプロイ時の注意
 
-DevSpace のソースを変更した後は、ローカルの DevSpace サーバーを rebuild して再起動してください。
+Workbridge のソースを変更した後は、ローカルの Workbridge サーバーを rebuild して再起動してください。
 
 既存の ChatGPT MCP 接続では、新しいツールが表示されるまで再接続が必要になる場合があります。

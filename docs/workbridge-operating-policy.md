@@ -7,7 +7,7 @@ Version: 1.1.44
 
 This policy defines the shared operating model for DevSpace work across projects. The goal is not to avoid difficult or sensitive-looking work. The goal is to make the work faster, safer, more reproducible, and easier to verify by routing each task through a structured workflow.
 
-DevSpace is a structured workflow layer for local workspaces, not a shell-only executor. Shell commands remain useful for bounded verification and project scripts, but they should not be the default transport for large edits, sensitive integration, or broad repository inspection.
+Workbridge is a structured workflow layer for local workspaces, not a shell-only executor. Shell commands remain useful for bounded verification and project scripts, but they should not be the default transport for large edits, sensitive integration, or broad repository inspection.
 
 ## Core principles
 
@@ -172,7 +172,7 @@ Preferred route:
 | read_inspect | router / snapshot / focused read | none | summary / status |
 | small_edit | locator / focused read | structured edit or small patch | git diff check + related test |
 | large_edit_refactor | plan + alternate path inventory | patch with dry-run and hash guard | typecheck + related tests + build if needed |
-| validation_test | devspace_verify fixed profile | none | selected fixed profile |
+| validation_test | workbridge_verify fixed profile | none | selected fixed profile |
 | structured_sensitive_integration | typed references + mock-first | structured edit | no-secret scan + mock tests |
 | runtime_external_side_effect | dry-run / config-only | structured edit | local state check + explicit unverified live step |
 | packaging_release | package metadata plan | structured edit | typecheck + build + package consistency |
@@ -180,7 +180,7 @@ Preferred route:
 
 ## Unified classifier
 
-DevSpace workflow routing can use the shared efficiency classifier before choosing tools. The classifier is not a stop/go gate; it turns task shape into the shortest reusable workflow sequence.
+Workbridge workflow routing can use the shared efficiency classifier before choosing tools. The classifier is not a stop/go gate; it turns task shape into the shortest reusable workflow sequence.
 
 Example output:
 
@@ -194,8 +194,8 @@ Example output:
     "validate_env_var_reference",
     "structured_env_reference_patch",
     "mock_test",
-    "devspace_verify:typecheck_only",
-    "devspace_verify:git_diff_check"
+    "workbridge_verify:typecheck_only",
+    "workbridge_verify:git_diff_check"
   ],
   "requiredChecks": [
     "env_var_name_validation",
@@ -258,7 +258,7 @@ False positives are acceptable when the output remains bounded. The goal is to r
 
 ## Verification policy
 
-Verification policy maps `taskClass` to fixed `devspace_verify` profiles. It should choose the smallest sufficient profile set and should not add live external smoke by default.
+Verification policy maps `taskClass` to fixed `workbridge_verify` profiles. It should choose the smallest sufficient profile set and should not add live external smoke by default.
 
 Examples:
 
@@ -287,7 +287,7 @@ live_side_effect_attempt -> require_explicit_live_smoke_flag
 
 ## Efficiency metrics
 
-Log reports should show available efficiency metrics separately from unavailable metrics. Useful available metrics include bash tool calls, bash edit-like calls, heredoc-like incidents, structured edit calls, unified patch calls, devspace_verify calls and failure rate, router calls, workflow events, incident counts, improvement hints, truncation, and retries after failure. Do not infer live external service calls or unrecorded host filters when the logs cannot observe them.
+Log reports should show available efficiency metrics separately from unavailable metrics. Useful available metrics include bash tool calls, bash edit-like calls, heredoc-like incidents, structured edit calls, unified patch calls, workbridge_verify calls and failure rate, router calls, workflow events, incident counts, improvement hints, truncation, and retries after failure. Do not infer live external service calls or unrecorded host filters when the logs cannot observe them.
 
 ## Review checklist
 

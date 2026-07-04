@@ -3,7 +3,7 @@ import { getRuntimeInfo, type RuntimeInfo } from "./app-metadata.js";
 import type { WorkflowMode } from "./workflow-tools.js";
 import type { Workspace } from "./workspaces.js";
 
-export const DEVSPACE_VERIFY_PROFILES = [
+export const WORKBRIDGE_VERIFY_PROFILES = [
   "typecheck_only",
   "related_tests",
   "workflow_tools_test",
@@ -15,18 +15,18 @@ export const DEVSPACE_VERIFY_PROFILES = [
   "git_status_check",
 ] as const;
 
-export type DevspaceVerifyProfile = (typeof DEVSPACE_VERIFY_PROFILES)[number];
+export type WorkbridgeVerifyProfile = (typeof WORKBRIDGE_VERIFY_PROFILES)[number];
 
-export interface DevspaceVerifyInput {
+export interface WorkbridgeVerifyInput {
   workspace: Workspace;
-  profile: DevspaceVerifyProfile;
+  profile: WorkbridgeVerifyProfile;
   workflowMode?: WorkflowMode;
   timeoutMs?: number;
   maxOutputChars?: number;
   includeOutputOnSuccess?: boolean;
 }
 
-export interface DevspaceVerifyCommandResult extends Record<string, unknown> {
+export interface WorkbridgeVerifyCommandResult extends Record<string, unknown> {
   label: string;
   bin: string;
   args: string[];
@@ -44,13 +44,13 @@ export interface DevspaceVerifyCommandResult extends Record<string, unknown> {
   stderrTruncated: boolean;
 }
 
-export interface DevspaceVerifyResult extends Record<string, unknown> {
+export interface WorkbridgeVerifyResult extends Record<string, unknown> {
   status: "ok" | "failed" | "timed_out";
-  profile: DevspaceVerifyProfile;
+  profile: WorkbridgeVerifyProfile;
   workflowMode?: WorkflowMode;
   durationMs: number;
   commandCount: number;
-  commands: DevspaceVerifyCommandResult[];
+  commands: WorkbridgeVerifyCommandResult[];
   summary: {
     failedCommands: number;
     timedOutCommands: number;
@@ -76,12 +76,12 @@ const MAX_TIMEOUT_MS = 300_000;
 const MAX_OUTPUT_CHARS = 50_000;
 const TIMEOUT_KILL_GRACE_MS = 3_000;
 
-export async function devspaceVerify(input: DevspaceVerifyInput): Promise<DevspaceVerifyResult> {
+export async function workbridgeVerify(input: WorkbridgeVerifyInput): Promise<WorkbridgeVerifyResult> {
   const timeoutMs = validateInteger("timeoutMs", input.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000, MAX_TIMEOUT_MS);
   const maxOutputChars = validateInteger("maxOutputChars", input.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS, 500, MAX_OUTPUT_CHARS);
   const startedAt = Date.now();
   const commands = commandsForProfile(input.profile);
-  const results: DevspaceVerifyCommandResult[] = [];
+  const results: WorkbridgeVerifyCommandResult[] = [];
 
   for (const command of commands) {
     const includeOutput = Boolean(input.includeOutputOnSuccess) || command.label === "git_status_check";
@@ -96,9 +96,9 @@ export async function devspaceVerify(input: DevspaceVerifyInput): Promise<Devspa
   const stderrChars = results.reduce((sum, result) => sum + result.stderrChars, 0);
   const outputOmitted = results.some((result) => result.stdoutOmitted || result.stderrOmitted);
   const outputTruncated = results.some((result) => result.stdoutTruncated || result.stderrTruncated);
-  const status: DevspaceVerifyResult["status"] = timedOutCommands > 0 ? "timed_out" : failedCommands > 0 ? "failed" : "ok";
+  const status: WorkbridgeVerifyResult["status"] = timedOutCommands > 0 ? "timed_out" : failedCommands > 0 ? "failed" : "ok";
   const durationMs = Date.now() - startedAt;
-  const resultText = `devspace_verify ${input.profile}: ${status} in ${durationMs}ms (${results.length}/${commands.length} commands)`;
+  const resultText = `workbridge_verify ${input.profile}: ${status} in ${durationMs}ms (${results.length}/${commands.length} commands)`;
 
   return {
     status,
@@ -113,7 +113,7 @@ export async function devspaceVerify(input: DevspaceVerifyInput): Promise<Devspa
   };
 }
 
-function commandsForProfile(profile: DevspaceVerifyProfile): FixedCommand[] {
+function commandsForProfile(profile: WorkbridgeVerifyProfile): FixedCommand[] {
   const usePackageManagerShell = process.platform === "win32";
   const npm = "npm";
   const npx = "npx";
@@ -147,7 +147,7 @@ function commandsForProfile(profile: DevspaceVerifyProfile): FixedCommand[] {
   }
 }
 
-function runFixedCommand(cwd: string, command: FixedCommand, timeoutMs: number, maxOutputChars: number, includeOutputOnSuccess: boolean): Promise<DevspaceVerifyCommandResult> {
+function runFixedCommand(cwd: string, command: FixedCommand, timeoutMs: number, maxOutputChars: number, includeOutputOnSuccess: boolean): Promise<WorkbridgeVerifyCommandResult> {
   const startedAt = Date.now();
   const tailChars = Math.max(1, Math.floor(maxOutputChars / 2));
   const stdout = new TailCapture(tailChars);
@@ -168,7 +168,7 @@ function runFixedCommand(cwd: string, command: FixedCommand, timeoutMs: number, 
     let killTimer: NodeJS.Timeout | undefined;
 
     const finish = (
-      status: DevspaceVerifyCommandResult["status"],
+      status: WorkbridgeVerifyCommandResult["status"],
       includeOutput: boolean,
       exitCode?: number | string | null,
       signal?: string | null,
@@ -197,7 +197,7 @@ function runFixedCommand(cwd: string, command: FixedCommand, timeoutMs: number, 
     });
 
     child.on("close", (code, signal) => {
-      const status: DevspaceVerifyCommandResult["status"] = timedOut ? "timed_out" : code === 0 ? "ok" : "failed";
+      const status: WorkbridgeVerifyCommandResult["status"] = timedOut ? "timed_out" : code === 0 ? "ok" : "failed";
       finish(status, includeOutputOnSuccess || status !== "ok", code, signal);
     });
   });
@@ -213,7 +213,7 @@ function shellQuote(value: string): string {
   return `"${value.replaceAll('"', '\"')}"`;
 }
 
-function commandResult(command: FixedCommand, status: DevspaceVerifyCommandResult["status"], durationMs: number, stdout: TailCapture, stderr: TailCapture, includeOutput: boolean, exitCode?: number | string | null, signal?: string | null): DevspaceVerifyCommandResult {
+function commandResult(command: FixedCommand, status: WorkbridgeVerifyCommandResult["status"], durationMs: number, stdout: TailCapture, stderr: TailCapture, includeOutput: boolean, exitCode?: number | string | null, signal?: string | null): WorkbridgeVerifyCommandResult {
   const includeStdout = includeOutput && stdout.chars > 0;
   const includeStderr = stderr.chars > 0 && (includeOutput || status === "ok");
   return {

@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-const { stdout } = await execFileAsync("node", ["scripts/smoke-devspace-runtime.mjs", "--quick", "--json"], { encoding: "utf8" });
+const { stdout } = await execFileAsync("node", ["scripts/smoke-workbridge-runtime.mjs", "--quick", "--json"], { encoding: "utf8" });
 const report = JSON.parse(stdout);
 
 assert.equal(report.mode, "quick");

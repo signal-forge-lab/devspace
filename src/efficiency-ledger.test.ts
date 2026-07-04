@@ -14,7 +14,7 @@ try {
   const events = [
     { ts: "2026-01-01T00:00:00.000Z", event: "tool_call" as const, tool: "bash", success: true, resultCharacters: 1200 },
     { ts: "2026-01-01T00:00:01.000Z", event: "tool_call" as const, tool: "read_many", success: true, resultCharacters: 500 },
-    { ts: "2026-01-01T00:00:02.000Z", event: "tool_call" as const, tool: "devspace_verify", success: false, truncated: true, resultCharacters: 60000 },
+    { ts: "2026-01-01T00:00:02.000Z", event: "tool_call" as const, tool: "workbridge_verify", success: false, truncated: true, resultCharacters: 60000 },
     { ts: "2026-01-01T00:00:03.000Z", event: "tool_call" as const, tool: "apply_patch", success: true, resultCharacters: 300 },
     { ts: "2026-01-01T00:00:04.000Z", event: "tool_call" as const, tool: "exec_command", success: true, resultCharacters: 700 },
     { ts: "2026-01-01T00:00:05.000Z", event: "tool_call" as const, tool: "write_stdin", success: true, resultCharacters: 50 },

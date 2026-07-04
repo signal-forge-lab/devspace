@@ -1,30 +1,30 @@
-import type { DevspaceTaskClass } from "./devspace-efficiency-classifier.js";
-import type { DevspaceVerifyProfile } from "./devspace-verify.js";
+import type { WorkbridgeTaskClass } from "./workbridge-efficiency-classifier.js";
+import type { WorkbridgeVerifyProfile } from "./workbridge-verify.js";
 
 export interface VerificationPolicyInput {
-  taskClass: DevspaceTaskClass;
+  taskClass: WorkbridgeTaskClass;
   paths?: string[];
   intent?: string;
 }
 
 export interface VerificationPolicyPlan extends Record<string, unknown> {
-  taskClass: DevspaceTaskClass;
-  profiles: DevspaceVerifyProfile[];
+  taskClass: WorkbridgeTaskClass;
+  profiles: WorkbridgeVerifyProfile[];
   reasons: string[];
   note: string;
 }
 
 export function planVerificationPolicy(input: VerificationPolicyInput): VerificationPolicyPlan {
-  const profiles: DevspaceVerifyProfile[] = [];
+  const profiles: WorkbridgeVerifyProfile[] = [];
   const reasons: string[] = [];
-  const add = (profile: DevspaceVerifyProfile, reason: string) => {
+  const add = (profile: WorkbridgeVerifyProfile, reason: string) => {
     if (!profiles.includes(profile)) profiles.push(profile);
     if (!reasons.includes(reason)) reasons.push(reason);
   };
   const paths = input.paths ?? [];
   const text = `${input.intent ?? ""} ${paths.join(" ")}`.toLowerCase();
   const hasTypeScript = paths.some((path) => /(^src\/|\.ts$|\.tsx$)/.test(path));
-  const hasWorkflowTools = paths.some((path) => /src\/(workflow-tools|workflow-tools-registration|operation-router|devspace-verify|verification-policy|incident-classifier|alternate-path-detector)\.ts$/.test(path));
+  const hasWorkflowTools = paths.some((path) => /src\/(workflow-tools|workflow-tools-registration|operation-router|workbridge-verify|verification-policy|incident-classifier|alternate-path-detector)\.ts$/.test(path));
   const hasSafeEditing = paths.some((path) => /src\/(safe-editing|structured-inspection|edit-many)/.test(path));
   const hasPackageOrBuild = paths.some((path) => /(^package(-lock)?\.json$|^tsconfig|^vite\.config|^scripts\/|^src\/.*\.test\.ts$)/.test(path));
   const asksBuild = /build|bundle|dist|vite|package/.test(text);
@@ -59,11 +59,11 @@ export function planVerificationPolicy(input: VerificationPolicyInput): Verifica
   return finish(input.taskClass, profiles, reasons);
 }
 
-function finish(taskClass: DevspaceTaskClass, profiles: DevspaceVerifyProfile[], reasons: string[]): VerificationPolicyPlan {
+function finish(taskClass: WorkbridgeTaskClass, profiles: WorkbridgeVerifyProfile[], reasons: string[]): VerificationPolicyPlan {
   return {
     taskClass,
     profiles,
     reasons,
-    note: "Verification policy suggests fixed devspace_verify profiles only; it does not include live external smoke by default.",
+    note: "Verification policy suggests fixed workbridge_verify profiles only; it does not include live external smoke by default.",
   };
 }

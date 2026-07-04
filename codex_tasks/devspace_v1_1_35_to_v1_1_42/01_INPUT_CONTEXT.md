@@ -100,7 +100,7 @@ Router、verify、patch、inspectionなどの作業結果をworkflow eventとし
 
 ### 5.7 log analysis / reports
 
-`npm run logs:report` と `scripts/analyze-devspace-logs.mjs` は、DevSpace利用効率を観測するための基盤である。v1.1.42では、効率化metricsをここへ統合する。
+`npm run logs:report` と `scripts/analyze-workbridge-logs.mjs` は、DevSpace利用効率を観測するための基盤である。v1.1.42では、効率化metricsをここへ統合する。
 
 ### 5.8 Skill / operating guide
 

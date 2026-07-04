@@ -1,4 +1,4 @@
-import { classifyDevspaceEfficiency, type DevspaceEfficiencyClassification } from "./devspace-efficiency-classifier.js";
+import { classifyWorkbridgeEfficiency, type WorkbridgeEfficiencyClassification } from "./workbridge-efficiency-classifier.js";
 
 export type OperationRisk = "low" | "medium" | "high";
 export type OperationTargetKind = "function" | "class" | "const" | "lines" | "insertion" | "exact_text";
@@ -13,7 +13,7 @@ export interface SafeOperationRouteInput {
   editCharacters?: number;
   writesFiles?: boolean;
   usesGit?: boolean;
-  taskClass?: DevspaceEfficiencyClassification["taskClass"];
+  taskClass?: WorkbridgeEfficiencyClassification["taskClass"];
   secretValueHandling?: "never_read_or_write" | "mock_only";
   envVarReferences?: string[];
   liveSmokeRequested?: boolean;
@@ -30,11 +30,11 @@ export interface SafeOperationRouteResult extends Record<string, unknown> {
   strategy: string;
   reasons: string[];
   warnings: string[];
-  taskClass: DevspaceEfficiencyClassification["taskClass"];
+  taskClass: WorkbridgeEfficiencyClassification["taskClass"];
   efficiencyGoal: string;
   recommendedSequence: string[];
   requiredChecks: string[];
-  transportRecommendation: DevspaceEfficiencyClassification["transportRecommendation"];
+  transportRecommendation: WorkbridgeEfficiencyClassification["transportRecommendation"];
   blockedPattern: string;
   improvementHint: string;
   result: string;
@@ -52,7 +52,7 @@ export function routeSafeOperation(input: SafeOperationRouteInput): SafeOperatio
   const codexPatchRequested = /apply_patch|codex patch|\*\*\* begin patch|begin patch|delete file|move file|rename file/.test(routeText);
   const guardedPatchRequested = /apply_unified_patch|expectedbase|sha256|hash[- ]?guard|guarded unified|unified diff/.test(routeText);
   const processSessionRequested = /exec_command|write_stdin|long[- ]?running|interactive|pty|session|poll|ctrl[- ]?c|stdin/.test(routeText);
-  const efficiency = classifyDevspaceEfficiency(input);
+  const efficiency = classifyWorkbridgeEfficiency(input);
 
   if (input.targetKind) {
     reasons.push(`target_${input.targetKind}`);

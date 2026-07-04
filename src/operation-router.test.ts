@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { detectAlternateExecutionPath } from "./alternate-path-detector.js";
-import { classifyDevspaceEfficiency } from "./devspace-efficiency-classifier.js";
+import { classifyWorkbridgeEfficiency } from "./workbridge-efficiency-classifier.js";
 import { classifyIncident } from "./incident-classifier.js";
 import { routeSafeOperation } from "./operation-router.js";
 import { prepareSensitiveIntegrationWorkflow, validateEnvVarName } from "./sensitive-integration.js";
@@ -47,7 +47,7 @@ const routedHeredoc = routeSafeOperation({ plannedTool: "bash", commandShape: "p
 assert.equal(routedHeredoc.risk, "high");
 assert.ok(routedHeredoc.reasons.includes("shell_heredoc_shape"));
 
-const sensitiveClassification = classifyDevspaceEfficiency({
+const sensitiveClassification = classifyWorkbridgeEfficiency({
   intent: "add API key config using env var AEGIS_GATE_LLM_API_KEY and mock-first tests",
   envVarReferences: ["AEGIS_GATE_LLM_API_KEY"],
   secretValueHandling: "never_read_or_write",
@@ -60,7 +60,7 @@ assert.ok(sensitiveClassification.requiredChecks.includes("no_secret_value_input
 assert.equal(sensitiveClassification.transportRecommendation, "plain_structured_edit");
 assert.equal(sensitiveClassification.blockedPattern, "live_secret_value_or_live_api_call_in_first_step");
 
-const naturalLargeRefactor = classifyDevspaceEfficiency({
+const naturalLargeRefactor = classifyWorkbridgeEfficiency({
   intent: "split large UI module and update fallback entry paths",
 });
 assert.equal(naturalLargeRefactor.taskClass, "large_edit_refactor");

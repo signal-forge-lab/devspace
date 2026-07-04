@@ -1,6 +1,6 @@
 # ChatGPT Coding Workflow
 
-Workbridge brings a DevSpace-compatible coding-agent loop to ChatGPT and other MCP hosts:
+Workbridge brings a Workbridge-compatible coding-agent loop to ChatGPT and other MCP hosts:
 inspect the repo, follow local instructions, make scoped edits, run
 verification, and show the user what changed.
 
@@ -94,7 +94,7 @@ Legacy project paths such as `.pi/skills` can be added through `DEVSPACE_SKILL_P
 When `open_workspace` returns matching skills, the model should read the
 advertised `SKILL.md` before following that skill.
 
-Skill paths may be outside the workspace. DevSpace only permits reading:
+Skill paths may be outside the workspace. Workbridge only permits reading:
 
 - advertised `SKILL.md` files
 - files under a skill directory after that skill's `SKILL.md` has been read
@@ -128,18 +128,18 @@ Optional hidden tools are exposed only by env flag:
 - `DEVSPACE_ENABLE_CODEX_CLI=1`: `run_codex_cli`
 - `DEVSPACE_ENABLE_TASK_TOOLS=1`: `task_checkpoint`, `task_resume`
 
-DevSpace logs a `tool_registry_summary` event at server startup. Use that local
+Workbridge logs a `tool_registry_summary` event at server startup. Use that local
 log event to verify exposed tools, hidden tools, enabled profiles, and feature
 flags instead of repeatedly asking the MCP host to rediscover tool schemas.
 
-By default, DevSpace also runs in `DEVSPACE_TOOL_MODE=minimal`, so dedicated
+By default, Workbridge also runs in `DEVSPACE_TOOL_MODE=minimal`, so dedicated
 `grep`, `glob`, and `ls` tools are hidden. Prefer `grep_context`,
 `file_outline`, and `create_workspace_index` plus `read_index_ranges` for
 inspection. Use `bash` only when a structured tool is insufficient.
 
 These helpers are optional, but they must be available on the PATH of the shell
-that starts DevSpace. After installing a helper, restart the terminal and then
-restart `devspace serve` so the MCP shell can see it.
+that starts Workbridge. After installing a helper, restart the terminal and then
+restart `workbridge serve` so the MCP shell can see it.
 
 ## Workbridge tool selection notes
 
@@ -202,7 +202,7 @@ default `off` setting during ChatGPT streaming-stability tests.
 
 When `show_changes` is exposed, models should call it exactly once after the
 final file modification in any turn that changes files. The tool only requires
-the `workspaceId`; DevSpace automatically compares against the last shown
+the `workspaceId`; Workbridge automatically compares against the last shown
 checkpoint and advances that checkpoint after rendering the aggregate diff.
 
 ## Shell Use

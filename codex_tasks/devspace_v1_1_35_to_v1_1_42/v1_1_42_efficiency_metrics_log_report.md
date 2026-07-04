@@ -18,7 +18,7 @@
 
 ## 実装範囲
 
-1. `scripts/analyze-devspace-logs.mjs` にefficiencyMetricsを追加する。
+1. `scripts/analyze-workbridge-logs.mjs` にefficiencyMetricsを追加する。
 2. JSON出力、text出力、HTML出力に反映する。
 3. `src/log-analysis.test.ts` にregression testを追加する。
 4. docsを更新する。
@@ -33,8 +33,8 @@ heredocLikeCalls
 listResourcesLikeEvents
 structuredEditCalls
 unifiedPatchCalls
-devspaceVerifyCalls
-devspaceVerifyFailureRate
+workbridgeVerifyCalls
+workbridgeVerifyFailureRate
 routerCalls
 routerVerifyPlanCalls
 workflowEvents
@@ -68,7 +68,7 @@ retryAfterFailureCount
 3. metricsを小さく追加する。
 4. JSON testを追加する。
 5. HTML sectionの存在assertionを追加する。
-6. `node --check scripts/analyze-devspace-logs.mjs` を実行する。
+6. `node --check scripts/analyze-workbridge-logs.mjs` を実行する。
 7. `npx tsx src/log-analysis.test.ts` を実行する。
 8. `npm test` とbuildを実行する。
 9. `npm run logs:report` を実行し、HTMLに新sectionが出ることを確認する。

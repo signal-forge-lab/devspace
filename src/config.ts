@@ -4,7 +4,7 @@ import { expandHomePath } from "./roots.js";
 import type { LoggingConfig, LogFormat, LogLevel } from "./logger.js";
 import type { OAuthConfig } from "./oauth-provider.js";
 import type { OAuthStaticClientConfig } from "./oauth-store.js";
-import { loadDevspaceFiles } from "./user-config.js";
+import { loadWorkbridgeFiles } from "./user-config.js";
 
 export type ToolMode = "minimal" | "full" | "codex" | "main";
 export type WidgetMode = "off" | "changes" | "full";
@@ -180,7 +180,7 @@ function parseWidgetMode(value: string | undefined): WidgetMode {
 function parseRequiredSecret(value: string | undefined, name: string): string {
   const secret = value?.trim();
   if (!secret) {
-    throw new Error(`${name} is required for DevSpace OAuth. Run: devspace init`);
+    throw new Error(`${name} is required for DevSpace OAuth. Run: workbridge init`);
   }
   if (secret.length < 16) {
     throw new Error(`${name} must be at least 16 characters long.`);
@@ -293,7 +293,7 @@ function defaultAgentDir(): string {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
-  const files = loadDevspaceFiles(env);
+  const files = loadWorkbridgeFiles(env);
   const host = env.HOST ?? files.config.host ?? "127.0.0.1";
   const port = parsePort(env.PORT ?? files.config.port);
   const publicBaseUrl = parsePublicBaseUrl(

@@ -57,7 +57,7 @@ require_explicit_live_smoke_flag
 
 ## 実装手順
 
-1. 既存 `scripts/analyze-devspace-logs.mjs` の `categorizeFailure` を確認する。
+1. 既存 `scripts/analyze-workbridge-logs.mjs` の `categorizeFailure` を確認する。
 2. 共通incident分類を切り出すか、少なくとも同じカテゴリ名を使う。
 3. testを追加する。
 4. log analyzerがimprovement hintを出せるなら最小実装する。

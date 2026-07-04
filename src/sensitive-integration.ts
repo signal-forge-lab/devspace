@@ -58,8 +58,8 @@ export function prepareSensitiveIntegrationWorkflow(input: SensitiveIntegrationW
     throw new Error("live smoke can only be planned with mock_only handling in DevSpace; real secret values must stay outside the workflow.");
   }
   const recommendedSequence = mode === "config_only"
-    ? ["validate_env_var_reference", "write_config_schema_reference", "devspace_verify:typecheck_only", "devspace_verify:git_diff_check"]
-    : ["validate_env_var_reference", "write_config_schema_reference", "write_mock_first_test", "devspace_verify:typecheck_only", "devspace_verify:workflow_tools_test", "devspace_verify:git_diff_check"];
+    ? ["validate_env_var_reference", "write_config_schema_reference", "workbridge_verify:typecheck_only", "workbridge_verify:git_diff_check"]
+    : ["validate_env_var_reference", "write_config_schema_reference", "write_mock_first_test", "workbridge_verify:typecheck_only", "workbridge_verify:workflow_tools_test", "workbridge_verify:git_diff_check"];
   const requiredChecks = ["env_var_name_validation", "secret_value_fields_absent", "no_secret_value_logging", liveSmokeAllowed ? "explicit_live_smoke_flag" : "live_smoke_not_executed"];
   return {
     envVar,

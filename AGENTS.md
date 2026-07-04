@@ -1,14 +1,14 @@
-# DevSpace
+# Workbridge
 
 Host-side filter first rule:
 
 Schema discovery rule:
 
 - Avoid repeated MCP host schema discovery during normal workflow.
-- Prefer local `tool_registry_summary` logs to verify exposed DevSpace tools.
+- Prefer local `tool_registry_summary` logs to verify exposed Workbridge tools.
 - If schema discovery is unavoidable, use one exact query and then stop.
 
-- If any tool call is filtered before reaching DevSpace, immediately call
+- If any tool call is filtered before reaching Workbridge, immediately call
   `record_tool_event` when available.
 - Use only the minimum stable fields: `toolName`, `operation`, and `category`.
 - Do not include `commandShape` or `note` in normal workflow.
@@ -17,7 +17,7 @@ Schema discovery rule:
 
 Tool discovery budget:
 
-- Do not repeatedly rediscover DevSpace tools through the host connector. If a
+- Do not repeatedly rediscover Workbridge tools through the host connector. If a
   tool is already visible in the current thread, call it directly.
 - Tool schema descriptions must stay short. Put long workflow rules in this file
   or docs instead of model-facing schema descriptions.
@@ -33,7 +33,7 @@ should call tools that read files, edit files, search code, and run shell
 commands directly against approved local project roots.
 
 Pi's SDK is currently used as the backend adapter for mature local coding
-primitives such as read, edit, write, grep, find, ls, and bash. DevSpace wraps
+primitives such as read, edit, write, grep, find, ls, and bash. Workbridge wraps
 those primitives behind a remote Streamable HTTP MCP interface, suitable for use
 through a Cloudflare Tunnel.
 
@@ -76,7 +76,7 @@ ZIP-first read rule:
 - If ZIP transfer itself cannot be downloaded or extracted by the host, state
   that failure and then shrink to `grep_context`, `file_outline`, and focused
   `read_index_ranges` only. Do not silently skip the ZIP attempt for read-heavy work.
-- Do not treat DevSpace-side inspection of `.devspace/exports/*.zip` as ZIP
+- Do not treat Workbridge-side inspection of `.devspace/exports/*.zip` as ZIP
   transfer success. Opening or extracting the ZIP on the same machine only
   verifies ZIP generation, not host transfer.
 - Do not stream full ZIP entries such as Markdown files to the chat. If ZIP
@@ -130,7 +130,7 @@ Log correlation rules:
 
 - Manual `tool_trace_start` and `tool_trace_end` tools are disabled for normal
   workflow.
-- DevSpace logs should rely on sanitized correlation fields instead:
+- Workbridge logs should rely on sanitized correlation fields instead:
   `conversationIdHash` when an allowlisted conversation-like header exists;
   otherwise, tool logs with `workspaceId` should group by workspace, while
   HTTP-only logs may fall back to MCP session or request metadata.
@@ -140,11 +140,11 @@ Log correlation rules:
 Host-side filter logging rules:
 
 - Follow the Host-side filter first rule at the top of this file.
-- A ChatGPT/OpenAI safety check can filter a tool call before it reaches DevSpace.
+- A ChatGPT/OpenAI safety check can filter a tool call before it reaches Workbridge.
   Those filters do not appear in normal `tool_call` logs.
 - If `record_tool_event` is not visible, explicitly search/list tools for it
   before continuing. If it still is not available, state in the final response
-  that the filter could not be recorded in DevSpace logs.
-- Log analysis failure rates only cover calls that reached DevSpace. Treat
+  that the filter could not be recorded in Workbridge logs.
+- Log analysis failure rates only cover calls that reached Workbridge. Treat
   unrecorded ChatGPT/OpenAI-side filters as out-of-band unless a
   `tool_event_report` exists.

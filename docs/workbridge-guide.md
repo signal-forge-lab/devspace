@@ -12,7 +12,7 @@ Workbridge connects AI clients such as ChatGPT or Claude to allowed local worksp
 2. Call `open_workspace` once for the target project path and reuse the returned `workspaceId`.
 3. Follow AGENTS.md, nested instruction files, and relevant skill files reported by `open_workspace`.
 4. Start with bounded inspection: `workspace_snapshot`, `grep_context`, `file_outline`, `create_workspace_index`, or `read_index_ranges`.
-5. Make targeted edits and verify with fixed profiles such as `devspace_verify` before reporting completion.
+5. Make targeted edits and verify with fixed profiles such as `workbridge_verify` before reporting completion.
 
 The `open_workspace` structured response includes workspace routing hints: `toolSurface`, `recommendedWorkflow`, `workspaceTasks`, `verificationProfiles`, and edit/command/git `strategies`. Use these hints before searching the tool registry again.
 
@@ -40,7 +40,7 @@ Do not use shell redirection, `tee`, `sed -i`, or ad-hoc scripts for project fil
 
 | Tool | Use when |
 | --- | --- |
-| `devspace_verify` | Fixed verification profiles such as git status/diff, typecheck, tests, and build. Prefer this over ad-hoc shell when a profile fits. |
+| `workbridge_verify` | Fixed verification profiles such as git status/diff, typecheck, tests, and build. Prefer this over ad-hoc shell when a profile fits. |
 | `launch_workspace_task` | Opt-in launcher for allowlisted local workspace tasks without accepting raw shell command strings. Initially supports `aegis_runner` with dynamic `args` or named templates. |
 
 | `bash` | Bounded minimal/full-mode tests, builds, and inspection commands. Keep output small and avoid file mutation through shell. |
@@ -76,10 +76,10 @@ For normal Aegis startup with a status console, launch two tasks instead of mixi
 
 ## Router guidance
 
-Use `devspace_router` when tool choice is unclear. It is especially useful for:
+Use `workbridge_router` when tool choice is unclear. It is especially useful for:
 
 - choosing `apply_patch` vs `apply_unified_patch` vs structured edits,
-- creating verification plans with `devspace_verify`,
+- creating verification plans with `workbridge_verify`,
 - identifying alternate execution paths for large refactors,
 - keeping workflow output bounded.
 

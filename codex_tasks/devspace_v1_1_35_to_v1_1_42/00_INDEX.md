@@ -47,7 +47,7 @@
 npx tsc -p tsconfig.json --noEmit
 npx tsx src/operation-router.test.ts
 npx tsx src/workflow-tools.test.ts
-npx tsx src/devspace-verify.test.ts
+npx tsx src/workbridge-verify.test.ts
 npx tsx src/log-analysis.test.ts
 npx tsx src/startup-smoke.test.ts
 npm test

@@ -62,7 +62,7 @@ function incidentCategoryFor(haystack: string): IncidentCategory {
   if (/alternate path|fallback miss|entrypoint miss/.test(haystack)) return "alternate_path_miss";
   if (/live smoke|external call|chat post|notification|webhook send|authorization header/.test(haystack)) return "live_side_effect_attempt";
   if (/timed_out|timeout|sigterm|sigkill/.test(haystack)) return "timeout";
-  if (/devspace_verify|verify_/.test(haystack)) return "verify_failed";
+  if (/workbridge_verify|verify_/.test(haystack)) return "verify_failed";
   return "other_failure";
 }
 

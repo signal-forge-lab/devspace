@@ -18,8 +18,8 @@ DevSpace作業を、作業分類ごとに最短で成功しやすいtool sequenc
 
 ## 実装範囲
 
-1. `docs/devspace-operating-policy.md` を新規作成する。
-2. `skills/devspace-workflow/SKILL.md` に統一方針への参照を追記する。
+1. `docs/workbridge-operating-policy.md` を新規作成する。
+2. `skills/workbridge-workflow/SKILL.md` に統一方針への参照を追記する。
 3. 必要なら `docs/workflow-router.md` に関連リンクを追記する。
 4. `package.json` のversionを `1.1.35` に更新する。
 5. `package-lock.json` のroot versionも `1.1.35` に更新する。
@@ -71,7 +71,7 @@ incidentをefficiency improvement候補に変換する
 ## 実装手順
 
 1. `git status --short` を確認する。
-2. `docs/devspace-operating-policy.md` を作成する。
+2. `docs/workbridge-operating-policy.md` を作成する。
 3. Skillへ短い参照を追加する。
 4. versionを更新する。
 5. `npx tsc -p tsconfig.json --noEmit` を実行する。
@@ -92,7 +92,7 @@ incidentをefficiency improvement候補に変換する
 
 次の条件を満たしたら v1.1.36 へ進む。
 
-- `docs/devspace-operating-policy.md` が存在する。
+- `docs/workbridge-operating-policy.md` が存在する。
 - Skillから参照されている。
 - 作業分類が明記されている。
 - `npm run smoke:startup` が通る。

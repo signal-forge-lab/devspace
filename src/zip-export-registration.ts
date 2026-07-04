@@ -42,7 +42,7 @@ export function registerZipExportTools(options: RegisterZipExportToolsOptions): 
   const { server, workspaces, exportStore, toolNames, publicBaseUrl, logToolCall } = options;
 
   server.registerResource(
-    "DevSpace ZIP export",
+    "Workbridge ZIP export",
     new ResourceTemplate(ZIP_RESOURCE_TEMPLATE, {
       list: () => ({
         resources: exportStore.listExports().map((item) => ({
@@ -55,7 +55,7 @@ export function registerZipExportTools(options: RegisterZipExportToolsOptions): 
       }),
     }),
     {
-      title: "DevSpace ZIP export",
+      title: "Workbridge ZIP export",
       description: "Binary ZIP workspace snapshot.",
       mimeType: ZIP_RESOURCE_MIME_TYPE,
     },

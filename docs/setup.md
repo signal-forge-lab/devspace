@@ -1,7 +1,7 @@
 # Setup Guide
 
 This guide is for users who want ChatGPT or another MCP host to work in local
-projects through DevSpace.
+projects through Workbridge.
 
 ## Requirements
 
@@ -9,9 +9,9 @@ projects through DevSpace.
 - npm
 - Git
 - Bash, including Git Bash or WSL on Windows
-- a public HTTPS URL that forwards to the local DevSpace server
+- a public HTTPS URL that forwards to the local Workbridge server
 
-DevSpace does not create the public tunnel for you. Use Cloudflare Tunnel,
+Workbridge does not create the public tunnel for you. Use Cloudflare Tunnel,
 ngrok, Pinggy, Tailscale Funnel, or your own HTTPS reverse proxy.
 
 ## Install And Configure
@@ -26,7 +26,7 @@ The setup flow asks one question at a time.
 
 ### Project Roots
 
-Choose the folders ChatGPT is allowed to open through DevSpace. Keep this
+Choose the folders ChatGPT is allowed to open through Workbridge. Keep this
 narrow.
 
 Examples:
@@ -97,7 +97,7 @@ npx @waishnav/devspace serve
 
 ## Approve The Client
 
-When ChatGPT, Claude, or another MCP client connects, DevSpace shows an Owner
+When ChatGPT, Claude, or another MCP client connects, Workbridge shows an Owner
 password approval page. Enter the Owner password printed during setup.
 
 The default config files are:
@@ -122,7 +122,7 @@ Git, Bash, public URL, allowed hosts, and SQLite native dependency status.
 
 ## Running From A Local Checkout
 
-If you are developing DevSpace itself instead of using the published package:
+If you are developing Workbridge itself instead of using the published package:
 
 ```bash
 npm install --include=dev

@@ -18,10 +18,10 @@
 
 ## 実装範囲
 
-1. 既存の `src/operation-router.ts` を拡張する、または `src/devspace-efficiency-classifier.ts` を新規作成する。
+1. 既存の `src/operation-router.ts` を拡張する、または `src/workbridge-efficiency-classifier.ts` を新規作成する。
 2. taskClass、risk、efficiencyGoal、recommendedSequence、requiredChecks、transportRecommendationを返す。
 3. `src/operation-router.test.ts` または新規testに分類テストを追加する。
-4. `docs/devspace-operating-policy.md` にclassifierの出力例を追記する。
+4. `docs/workbridge-operating-policy.md` にclassifierの出力例を追記する。
 5. versionを `1.1.36` に更新する。
 
 ## 出力例

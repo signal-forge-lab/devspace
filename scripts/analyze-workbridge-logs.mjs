@@ -230,7 +230,7 @@ function buildReport(entries, loaded, options) {
 }
 
 function coverageNoticeText() {
-  return "Coverage note: tool_call failure rates only include calls that reached DevSpace. ChatGPT/OpenAI-side events are invisible unless the host records a tool_event_report via record_tool_event.";
+  return "Coverage note: tool_call failure rates only include calls that reached Workbridge. ChatGPT/OpenAI-side events are invisible unless the host records a tool_event_report via record_tool_event.";
 }
 
 function summarizeAppMetadata(entries) {
@@ -485,7 +485,7 @@ function isWorkflowEvent(entry) {
   if (typeof entry.eventId === "string" && entry.eventId.startsWith("wfe_")) return true;
   if (typeof entry.workflowMode !== "string") return false;
   const event = stringValue(entry.event, "");
-  return event === "devspace_router" || event === "devspace_verify" || event === "workflow_event";
+  return event === "workbridge_router" || event === "workbridge_verify" || event === "workflow_event";
 }
 
 function summarizeWorkflowEvents(eventEntries) {
@@ -567,14 +567,14 @@ function summarizeVerifyProfiles(toolEntries, workflowEventEntries) {
   for (const entry of toolEntries) {
     const tool = stringValue(entry.tool, "");
     const operation = stringValue(entry.operation, "");
-    if (tool !== "devspace_verify" && !operation.startsWith("verify_")) continue;
+    if (tool !== "workbridge_verify" && !operation.startsWith("verify_")) continue;
     const profile = operation.startsWith("verify_") ? operation.slice("verify_".length) : stringValue(entry.profile, "unknown");
     const status = entry.success === false ? "failed" : "ok";
     add(profile, status, entry.durationMs, entry.resultCharacters, entry.outputOmitted, entry.outputTruncated);
   }
 
   for (const entry of workflowEventEntries) {
-    if (stringValue(entry.event, "") !== "devspace_verify" && stringValue(entry.tool, "") !== "devspace_verify") continue;
+    if (stringValue(entry.event, "") !== "workbridge_verify" && stringValue(entry.tool, "") !== "workbridge_verify") continue;
     add(entry.action, stringValue(entry.status, "unknown"), entry.durationMs, entry.outputChars, entry.outputOmitted, entry.outputTruncated);
   }
 
@@ -628,7 +628,7 @@ function categorizeFailure(entry) {
   if (haystack.includes("alternate path") || haystack.includes("fallback miss")) return "alternate_path_miss";
   if (haystack.includes("live smoke") || haystack.includes("external call") || haystack.includes("chat post") || haystack.includes("notification")) return "live_side_effect_attempt";
   if (haystack.includes("timed_out") || haystack.includes("timeout") || haystack.includes("sigterm") || haystack.includes("sigkill")) return "timeout";
-  if (haystack.includes("devspace_verify") || haystack.includes("verify_")) return "verify_failed";
+  if (haystack.includes("workbridge_verify") || haystack.includes("verify_")) return "verify_failed";
   if (haystack.includes("host") || haystack.includes("safety") || haystack.includes("blocked") || haystack.includes("filtered")) return "safety_filter_block";
   return "other_failure";
 }
@@ -662,10 +662,10 @@ function summarizeEfficiencyMetrics(entries, toolEntries, workflowEventEntries, 
   const listResourcesLikeEvents = entries.filter((entry) => /list.*resources|tool_registry|schema discovery/.test(text(entry))).length;
   const structuredEditCalls = toolEntries.filter((entry) => toolName(entry) === "apply_structured_edit" || operation(entry) === "apply_structured_edit").length;
   const unifiedPatchCalls = toolEntries.filter((entry) => toolName(entry) === "apply_unified_patch" || operation(entry) === "apply_unified_patch").length;
-  const devspaceVerifyCalls = verifyProfiles.totalCalls;
-  const devspaceVerifyFailureRate = devspaceVerifyCalls ? round(verifyProfiles.totalFailures * 100 / devspaceVerifyCalls, 1) : 0;
-  const routerCalls = toolEntries.filter((entry) => toolName(entry) === "devspace_router").length + workflowEventEntries.filter((entry) => stringValue(entry.event, "") === "devspace_router").length;
-  const routerVerifyPlanCalls = toolEntries.filter((entry) => toolName(entry) === "devspace_router" && /verify_plan|suggest_verify/.test(operation(entry))).length + workflowEventEntries.filter((entry) => stringValue(entry.event, "") === "devspace_router" && /verify_plan|suggest_verify/.test(stringValue(entry.action, ""))).length;
+  const workbridgeVerifyCalls = verifyProfiles.totalCalls;
+  const workbridgeVerifyFailureRate = workbridgeVerifyCalls ? round(verifyProfiles.totalFailures * 100 / workbridgeVerifyCalls, 1) : 0;
+  const routerCalls = toolEntries.filter((entry) => toolName(entry) === "workbridge_router").length + workflowEventEntries.filter((entry) => stringValue(entry.event, "") === "workbridge_router").length;
+  const routerVerifyPlanCalls = toolEntries.filter((entry) => toolName(entry) === "workbridge_router" && /verify_plan|suggest_verify/.test(operation(entry))).length + workflowEventEntries.filter((entry) => stringValue(entry.event, "") === "workbridge_router" && /verify_plan|suggest_verify/.test(stringValue(entry.action, ""))).length;
   const workflowEvents = workflowEventEntries.length;
   const incidentCount = failureCategories.total;
   const incidentImprovementHintCount = failureCategories.improvementActions.reduce((total, item) => total + item.count, 0);
@@ -680,8 +680,8 @@ function summarizeEfficiencyMetrics(entries, toolEntries, workflowEventEntries, 
       listResourcesLikeEvents,
       structuredEditCalls,
       unifiedPatchCalls,
-      devspaceVerifyCalls,
-      devspaceVerifyFailureRate,
+      workbridgeVerifyCalls,
+      workbridgeVerifyFailureRate,
       routerCalls,
       routerVerifyPlanCalls,
       workflowEvents,
@@ -696,7 +696,7 @@ function summarizeEfficiencyMetrics(entries, toolEntries, workflowEventEntries, 
       { key: "bash", count: bashToolCalls },
       { key: "structured_edit", count: structuredEditCalls },
       { key: "unified_patch", count: unifiedPatchCalls },
-      { key: "devspace_verify", count: devspaceVerifyCalls },
+      { key: "workbridge_verify", count: workbridgeVerifyCalls },
       { key: "router", count: routerCalls },
     ].sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)),
     incidentImprovementHints: failureCategories.improvementActions,
@@ -911,7 +911,7 @@ function buildInsights({ tools, http, sessions, traces, toolEvents, threads, wor
     insights.push(`${toolEvents.count} 件の host/client filter event が記録されています。同じコマンド形状を繰り返さず、専用ツールか安全な指示形に寄せてください。`);
   }
   if (verifyProfiles?.totalCalls > 0) {
-    insights.push(`devspace_verify は ${verifyProfiles.totalCalls} 件記録されています。profile別の失敗率と出力量を Verify Profiles で確認できます。`);
+    insights.push(`workbridge_verify は ${verifyProfiles.totalCalls} 件記録されています。profile別の失敗率と出力量を Verify Profiles で確認できます。`);
   }
   if (workflowEvents?.count > 0) {
     insights.push(`workflow event は ${workflowEvents.count} 件記録されています。workflowMode別の効果比較に利用できます。`);
@@ -921,7 +921,7 @@ function buildInsights({ tools, http, sessions, traces, toolEvents, threads, wor
   }
   if (efficiencyMetrics?.availableMetrics) {
     const metrics = efficiencyMetrics.availableMetrics;
-    insights.push(`Efficiency metrics: bash=${metrics.bashToolCalls}, structured_edit=${metrics.structuredEditCalls}, verify=${metrics.devspaceVerifyCalls}, incidents=${metrics.incidentCount}.`);
+    insights.push(`Efficiency metrics: bash=${metrics.bashToolCalls}, structured_edit=${metrics.structuredEditCalls}, verify=${metrics.workbridgeVerifyCalls}, incidents=${metrics.incidentCount}.`);
   }
   if (readMany?.requestedFilesTotal > 0) {
     insights.push(`read_many は ${readMany.requestedFilesTotal} 件のファイル読取を ${readMany.calls} 回に集約しています。推定削減コール数は ${tools.estimatedReadManyCallsSaved} 回です。`);
@@ -955,7 +955,7 @@ function buildInsights({ tools, http, sessions, traces, toolEvents, threads, wor
 
 function formatTextReport(report) {
   const lines = [];
-  lines.push("DevSpace Ops Lens");
+  lines.push("Workbridge Ops Lens");
   lines.push("=================");
   lines.push(`Generated: ${report.generatedAt}`);
   lines.push(`Range: ${report.range.start ?? "n/a"} -> ${report.range.end ?? "n/a"}`);
@@ -1043,14 +1043,14 @@ function renderHtmlReport(report) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DevSpace Ops Lens</title>
+  <title>Workbridge Ops Lens</title>
   <style>${renderCss()}${renderCssOverrides()}</style>
 </head>
 <body>
 <main>
   <section class="hero">
     <div>
-      <div class="eyebrow">DevSpace / MCP Observability</div>
+      <div class="eyebrow">Workbridge / MCP Observability</div>
       <h1>Ops Lens</h1>
       <p class="muted">${escapeHtml(formatAppMetadata(report.app.current))} · Generated ${escapeHtml(report.generatedAt)} · ${escapeHtml(report.range.start ?? "n/a")} → ${escapeHtml(report.range.end ?? "n/a")}</p>
     </div>
@@ -1275,7 +1275,7 @@ function renderThreadTable(items) {
 }
 
 function renderVerifyProfileTable(items) {
-  if (!items || items.length === 0) return '<p class="muted">No devspace_verify entries.</p>';
+  if (!items || items.length === 0) return '<p class="muted">No workbridge_verify entries.</p>';
   return `<table><thead><tr><th>Profile</th><th>Calls</th><th>OK</th><th>Fail</th><th>Timeout</th><th>Fail %</th><th>Avg ms</th><th>Max ms</th><th>Output chars</th><th>Omit</th><th>Trunc</th></tr></thead><tbody>${items.map((item) => `<tr><td><code>${escapeHtml(item.profile)}</code></td><td>${formatNumber(item.calls)}</td><td class="ok">${formatNumber(item.ok)}</td><td class="${item.failed ? "bad" : "ok"}">${formatNumber(item.failed)}</td><td class="${item.timedOut ? "warn" : "ok"}">${formatNumber(item.timedOut)}</td><td>${formatNumber(item.failureRate)}%</td><td>${formatNumber(item.durationAvgMs)}</td><td>${formatNumber(item.durationMaxMs)}</td><td>${formatNumber(item.outputCharsTotal)}</td><td>${formatNumber(item.outputOmitted)}</td><td>${formatNumber(item.outputTruncated)}</td></tr>`).join("")}</tbody></table>`;
 }
 
@@ -1312,10 +1312,10 @@ function countBy(items, keyFn) {
 }
 
 function printHelp() {
-  console.log(`DevSpace log analyzer
+  console.log(`Workbridge log analyzer
 
 Usage:
-  node scripts/analyze-devspace-logs.mjs [log-file-or-directory ...] [options]
+  node scripts/analyze-workbridge-logs.mjs [log-file-or-directory ...] [options]
 
 Options:
   -i, --input <path>     Add a log file or directory. Defaults to ./logs when present.
@@ -1332,8 +1332,8 @@ Options:
 Examples:
   npm run logs:analyze
   npm run logs:report
-  node scripts/analyze-devspace-logs.mjs logs --html reports/devspace-log-analysis.html
-  node scripts/analyze-devspace-logs.mjs logs --json
+  node scripts/analyze-workbridge-logs.mjs logs --html reports/devspace-log-analysis.html
+  node scripts/analyze-workbridge-logs.mjs logs --json
 `);
 }
 

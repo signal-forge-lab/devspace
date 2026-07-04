@@ -101,7 +101,7 @@ export class SqliteOAuthStore {
     allowedRedirectHosts: string[],
   ): OAuthClientInformationFull {
     if (!client.redirect_uris.every((uri) => redirectHostAllowed(String(uri), allowedRedirectHosts))) {
-      throw new InvalidRequestError("Client redirect_uri is not allowed for this DevSpace server");
+      throw new InvalidRequestError("Client redirect_uri is not allowed for this Workbridge server");
     }
 
     const now = Math.floor(Date.now() / 1000);

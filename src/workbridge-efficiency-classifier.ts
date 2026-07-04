@@ -1,4 +1,4 @@
-export type DevspaceTaskClass =
+export type WorkbridgeTaskClass =
   | "read_inspect"
   | "small_edit"
   | "large_edit_refactor"
@@ -8,10 +8,10 @@ export type DevspaceTaskClass =
   | "packaging_release"
   | "incident_recovery";
 
-export type DevspaceEfficiencyRisk = "low" | "medium" | "high";
+export type WorkbridgeEfficiencyRisk = "low" | "medium" | "high";
 export type StructuredEditTransportRecommendation = "none" | "plain_structured_edit" | "base64_structured_edit" | "unified_patch_with_hash_guard";
 
-export interface DevspaceEfficiencyClassifierInput {
+export interface WorkbridgeEfficiencyClassifierInput {
   intent?: string;
   operation?: string;
   plannedTool?: string;
@@ -20,7 +20,7 @@ export interface DevspaceEfficiencyClassifierInput {
   editCharacters?: number;
   writesFiles?: boolean;
   usesGit?: boolean;
-  taskClass?: DevspaceTaskClass;
+  taskClass?: WorkbridgeTaskClass;
   secretValueHandling?: "never_read_or_write" | "mock_only";
   envVarReferences?: string[];
   liveSmokeRequested?: boolean;
@@ -28,9 +28,9 @@ export interface DevspaceEfficiencyClassifierInput {
   incident?: string;
 }
 
-export interface DevspaceEfficiencyClassification extends Record<string, unknown> {
-  taskClass: DevspaceTaskClass;
-  risk: DevspaceEfficiencyRisk;
+export interface WorkbridgeEfficiencyClassification extends Record<string, unknown> {
+  taskClass: WorkbridgeTaskClass;
+  risk: WorkbridgeEfficiencyRisk;
   efficiencyGoal: string;
   recommendedSequence: string[];
   requiredChecks: string[];
@@ -39,13 +39,13 @@ export interface DevspaceEfficiencyClassification extends Record<string, unknown
   improvementHint: string;
 }
 
-export function classifyDevspaceEfficiency(input: DevspaceEfficiencyClassifierInput): DevspaceEfficiencyClassification {
+export function classifyWorkbridgeEfficiency(input: WorkbridgeEfficiencyClassifierInput): WorkbridgeEfficiencyClassification {
   const text = `${input.intent ?? ""} ${input.operation ?? ""} ${input.plannedTool ?? ""} ${input.commandShape ?? ""}`.toLowerCase();
   const taskClass = input.taskClass ?? inferTaskClass(input, text);
   return classificationForTaskClass(taskClass, input, text);
 }
 
-function inferTaskClass(input: DevspaceEfficiencyClassifierInput, text: string): DevspaceTaskClass {
+function inferTaskClass(input: WorkbridgeEfficiencyClassifierInput, text: string): WorkbridgeTaskClass {
   if (input.incident || /incident|blocked|filter|heredoc|stream error|retry|failure/.test(text)) return "incident_recovery";
   if (input.externalSideEffect || input.liveSmokeRequested || /post|notify|deploy|live smoke|external service|webhook call|send message/.test(text)) return "runtime_external_side_effect";
   if (input.secretValueHandling || (input.envVarReferences?.length ?? 0) > 0 || /env var|api key|secret|token|authorization|credential|webhook/.test(text)) return "structured_sensitive_integration";
@@ -66,7 +66,7 @@ function hasLargeEditRefactorSignal(text: string): boolean {
   return changeIntent && (explicitLargeChange || (structuralWork && structuralTarget));
 }
 
-function classificationForTaskClass(taskClass: DevspaceTaskClass, input: DevspaceEfficiencyClassifierInput, text: string): DevspaceEfficiencyClassification {
+function classificationForTaskClass(taskClass: WorkbridgeTaskClass, input: WorkbridgeEfficiencyClassifierInput, text: string): WorkbridgeEfficiencyClassification {
   switch (taskClass) {
     case "structured_sensitive_integration":
       return {
@@ -78,8 +78,8 @@ function classificationForTaskClass(taskClass: DevspaceTaskClass, input: Devspac
           "validate_env_var_reference",
           "structured_env_reference_patch",
           "mock_test",
-          "devspace_verify:typecheck_only",
-          "devspace_verify:git_diff_check",
+          "workbridge_verify:typecheck_only",
+          "workbridge_verify:git_diff_check",
         ],
         requiredChecks: ["env_var_name_validation", "no_secret_value_input", "mock_or_config_only_default", "no_secret_value_logged"],
         transportRecommendation: "plain_structured_edit",
@@ -91,7 +91,7 @@ function classificationForTaskClass(taskClass: DevspaceTaskClass, input: Devspac
         taskClass,
         risk: "high",
         efficiencyGoal: "move_large_or_multi_file_change_to_hash_guarded_patch_batches",
-        recommendedSequence: ["classify", "inspect_targets", "resolve_locator_or_prepare_patch", "dry_run_patch", "apply_patch", "devspace_verify:typecheck_only", "devspace_verify:build"],
+        recommendedSequence: ["classify", "inspect_targets", "resolve_locator_or_prepare_patch", "dry_run_patch", "apply_patch", "workbridge_verify:typecheck_only", "workbridge_verify:build"],
         requiredChecks: ["expected_base_hash", "dry_run_result", "alternate_execution_path_inventory", "git_diff_check"],
         transportRecommendation: text.includes("template") || (input.editCharacters ?? 0) > 20_000 ? "base64_structured_edit" : "unified_patch_with_hash_guard",
         blockedPattern: "large_heredoc_or_shell_generated_rewrite",
@@ -102,18 +102,18 @@ function classificationForTaskClass(taskClass: DevspaceTaskClass, input: Devspac
         taskClass,
         risk: "low",
         efficiencyGoal: "use_fixed_verify_profiles_with_bounded_output",
-        recommendedSequence: ["classify", "devspace_verify:git_status_check", "devspace_verify:related_profile", "summarize"],
+        recommendedSequence: ["classify", "workbridge_verify:git_status_check", "workbridge_verify:related_profile", "summarize"],
         requiredChecks: ["profile_selected", "bounded_output", "failure_tail_only_when_needed"],
         transportRecommendation: "none",
         blockedPattern: "combined_validation_shell_chain",
-        improvementHint: "split validation into fixed devspace_verify profiles",
+        improvementHint: "split validation into fixed workbridge_verify profiles",
       };
     case "runtime_external_side_effect":
       return {
         taskClass,
         risk: "high",
         efficiencyGoal: "keep_runtime_side_effects_config_only_until_explicit_live_approval",
-        recommendedSequence: ["classify", "config_or_dry_run_change", "mock_test", "record_unexecuted_live_step", "devspace_verify:git_diff_check"],
+        recommendedSequence: ["classify", "config_or_dry_run_change", "mock_test", "record_unexecuted_live_step", "workbridge_verify:git_diff_check"],
         requiredChecks: ["explicit_live_approval_absent_or_present", "no_secret_value_logged", "local_state_only_verification"],
         transportRecommendation: "plain_structured_edit",
         blockedPattern: "implicit_live_external_call_or_chat_posting",
@@ -124,7 +124,7 @@ function classificationForTaskClass(taskClass: DevspaceTaskClass, input: Devspac
         taskClass,
         risk: "medium",
         efficiencyGoal: "update_package_metadata_consistently_then_verify_build",
-        recommendedSequence: ["classify", "update_package_json_and_lock", "devspace_verify:typecheck_only", "devspace_verify:build", "devspace_verify:git_diff_check"],
+        recommendedSequence: ["classify", "update_package_json_and_lock", "workbridge_verify:typecheck_only", "workbridge_verify:build", "workbridge_verify:git_diff_check"],
         requiredChecks: ["package_version_consistency", "typecheck_or_build", "no_generated_archive_unless_requested"],
         transportRecommendation: "plain_structured_edit",
         blockedPattern: "publish_or_push_without_explicit_request",
@@ -146,7 +146,7 @@ function classificationForTaskClass(taskClass: DevspaceTaskClass, input: Devspac
         taskClass,
         risk: "low",
         efficiencyGoal: "apply_focused_locator_edit_then_minimal_verification",
-        recommendedSequence: ["classify", "resolve_locator", "apply_structured_edit:dry_run", "apply_structured_edit", "devspace_verify:git_diff_check"],
+        recommendedSequence: ["classify", "resolve_locator", "apply_structured_edit:dry_run", "apply_structured_edit", "workbridge_verify:git_diff_check"],
         requiredChecks: ["locator_match_count", "expected_sha256", "dry_run_result"],
         transportRecommendation: "plain_structured_edit",
         blockedPattern: "broad_line_range_or_shell_write_for_small_change",

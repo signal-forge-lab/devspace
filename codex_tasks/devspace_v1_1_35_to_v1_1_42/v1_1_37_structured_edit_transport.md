@@ -27,7 +27,7 @@
 3. base64はフィルタ回避ではなく、特殊文字・大きなtemplate・patch搬送のためのtransportとしてdocsに明記する。
 4. `apply_unified_patch` への追加が大きすぎる場合は、まず `decodeStructuredContent` helper + testのみでも可。
 5. `src/workflow-tools.test.ts` にbase64 contentのdryRun/apply testを追加する。
-6. `docs/devspace-operating-policy.md` にStructured Edit Transportを追記する。
+6. `docs/workbridge-operating-policy.md` にStructured Edit Transportを追記する。
 7. versionを `1.1.37` に更新する。
 
 ## 非目的

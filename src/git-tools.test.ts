@@ -27,7 +27,7 @@ async function git(args: string[]): Promise<string> {
 try {
   await git(["init"]);
   await git(["config", "user.email", "devspace-test@example.invalid"]);
-  await git(["config", "user.name", "DevSpace Test"]);
+  await git(["config", "user.name", "Workbridge Test"]);
   await writeFile(join(root, "tracked.txt"), "alpha\nbeta\ngamma\n");
   await git(["add", "tracked.txt"]);
   await git(["commit", "-m", "initial"]);

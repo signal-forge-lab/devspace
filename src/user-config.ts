@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { expandHomePath } from "./roots.js";
 
-export interface DevspaceUserConfig {
+export interface WorkbridgeUserConfig {
   host?: string;
   port?: number;
   allowedRoots?: string[];
@@ -20,18 +20,18 @@ export interface DevspaceUserConfig {
   agentDir?: string;
 }
 
-export interface DevspaceAuthConfig {
+export interface WorkbridgeAuthConfig {
   ownerToken?: string;
 }
 
-export interface DevspaceFiles {
+export interface WorkbridgeFiles {
   dir: string;
   configPath: string;
   authPath: string;
   configExists: boolean;
   authExists: boolean;
-  config: DevspaceUserConfig;
-  auth: DevspaceAuthConfig;
+  config: WorkbridgeUserConfig;
+  auth: WorkbridgeAuthConfig;
 }
 
 export function devspaceConfigDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -46,7 +46,7 @@ export function devspaceAuthPath(env: NodeJS.ProcessEnv = process.env): string {
   return join(devspaceConfigDir(env), "auth.json");
 }
 
-export function loadDevspaceFiles(env: NodeJS.ProcessEnv = process.env): DevspaceFiles {
+export function loadWorkbridgeFiles(env: NodeJS.ProcessEnv = process.env): WorkbridgeFiles {
   const dir = devspaceConfigDir(env);
   const configPath = join(dir, "config.json");
   const authPath = join(dir, "auth.json");
@@ -59,13 +59,13 @@ export function loadDevspaceFiles(env: NodeJS.ProcessEnv = process.env): Devspac
     authPath,
     configExists,
     authExists,
-    config: configExists ? readJsonFile<DevspaceUserConfig>(configPath) : {},
-    auth: authExists ? readJsonFile<DevspaceAuthConfig>(authPath) : {},
+    config: configExists ? readJsonFile<WorkbridgeUserConfig>(configPath) : {},
+    auth: authExists ? readJsonFile<WorkbridgeAuthConfig>(authPath) : {},
   };
 }
 
-export function writeDevspaceConfig(
-  config: DevspaceUserConfig,
+export function writeWorkbridgeConfig(
+  config: WorkbridgeUserConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const filePath = devspaceConfigPath(env);
@@ -74,8 +74,8 @@ export function writeDevspaceConfig(
   return filePath;
 }
 
-export function writeDevspaceAuth(
-  auth: DevspaceAuthConfig,
+export function writeWorkbridgeAuth(
+  auth: WorkbridgeAuthConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const filePath = devspaceAuthPath(env);

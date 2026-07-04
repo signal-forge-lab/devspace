@@ -1,30 +1,30 @@
-# DevSpace Workflow
+# Workbridge Workflow
 
-Use this skill when working in DevSpace on implementation, review, verification, ZIP-first experiments, or Router experiments.
+Use this skill when working in Workbridge on implementation, review, verification, ZIP-first experiments, or Router experiments.
 
 
 ## Unified operating policy
 
-Use `docs/devspace-operating-policy.md` as the canonical policy for task classes, reference-vs-secret handling, structured transport, verification routing, and incident-to-improvement behavior. This skill should stay short and point to that policy instead of duplicating project-specific playbooks.
+Use `docs/workbridge-operating-policy.md` as the canonical policy for task classes, reference-vs-secret handling, structured transport, verification routing, and incident-to-improvement behavior. This skill should stay short and point to that policy instead of duplicating project-specific playbooks.
 
 ## Core rule
 
-Keep ChatGPT-to-DevSpace requests small. Prefer structured actions, refs, locators, hashes, and limits over broad shell commands or large text payloads.
+Keep ChatGPT-to-Workbridge requests small. Prefer structured actions, refs, locators, hashes, and limits over broad shell commands or large text payloads.
 
 ## Preferred workflow
 
-1. Start with `devspace_router` when the task can be expressed with `action`, `workflowMode`, `targets`, `refs`, and `limits`.
+1. Start with `workbridge_router` when the task can be expressed with `action`, `workflowMode`, `targets`, `refs`, and `limits`.
 2. Use `resolve_locator` before editing when exact text replacement or fixed line ranges may be unstable.
 3. Use `apply_structured_edit` for locator-based edits.
 4. Use `apply_unified_patch` for ZIP-first or multi-line code/doc changes. Always run `dryRun` first and provide `expectedBase` sha256 values.
 5. Use `check_workspace_invariants` after cross-file updates, version bumps, import rewrites, or config/schema changes.
-6. Use `record_workflow_event` to record workflow experiments, especially host blocks or fallback steps that DevSpace cannot observe directly.
+6. Use `record_workflow_event` to record workflow experiments, especially host blocks or fallback steps that Workbridge cannot observe directly.
 
 When a classifier result is available, follow its `recommendedSequence` and `requiredChecks`. Higher `risk` means choose a more structured path; it does not mean skip the work.
 
 For `large_edit_refactor`, review alternate execution path candidates before broad edits. Categories include fallback, manual injection, CLI, batch/script, daemon/runtime, popup/UI, config, test, and generated artifact paths.
 
-Use verification policy output from Router `verify_plan` to select fixed `devspace_verify` profiles. Keep validation minimal but sufficient for the task class; do not add live external smoke unless explicitly approved.
+Use verification policy output from Router `verify_plan` to select fixed `workbridge_verify` profiles. Keep validation minimal but sufficient for the task class; do not add live external smoke unless explicitly approved.
 
 ## Workflow modes
 
@@ -41,7 +41,7 @@ Do not edit small or changing files with broad fixed ranges such as `startLine=1
 
 For files such as `queue/next_task.md`, prefer:
 
-- `devspace_router action=inspect`
+- `workbridge_router action=inspect`
 - `resolve_locator` with `section_heading`, `anchor`, or `between_anchors`
 - `apply_structured_edit` using the resolved locator
 
@@ -106,7 +106,7 @@ Examples:
 
 ## Host block recording
 
-OpenAI host-side safety blocks do not reach DevSpace logs. After a blocked action, record the next successful workflow event with `hostBlocks=1` and a short note.
+OpenAI host-side safety blocks do not reach Workbridge logs. After a blocked action, record the next successful workflow event with `hostBlocks=1` and a short note.
 
 Example event fields:
 
@@ -125,7 +125,7 @@ Keep outputs bounded. Prefer summaries, counts, hashes, and short previews. Avoi
 
 ## Verification
 
-Prefer `devspace_verify` over ad-hoc `bash` for fixed verification work. It accepts enum profiles instead of arbitrary shell commands and returns bounded output.
+Prefer `workbridge_verify` over ad-hoc `bash` for fixed verification work. It accepts enum profiles instead of arbitrary shell commands and returns bounded output.
 
 Use these profiles when appropriate:
 
@@ -139,12 +139,12 @@ Use these profiles when appropriate:
 - `git_diff_cached_check` for staged whitespace/diff checks.
 - `git_status_check` for bounded short status output. Unlike most successful verify profiles, it returns a bounded status tail by default because the status output is the purpose of the check.
 
-Do not replace `devspace_verify` with combined shell commands such as `npm test && npm run build && git diff --check`. Run separate verify profiles so output remains bounded and failures are attributable.
+Do not replace `workbridge_verify` with combined shell commands such as `npm test && npm run build && git diff --check`. Run separate verify profiles so output remains bounded and failures are attributable.
 
-`devspace_verify` separates `outputOmitted` from `outputTruncated`: omitted means successful output was intentionally not returned; truncated means a returned tail was shorter than the actual output.
+`workbridge_verify` separates `outputOmitted` from `outputTruncated`: omitted means successful output was intentionally not returned; truncated means a returned tail was shorter than the actual output.
 
-`devspace_verify` has a timeout guard: it sends SIGTERM first and then a stronger kill signal after a short grace period if the child process has not closed.
+`workbridge_verify` has a timeout guard: it sends SIGTERM first and then a stronger kill signal after a short grace period if the child process has not closed.
 
 ## Router verification planning
 
-Use `devspace_router action=verify_plan` or `suggest_verify` when you need a small, structured recommendation for which fixed `devspace_verify` profiles to run next. The router only suggests enum profiles; it must not execute arbitrary validation commands or accept shell command payloads.
+Use `workbridge_router action=verify_plan` or `suggest_verify` when you need a small, structured recommendation for which fixed `workbridge_verify` profiles to run next. The router only suggests enum profiles; it must not execute arbitrary validation commands or accept shell command payloads.

@@ -1,6 +1,6 @@
-# DevSpace Ops Lens / Log Analysis
+# Workbridge Ops Lens / Log Analysis
 
-DevSpace writes JSONL-style logs to stdout and, by default, also writes them
+Workbridge writes JSONL-style logs to stdout and, by default, also writes them
 directly to `logs/devspace_YYYYMMDD_HHMMSS.jsonl`. This keeps logs available for
 analysis even when the server is started without `tee`.
 
@@ -27,7 +27,7 @@ gitBranch
 buildSource
 ```
 
-DevSpace also writes a `server_start` JSON event at startup with the same common
+Workbridge also writes a `server_start` JSON event at startup with the same common
 metadata plus local/public endpoint and runtime logging settings. This makes it
 possible to distinguish logs from different local builds or commits.
 
@@ -59,7 +59,7 @@ reports/devspace-log-analysis.html
 ```
 
 The HTML report is self-contained and can be opened directly in a browser. The
-current dashboard is **DevSpace Ops Lens**: a richer glass/neon-style UI for
+current dashboard is **Workbridge Ops Lens**: a richer glass/neon-style UI for
 visually reviewing MCP/tool efficiency and automatically correlated work threads.
 
 It includes:
@@ -73,7 +73,7 @@ It includes:
   events exist in older logs
 - visual charts for tool call counts, failure hot spots, event timeline, trace
   outcomes when available, and max latency by tool
-- `devspace_verify` profile summaries, including calls, failures, duration, output
+- `workbridge_verify` profile summaries, including calls, failures, duration, output
   size, omitted output count, and truncated output count
 - workflow event summaries from `.devspace/workflow-events/`, grouped by
   `workflowMode`, event, action, tool, and status
@@ -88,7 +88,7 @@ It includes:
 
 ## Workflow and verify analysis
 
-`record_workflow_event`, `devspace_router`, and `devspace_verify` can write local
+`record_workflow_event`, `workbridge_router`, and `workbridge_verify` can write local
 workflow events to `.devspace/workflow-events/events.jsonl`. These files are
 local operational data and are not committed by default.
 
@@ -141,7 +141,7 @@ The default is `auto`.
 
 ## What the analyzer is meant to answer
 
-Use this report to decide which DevSpace optimization to prioritize next:
+Use this report to decide which Workbridge optimization to prioritize next:
 
 - If single-file `read` remains frequent, prefer improving `read_many` usage or
   adding `grep_context`.
@@ -165,9 +165,9 @@ explicitly recorded for analysis. Keep filter reports minimal by default:
 `toolName`, `operation`, and `category`; add `commandShape` or `note` only
 when the minimum form is stable and more detail is necessary.
 
-DevSpace startup lines such as `devspace listening on ...` are not JSON. The
+Workbridge startup lines such as `devspace listening on ...` are not JSON. The
 analyzer skips those as text lines instead of treating them as malformed JSON.
 
 ## Startup smoke integration
 
-After changing workflow events, verify profiles, or report rendering, run `npm run smoke:startup` before restarting DevSpace and then follow `docs/startup-smoke.md` for manual MCP checks.
+After changing workflow events, verify profiles, or report rendering, run `npm run smoke:startup` before restarting Workbridge and then follow `docs/startup-smoke.md` for manual MCP checks.

@@ -7,10 +7,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
 import type { Workspace } from "./workspaces.js";
-import { applyStructuredEdit, applyUnifiedPatch, checkWorkspaceInvariants, decodeStructuredContent, devspaceRouter, recordWorkflowEvent, resolveLocator } from "./workflow-tools.js";
+import { applyStructuredEdit, applyUnifiedPatch, checkWorkspaceInvariants, decodeStructuredContent, workbridgeRouter, recordWorkflowEvent, resolveLocator } from "./workflow-tools.js";
 
 const execFileAsync = promisify(execFile);
-const root = await mkdtemp(join(tmpdir(), "devspace-workflow-tools-"));
+const root = await mkdtemp(join(tmpdir(), "workbridge-workflow-tools-"));
 try {
   await execFileAsync("git", ["init"], { cwd: root });
   await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: root });
@@ -149,7 +149,7 @@ try {
   assert.equal(failed.status, "failed");
 
 
-  const routerStart = await devspaceRouter({ workspace, workflowMode: "router", action: "start", intent: "unit test router" });
+  const routerStart = await workbridgeRouter({ workspace, workflowMode: "router", action: "start", intent: "unit test router" });
   assert.equal(routerStart.status, "ok");
   assert.equal(routerStart.nextRecommendedAction, "snapshot");
   assert.ok(routerStart.refs.jobId);
@@ -160,25 +160,25 @@ try {
   assert.ok(startGuidance.patchTools.some((item) => item.tool === "apply_unified_patch"));
   assert.ok(startGuidance.processTools.some((item) => item.tool === "exec_command/write_stdin"));
 
-  const routerSnapshot = await devspaceRouter({ workspace, workflowMode: "router", action: "snapshot", refs: routerStart.refs, limits: { maxFiles: 5 } });
+  const routerSnapshot = await workbridgeRouter({ workspace, workflowMode: "router", action: "snapshot", refs: routerStart.refs, limits: { maxFiles: 5 } });
   assert.equal(routerSnapshot.status, "ok");
   assert.equal(routerSnapshot.nextRecommendedAction, "inspect");
 
-  const routerInspect = await devspaceRouter({ workspace, workflowMode: "router", action: "inspect", targets: { paths: ["README.md"] }, limits: { maxFiles: 1, maxLines: 5, maxOutputChars: 500 } });
+  const routerInspect = await workbridgeRouter({ workspace, workflowMode: "router", action: "inspect", targets: { paths: ["README.md"] }, limits: { maxFiles: 1, maxLines: 5, maxOutputChars: 500 } });
   assert.equal(routerInspect.status, "ok");
   assert.equal((routerInspect.results.files as Array<{ path: string }>)[0].path, "README.md");
 
-  const routerLocator = await devspaceRouter({ workspace, workflowMode: "router", action: "resolve_locator", locatorRequest: { path: "README.md", locator: { type: "section_heading", heading: "## Target" } } });
+  const routerLocator = await workbridgeRouter({ workspace, workflowMode: "router", action: "resolve_locator", locatorRequest: { path: "README.md", locator: { type: "section_heading", heading: "## Target" } } });
   assert.equal(routerLocator.status, "ok");
   assert.equal(routerLocator.nextRecommendedAction, "apply_structured_edit_dry_run");
 
-  const routerInvariant = await devspaceRouter({ workspace, workflowMode: "router", action: "check_invariants", invariantChecks: [{ type: "token_present", token: "template literal", paths: ["README.md"] }] });
+  const routerInvariant = await workbridgeRouter({ workspace, workflowMode: "router", action: "check_invariants", invariantChecks: [{ type: "token_present", token: "template literal", paths: ["README.md"] }] });
   assert.equal(routerInvariant.status, "ok");
   assert.equal(routerInvariant.nextRecommendedAction, "verify_or_summarize");
 
-  const routerVerifyPlan = await devspaceRouter({ workspace, workflowMode: "router", action: "verify_plan", intent: "workflow router test build", targets: { paths: ["src/workflow-tools.ts", "package.json"] } });
+  const routerVerifyPlan = await workbridgeRouter({ workspace, workflowMode: "router", action: "verify_plan", intent: "workflow router test build", targets: { paths: ["src/workflow-tools.ts", "package.json"] } });
   assert.equal(routerVerifyPlan.status, "ok");
-  assert.equal(routerVerifyPlan.nextRecommendedAction, "devspace_verify:git_status_check");
+  assert.equal(routerVerifyPlan.nextRecommendedAction, "workbridge_verify:git_status_check");
   assert.ok(routerVerifyPlan.runtimeInfo.gitCommit.length > 0);
   const verifyRouteGuidance = routerVerifyPlan.results.routeGuidance as { patchTools: Array<{ tool: string }> };
   assert.ok(verifyRouteGuidance.patchTools.some((item) => item.tool === "apply_patch"));
@@ -190,20 +190,20 @@ try {
   assert.ok(verifyPlan.profiles.includes("workflow_tools_test"));
   assert.ok(verifyPlan.profiles.includes("npm_test"));
   assert.ok(verifyPlan.profiles.includes("build"));
-  assert.deepEqual(verifyPlan.commandSequence[0], { tool: "devspace_verify", profile: "git_status_check" });
+  assert.deepEqual(verifyPlan.commandSequence[0], { tool: "workbridge_verify", profile: "git_status_check" });
 
-  const routerSuggestVerify = await devspaceRouter({ workspace, workflowMode: "router", action: "suggest_verify", targets: { paths: ["README.md"] } });
+  const routerSuggestVerify = await workbridgeRouter({ workspace, workflowMode: "router", action: "suggest_verify", targets: { paths: ["README.md"] } });
   const suggestedPlan = routerSuggestVerify.results.verifyPlan as { profiles: string[] };
   assert.deepEqual(suggestedPlan.profiles, ["git_status_check", "git_diff_check"]);
 
-  const largeRefactorPlanResult = await devspaceRouter({ workspace, workflowMode: "router", action: "verify_plan", taskClass: "large_edit_refactor", targets: { paths: ["src/popup.tsx", "scripts/run.ps1"] } });
+  const largeRefactorPlanResult = await workbridgeRouter({ workspace, workflowMode: "router", action: "verify_plan", taskClass: "large_edit_refactor", targets: { paths: ["src/popup.tsx", "scripts/run.ps1"] } });
   const largeRefactorPlan = largeRefactorPlanResult.results.verifyPlan as { taskClass: string; alternatePaths: Array<{ path: string; categories: string[] }>; profiles: string[] };
   assert.equal(largeRefactorPlan.taskClass, "large_edit_refactor");
   assert.ok(largeRefactorPlan.alternatePaths.some((item) => item.categories.includes("popup_or_ui_entry")));
   assert.ok(largeRefactorPlan.alternatePaths.some((item) => item.categories.includes("batch_or_script_entry")));
   assert.ok(largeRefactorPlan.profiles.includes("related_tests"));
 
-  const inferredLargeRefactorPlanResult = await devspaceRouter({
+  const inferredLargeRefactorPlanResult = await workbridgeRouter({
     workspace,
     workflowMode: "router",
     action: "verify_plan",

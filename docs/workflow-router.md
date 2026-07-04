@@ -1,6 +1,6 @@
-# DevSpace Workflow Router v1
+# Workbridge Workflow Router v1
 
-`devspace_router` is a small, read-only/planning-oriented control interface for DevSpace workflow experiments. It is not a natural-language shell runner.
+`workbridge_router` is a small, read-only/planning-oriented control interface for Workbridge workflow experiments. It is not a natural-language shell runner.
 
 ## Purpose
 
@@ -52,40 +52,40 @@ Returns a bounded git status summary and next-step recommendation.
 
 ### `verify_plan` / `suggest_verify`
 
-Returns a bounded verification plan made only of fixed `devspace_verify` profiles.
+Returns a bounded verification plan made only of fixed `workbridge_verify` profiles.
 It combines explicit `targets.paths` with current `git status --short` paths and
 suggests profiles such as `git_status_check`, `git_diff_check`,
 `typecheck_only`, `workflow_tools_test`, `npm_test`, and `build`.
 
 The router does not execute validation commands and does not accept arbitrary
-shell commands. Use `devspace_verify` to execute the suggested profiles.
+shell commands. Use `workbridge_verify` to execute the suggested profiles.
 
 
 ## Unified operating policy
 
-For task classes, reference-vs-secret handling, structured transport, verification routing, and incident-to-improvement behavior, see `docs/devspace-operating-policy.md`. Router actions should support that policy by keeping requests typed, bounded, and reusable across projects.
+For task classes, reference-vs-secret handling, structured transport, verification routing, and incident-to-improvement behavior, see `docs/workbridge-operating-policy.md`. Router actions should support that policy by keeping requests typed, bounded, and reusable across projects.
 
 The shared classifier returns `taskClass`, `risk`, `efficiencyGoal`, `recommendedSequence`, `requiredChecks`, `transportRecommendation`, `blockedPattern`, and `improvementHint`. Use those fields to pick the next structured route; do not interpret higher risk as a reason to abandon the task.
 
-Router `verify_plan` may accept a `taskClass` and returns the verification policy result with fixed `devspace_verify` profiles. For `large_edit_refactor`, the plan also includes bounded alternate execution path candidates so fallback, CLI, runtime, UI, config, generated, and test paths can be reviewed before editing.
+Router `verify_plan` may accept a `taskClass` and returns the verification policy result with fixed `workbridge_verify` profiles. For `large_edit_refactor`, the plan also includes bounded alternate execution path candidates so fallback, CLI, runtime, UI, config, generated, and test paths can be reviewed before editing.
 
 ## Standard flow
 
 ```text
-1. devspace_router action=start workflowMode=router
-2. devspace_router action=snapshot
-3. devspace_router action=inspect targets.paths=[...]
-4. devspace_router action=resolve_locator or check_invariants as needed
+1. workbridge_router action=start workflowMode=router
+2. workbridge_router action=snapshot
+3. workbridge_router action=inspect targets.paths=[...]
+4. workbridge_router action=resolve_locator or check_invariants as needed
 5. For edits, use apply_unified_patch or apply_structured_edit with dryRun first
    - Use `contentEncoding="base64"` only as typed transport for special characters or larger templates, with decoded size validation and hash guards.
-6. Optionally call `devspace_router action=verify_plan` or `suggest_verify` to get fixed `devspace_verify` profile suggestions
-7. Verify with `devspace_verify` profiles such as `typecheck_only`, `related_tests`, `npm_test`, `build`, `git_diff_check`, `git_diff_cached_check`, or `git_status_check`
+6. Optionally call `workbridge_router action=verify_plan` or `suggest_verify` to get fixed `workbridge_verify` profile suggestions
+7. Verify with `workbridge_verify` profiles such as `typecheck_only`, `related_tests`, `npm_test`, `build`, `git_diff_check`, `git_diff_cached_check`, or `git_status_check`
 8. record_workflow_event for comparison logs when useful
 ```
 
 ## Prohibited router payloads
 
-Do not send these to `devspace_router`:
+Do not send these to `workbridge_router`:
 
 - long file bodies
 - huge patches
@@ -106,16 +106,16 @@ Incidents should be classified into reusable categories and mapped to improvemen
 
 ## Tool description rule
 
-The router exists to keep ChatGPT requests small and let DevSpace handle bounded inspection and recommendations. If a request starts becoming a large free-form instruction, split it into smaller router actions or use the lower-level workflow primitive directly.
+The router exists to keep ChatGPT requests small and let Workbridge handle bounded inspection and recommendations. If a request starts becoming a large free-form instruction, split it into smaller router actions or use the lower-level workflow primitive directly.
 
 
 ## Skill
 
-The companion skill lives at `skills/devspace-workflow/SKILL.md`. Use it as the operating guide for when to choose Router, locator edits, patch edits, invariants, and workflow event recording.
+The companion skill lives at `skills/workbridge-workflow/SKILL.md`. Use it as the operating guide for when to choose Router, locator edits, patch edits, invariants, and workflow event recording.
 
 ## Automatic workflow events
 
-Router v1 appends a workflow event automatically for each successful router call. Host-side safety blocks still do not reach DevSpace, so record the next successful event with `hostBlocks=1` when a block occurs.
+Router v1 appends a workflow event automatically for each successful router call. Host-side safety blocks still do not reach Workbridge, so record the next successful event with `hostBlocks=1` when a block occurs.
 
 ## Registry log volume
 
@@ -124,9 +124,9 @@ Router v1 appends a workflow event automatically for each successful router call
 
 ## Verification
 
-Use `devspace_verify` instead of ad-hoc `bash` for fixed verification profiles. The tool accepts only enum profiles and summarizes successful output. This keeps build/test stdout from flooding the chat and avoids combined shell-command safety blocks.
+Use `workbridge_verify` instead of ad-hoc `bash` for fixed verification profiles. The tool accepts only enum profiles and summarizes successful output. This keeps build/test stdout from flooding the chat and avoids combined shell-command safety blocks.
 
-`devspace_verify` uses spawn plus bounded tail capture. Successful stdout may be omitted by default, while failure/warning tails remain bounded.
+`workbridge_verify` uses spawn plus bounded tail capture. Successful stdout may be omitted by default, while failure/warning tails remain bounded.
 
 `git_status_check` returns bounded output by default because the status text is the verification result. Other successful verify profiles omit stdout unless `includeOutputOnSuccess` is set.
 
@@ -134,4 +134,4 @@ Verify tool structured output is covered by schema smoke tests so optional field
 
 ### Runtime version check
 
-`devspace_router` responses include `runtimeInfo` so MCP clients can confirm the active process version, commit, build source, process start time, entry path, and runtime dist path. After rebuilding or switching from `npx` to `node dist/cli.js serve`, verify `runtimeInfo.appVersion`, `runtimeInfo.gitCommit`, and `runtimeInfo.processStartedAt` before judging whether a new workflow behavior is present.
+`workbridge_router` responses include `runtimeInfo` so MCP clients can confirm the active process version, commit, build source, process start time, entry path, and runtime dist path. After rebuilding or switching from `npx` to `node dist/cli.js serve`, verify `runtimeInfo.appVersion`, `runtimeInfo.gitCommit`, and `runtimeInfo.processStartedAt` before judging whether a new workflow behavior is present.

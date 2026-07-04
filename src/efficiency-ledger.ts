@@ -143,8 +143,8 @@ export function summarizeEfficiency(events: EfficiencyEvent[]): EfficiencySummar
   const bashCallCount = toolCalls.filter((event) => isBashTool(event.tool)).length;
   const readCallCount = toolCalls.filter((event) => isReadTool(event.tool)).length;
   const readManyCallCount = toolCalls.filter((event) => event.tool === "read_many").length;
-  const routerCallCount = toolCalls.filter((event) => event.tool === "devspace_router").length;
-  const verifyCallCount = toolCalls.filter((event) => event.tool === "devspace_verify").length;
+  const routerCallCount = toolCalls.filter((event) => event.tool === "workbridge_router").length;
+  const verifyCallCount = toolCalls.filter((event) => event.tool === "workbridge_verify").length;
   const structuredEditCallCount = toolCalls.filter((event) => isStructuredEditTool(event.tool)).length;
   const patchCallCount = toolCalls.filter((event) => isPatchTool(event.tool)).length;
   const processCommandCallCount = toolCalls.filter((event) => event.tool === "exec_command" || event.tool === "launch_workspace_task").length;
@@ -218,11 +218,11 @@ function summarizeGroups(events: EfficiencyEvent[], keyFor: (event: EfficiencyEv
 function improvementHints(summary: EfficiencySummary): string[] {
   const hints: string[] = [];
   if (summary.toolCallCount === 0) hints.push("No efficiency events were found yet. Restart Workbridge after enabling v1.1.48 and run a few tool calls.");
-  if (summary.bashRate >= 0.35 && summary.bashCallCount >= 3) hints.push("Bash usage is high. Prefer workbridge_guide, devspace_verify, grep_context, file_outline, or structured edit tools where possible.");
+  if (summary.bashRate >= 0.35 && summary.bashCallCount >= 3) hints.push("Bash usage is high. Prefer workbridge_guide, workbridge_verify, grep_context, file_outline, or structured edit tools where possible.");
   if (summary.failureRate >= 0.12 && summary.failedToolCallCount >= 2) hints.push("Tool failure rate is elevated. Inspect repeated failing tool shapes before retrying.");
   if (summary.safetyBlockCount > 0) hints.push("Host/client filter events were recorded. Avoid repeating the same command shape; choose a safer bounded tool.");
   if (summary.truncatedOutputCount > 0 || summary.oversizedOutputCount > 0) hints.push("Large or truncated outputs occurred. Lower max output limits or narrow inspection before broad reads.");
-  if (summary.verifyCallCount === 0 && summary.toolCallCount >= 5) hints.push("No fixed verification tool calls were recorded. Use devspace_verify profiles for standard checks when available.");
+  if (summary.verifyCallCount === 0 && summary.toolCallCount >= 5) hints.push("No fixed verification tool calls were recorded. Use workbridge_verify profiles for standard checks when available.");
   return hints;
 }
 

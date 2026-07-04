@@ -2,12 +2,12 @@
 
 ## Workbridge display name
 
-Workbridge is the public display name for this MCP connector. DevSpace remains the legacy internal name for package names, `DEVSPACE_*` environment variables, OAuth scope `devspace`, and some tool names until compatibility aliases are introduced. MCP clients should call `workbridge_guide` first when they need usage instructions.
+Workbridge is the public display name for this MCP connector. The legacy DevSpace name remains in package names, `DEVSPACE_*` environment variables, OAuth scope `devspace`, and compatibility paths until aliases are introduced. MCP clients should call `workbridge_guide` first when they need usage instructions.
 
 ## Host-side Filter Recording
 
 `record_tool_event` is intentionally minimum-first. When a host-side safety check
-filters a tool call before DevSpace receives it, call `record_tool_event` with
+filters a tool call before Workbridge receives it, call `record_tool_event` with
 only `toolName`, `operation`, and `category`, then switch to one safer tool
 shape. Do not include `commandShape` or `note` in normal workflow.
 
@@ -34,19 +34,19 @@ editing.
 
 ## ZIP File Import Probe
 
-`DEVSPACE_ENABLE_WORKFLOW_TOOLS=1` exposes workflow primitives for ZIP-first and router experiments: `devspace_router`, `devspace_verify`, `apply_unified_patch`, `resolve_locator`, `apply_structured_edit`, `check_workspace_invariants`, and `record_workflow_event`. `devspace_verify` provides fixed profiles including `typecheck_only`, `related_tests`, `npm_test`, `build`, `git_diff_check`, `git_diff_cached_check`, and `git_status_check`. These tools are opt-in so stable ChatGPT tool lists stay small. See `docs/workflow-router.md` and `skills/devspace-workflow/SKILL.md` for Router v0 usage rules. Router calls automatically append workflow events under `.devspace/workflow-events/events.jsonl`.
+`DEVSPACE_ENABLE_WORKFLOW_TOOLS=1` exposes workflow primitives for ZIP-first and router experiments: `workbridge_router`, `workbridge_verify`, `apply_unified_patch`, `resolve_locator`, `apply_structured_edit`, `check_workspace_invariants`, and `record_workflow_event`. `workbridge_verify` provides fixed profiles including `typecheck_only`, `related_tests`, `npm_test`, `build`, `git_diff_check`, `git_diff_cached_check`, and `git_status_check`. These tools are opt-in so stable ChatGPT tool lists stay small. See `docs/workflow-router.md` and `skills/workbridge-workflow/SKILL.md` for Router v0 usage rules. Router calls automatically append workflow events under `.devspace/workflow-events/events.jsonl`.
 
 `DEVSPACE_LOG_TOOL_REGISTRY_DETAIL=1` enables full registry detail logging at debug level. By default, `tool_registry_summary` logs only counts, enabled profiles, feature flags, and a registry hash to reduce per-session log volume.
 
-`import_zip_from_url` and `extract_imported_zip` perform normal URL-based ZIP import. `import_zip_from_url` accepts non-URL strings only for host rewrite diagnostics; DevSpace still imports only `http(s)` sources. Optional `probe_import_file_arg_shape`, `probe_import_file`, and legacy `import_zip_file` validate the
-ChatGPT-to-DevSpace direction using a top-level MCP file parameter. This is the
+`import_zip_from_url` and `extract_imported_zip` perform normal URL-based ZIP import. `import_zip_from_url` accepts non-URL strings only for host rewrite diagnostics; Workbridge still imports only `http(s)` sources. Optional `probe_import_file_arg_shape`, `probe_import_file`, and legacy `import_zip_file` validate the
+ChatGPT-to-Workbridge direction using a top-level MCP file parameter. This is the
 only supported reverse-transfer path. Upload URLs and base64/chunk transfer are
 not part of this workflow. Imported ZIP files are isolated under
 `.devspace/imports/<importId>`, saved as `source.zip`, accompanied by
 `import.json` metadata, and are never extracted directly into the live workspace
 root.
 
-DevSpace can be configured through `devspace init`, persisted config files, or
+Workbridge can be configured through `workbridge init`, persisted config files, or
 environment variables.
 
 The default files are:
@@ -87,7 +87,7 @@ npx @waishnav/devspace config set publicBaseUrl https://devspace.example.com
 
 ## OAuth
 
-DevSpace uses a single-user OAuth approval flow.
+Workbridge uses a single-user OAuth approval flow.
 
 | Variable | Default |
 | --- | --- |
@@ -127,7 +127,7 @@ MCP clients discover metadata from:
 
 `DEVSPACE_TOOL_MODE` controls the Workbridge MCP tool surface. Tool names are short-only.
 Legacy direct read and multi-edit tools stay hidden unless enabled by their
-dedicated feature flags. Workbridge uses `DEVSPACE_*` names for compatibility with the upstream DevSpace package.
+dedicated feature flags. Workbridge uses `DEVSPACE_*` names for compatibility with the upstream Workbridge package.
 
 | Value | Behavior |
 | --- | --- |
@@ -166,14 +166,14 @@ Recommended optional shell helpers for minimal mode:
 | `jq` | JSON inspection, including `package.json` and JSONL log summaries. |
 | `yq` | YAML inspection, including Cloudflare Tunnel and GitHub Actions config files. |
 
-Shell helpers must be available on the PATH of the shell that starts DevSpace.
-After installing a helper, restart the terminal and then restart `devspace serve`.
+Shell helpers must be available on the PATH of the shell that starts Workbridge.
+After installing a helper, restart the terminal and then restart `workbridge serve`.
 
 Optional tool flags keep the default schema surface small:
 
 | Variable | Default | Behavior |
 | --- | --- | --- |
-| `DEVSPACE_ENABLE_WORKFLOW_TOOLS` | `0` | Enables workflow tools such as `devspace_router`, `devspace_verify`, structured patch/edit helpers, and workflow event recording. |
+| `DEVSPACE_ENABLE_WORKFLOW_TOOLS` | `0` | Enables workflow tools such as `workbridge_router`, `workbridge_verify`, structured patch/edit helpers, and workflow event recording. |
 | `DEVSPACE_ENABLE_LEGACY_READ_TOOLS` | `0` | Enables `read_many` and other legacy direct read helpers where still supported. |
 | `DEVSPACE_ENABLE_EDIT_MANY` | `0` | Enables `edit_many`. |
 | `DEVSPACE_ENABLE_ZIP_EXPORT_TOOLS` | `0` | Enables ZIP export/download tools. |
@@ -183,7 +183,7 @@ Optional tool flags keep the default schema surface small:
 | `WORKBRIDGE_ENABLE_WORKSPACE_TASKS` / `DEVSPACE_ENABLE_WORKSPACE_TASKS` | `0` | Enables `launch_workspace_task` for allowlisted local workspace task entrypoints. Initially supports `aegis_runner` with dynamic `args` and the templates listed above. |
 
 
-At startup DevSpace logs a compact `tool_registry_summary` event containing exposed tool names, hidden tool names, enabled profiles, and feature flag state. Prefer that local log event over repeated schema discovery when checking whether optional tools are hidden.
+At startup Workbridge logs a compact `tool_registry_summary` event containing exposed tool names, hidden tool names, enabled profiles, and feature flag state. Prefer that local log event over repeated schema discovery when checking whether optional tools are hidden.
 
 ## Widgets
 
@@ -203,7 +203,7 @@ At startup DevSpace logs a compact `tool_registry_summary` event containing expo
 | `DEVSPACE_AGENT_DIR` | Defaults to `~/.codex`; its `skills` child is loaded for compatibility. |
 | `DEVSPACE_SKILL_PATHS` | Optional comma-separated additional skill directories. |
 
-DevSpace discovers standard Agent Skills from:
+Workbridge discovers standard Agent Skills from:
 
 - `~/.agents/skills`
 - project `.agents/skills`
@@ -237,7 +237,7 @@ npx @waishnav/devspace serve
 | `DEVSPACE_LOG_FILE_NAME` | `devspace_YYYYMMDD_HHMMSS.jsonl` |
 | `DEVSPACE_TRUST_PROXY` | `0` |
 
-By default, DevSpace writes JSONL logs directly to `logs/` as well as to stdout.
+By default, Workbridge writes JSONL logs directly to `logs/` as well as to stdout.
 Set `DEVSPACE_LOG_FILE=0` to disable file logging, `DEVSPACE_LOG_DIR` to change
 the output directory, or `DEVSPACE_LOG_FILE_NAME` to force a specific filename.
 
@@ -265,9 +265,9 @@ npx @waishnav/devspace serve
 The environment assignments must be part of the same command invocation, or
 exported first.
 
-`devspace_verify` preflight behavior: `git_status_check` returns bounded status output by default, while long-running commands use a timeout guard with SIGTERM followed by a stronger kill signal after a short grace period. <!-- 1.1.27 preflight -->
+`workbridge_verify` preflight behavior: `git_status_check` returns bounded status output by default, while long-running commands use a timeout guard with SIGTERM followed by a stronger kill signal after a short grace period. <!-- 1.1.27 preflight -->
 
-`devspace_verify` profile names are maintained from a single `DEVSPACE_VERIFY_PROFILES` source and covered by schema smoke tests to reduce MCP structured-output validation regressions.
+`workbridge_verify` profile names are maintained from a single `WORKBRIDGE_VERIFY_PROFILES` source and covered by schema smoke tests to reduce MCP structured-output validation regressions.
 
 On Windows, package-manager verify profiles (`typecheck_only`, `related_tests`, `workflow_tools_test`, `safe_editing_test`, `npm_test`, and `build`) are launched through a fixed shell command string because direct `spawn("npm.cmd")` / `spawn("npx.cmd")` can fail with `EINVAL` in the Git Bash-backed runtime. These are still fixed enum profiles, not arbitrary shell commands. <!-- package-manager verify profiles -->
 

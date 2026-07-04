@@ -3,7 +3,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getRuntimeInfo, type RuntimeInfo } from "./app-metadata.js";
 import { detectAlternateExecutionPaths, type AlternatePathDetectionResult } from "./alternate-path-detector.js";
-import { classifyDevspaceEfficiency, type DevspaceTaskClass } from "./devspace-efficiency-classifier.js";
+import { classifyWorkbridgeEfficiency, type WorkbridgeTaskClass } from "./workbridge-efficiency-classifier.js";
 import { git } from "./git.js";
 import { planVerificationPolicy } from "./verification-policy.js";
 import type { Workspace } from "./workspaces.js";
@@ -199,13 +199,13 @@ export interface WorkflowEventResult extends Record<string, unknown> {
 export type RouterAction = "start" | "snapshot" | "inspect" | "resolve_locator" | "check_invariants" | "summarize" | "verify_plan" | "suggest_verify";
 export type RouterMode = "plan_only" | "read_only";
 
-export interface DevspaceRouterInput {
+export interface WorkbridgeRouterInput {
   workspace: Workspace;
   workflowMode: WorkflowMode;
   action: RouterAction;
   mode?: RouterMode;
   intent?: string;
-  taskClass?: DevspaceTaskClass;
+  taskClass?: WorkbridgeTaskClass;
   refs?: Record<string, string | undefined>;
   targets?: {
     paths?: string[];
@@ -225,7 +225,7 @@ export interface DevspaceRouterInput {
   };
 }
 
-export interface DevspaceRouterResult extends Record<string, unknown> {
+export interface WorkbridgeRouterResult extends Record<string, unknown> {
   status: "ok" | "blocked";
   action: RouterAction;
   mode: RouterMode;
@@ -267,14 +267,14 @@ function upstreamToolRouteGuidance(): Record<string, unknown> {
       { tool: "apply_structured_edit", useWhen: "Locator-based structured edits after resolve_locator and dry-run planning." },
     ],
     processTools: [
-      { tool: "devspace_verify", useWhen: "Fixed verification profiles such as git status/diff, typecheck, tests, and build." },
+      { tool: "workbridge_verify", useWhen: "Fixed verification profiles such as git status/diff, typecheck, tests, and build." },
       { tool: "bash", useWhen: "Bounded minimal/full-mode tests, builds, or inspection when no fixed profile fits." },
       { tool: "exec_command/write_stdin", useWhen: "Codex-mode long-running, interactive, PTY, polling, stdin, or Ctrl-C workflows." },
     ],
   };
 }
 
-export async function devspaceRouter(input: DevspaceRouterInput): Promise<DevspaceRouterResult> {
+export async function workbridgeRouter(input: WorkbridgeRouterInput): Promise<WorkbridgeRouterResult> {
   const mode: RouterMode = input.mode ?? "read_only";
   const warnings: string[] = [];
   if (input.intent && input.intent.length > 500) warnings.push("intent_is_long_keep_router_requests_small");
@@ -382,7 +382,7 @@ export async function devspaceRouter(input: DevspaceRouterInput): Promise<Devspa
         alternatePathCount: plan.alternatePaths.length,
       },
       results: { verifyPlan: plan, routeGuidance: upstreamToolRouteGuidance(), gitStatus: status.stdout.split(/\r?\n/).filter(Boolean).slice(0, 100) },
-      nextRecommendedAction: plan.profiles.length > 0 ? `devspace_verify:${plan.profiles[0]}` : "git_status_check",
+      nextRecommendedAction: plan.profiles.length > 0 ? `workbridge_verify:${plan.profiles[0]}` : "git_status_check",
     });
   }
 
@@ -430,9 +430,9 @@ function parseGitStatusPaths(stdout: string): string[] {
     .filter(Boolean);
 }
 
-function buildVerifyPlan(paths: string[], intent: string, requestedTaskClass?: DevspaceTaskClass): { profiles: string[]; paths: string[]; reasons: string[]; commandSequence: Array<{ tool: string; profile: string }>; taskClass: DevspaceTaskClass; alternatePaths: AlternatePathDetectionResult[]; note: string } {
+function buildVerifyPlan(paths: string[], intent: string, requestedTaskClass?: WorkbridgeTaskClass): { profiles: string[]; paths: string[]; reasons: string[]; commandSequence: Array<{ tool: string; profile: string }>; taskClass: WorkbridgeTaskClass; alternatePaths: AlternatePathDetectionResult[]; note: string } {
   const normalizedPaths = Array.from(new Set(paths.map(normalizeWorkspaceRelativePath).filter(Boolean))).sort();
-  const classification = classifyDevspaceEfficiency({ intent: `${intent} ${normalizedPaths.join(" ")}`, fileCount: normalizedPaths.length, writesFiles: normalizedPaths.length > 0, taskClass: requestedTaskClass });
+  const classification = classifyWorkbridgeEfficiency({ intent: `${intent} ${normalizedPaths.join(" ")}`, fileCount: normalizedPaths.length, writesFiles: normalizedPaths.length > 0, taskClass: requestedTaskClass });
   const policy = planVerificationPolicy({ taskClass: classification.taskClass, paths: normalizedPaths, intent });
   const alternatePaths = classification.taskClass === "large_edit_refactor"
     ? detectAlternateExecutionPaths(normalizedPaths.map((path) => ({ path }))).slice(0, 20)
@@ -442,7 +442,7 @@ function buildVerifyPlan(paths: string[], intent: string, requestedTaskClass?: D
     profiles: policy.profiles,
     paths: normalizedPaths,
     reasons: policy.reasons,
-    commandSequence: policy.profiles.map((profile) => ({ tool: "devspace_verify", profile })),
+    commandSequence: policy.profiles.map((profile) => ({ tool: "workbridge_verify", profile })),
     taskClass: classification.taskClass,
     alternatePaths,
     note: `${policy.note}${alternatePaths.length ? " Large refactor plan includes alternate execution path candidates." : ""}`,
@@ -946,7 +946,7 @@ function compactRefs(input: Record<string, string | undefined>): Record<string, 
   return refs;
 }
 
-function normalizeRouterLimits(limits: DevspaceRouterInput["limits"] | undefined): { maxFiles: number; maxLines: number; maxOutputChars: number; maxPreviewChars: number } {
+function normalizeRouterLimits(limits: WorkbridgeRouterInput["limits"] | undefined): { maxFiles: number; maxLines: number; maxOutputChars: number; maxPreviewChars: number } {
   const maxFiles = limits?.maxFiles ?? 10;
   const maxLines = limits?.maxLines ?? 80;
   const maxOutputChars = limits?.maxOutputChars ?? 8_000;
@@ -959,14 +959,14 @@ function normalizeRouterLimits(limits: DevspaceRouterInput["limits"] | undefined
 }
 
 function routerResult(input: {
-  input: DevspaceRouterInput;
+  input: WorkbridgeRouterInput;
   mode: RouterMode;
   refs: Record<string, string>;
   warnings: string[];
   summary: Record<string, unknown>;
   results: Record<string, unknown>;
   nextRecommendedAction?: string;
-}): DevspaceRouterResult {
+}): WorkbridgeRouterResult {
   const result = `${input.input.action}: ${input.nextRecommendedAction ?? "done"}`;
   return {
     status: "ok",
@@ -983,7 +983,7 @@ function routerResult(input: {
   };
 }
 
-function blockedRouterResult(input: DevspaceRouterInput, mode: RouterMode, refs: Record<string, string>, warnings: string[], reason: string): DevspaceRouterResult {
+function blockedRouterResult(input: WorkbridgeRouterInput, mode: RouterMode, refs: Record<string, string>, warnings: string[], reason: string): WorkbridgeRouterResult {
   return {
     status: "blocked",
     action: input.action,

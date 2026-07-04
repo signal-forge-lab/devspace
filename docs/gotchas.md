@@ -15,7 +15,7 @@ If you installed globally, confirm npm's global bin directory is on `PATH`.
 
 ## Unsupported Node Version
 
-DevSpace requires Node `>=22.19 <27`.
+Workbridge requires Node `>=22.19 <27`.
 
 Check:
 
@@ -83,7 +83,7 @@ npx @waishnav/devspace config set publicBaseUrl https://devspace.example.com
 
 ## Host Header Or 403 Problems
 
-DevSpace derives allowed hosts from the configured public URL.
+Workbridge derives allowed hosts from the configured public URL.
 
 Run:
 
@@ -102,7 +102,7 @@ DEVSPACE_ALLOWED_HOSTS="*" npx @waishnav/devspace serve
 
 ## OAuth Redirect Host Rejected
 
-By default, DevSpace allows redirects for:
+By default, Workbridge allows redirects for:
 
 ```text
 chatgpt.com
@@ -172,7 +172,7 @@ needed.
 
 ## Windows Shell Commands Fail
 
-DevSpace shell execution requires Bash. Native PowerShell and `cmd.exe` command
+Workbridge shell execution requires Bash. Native PowerShell and `cmd.exe` command
 execution are not supported yet.
 
 Install Git for Windows and use Git Bash, or use WSL, MSYS2, or Cygwin Bash.
@@ -193,7 +193,7 @@ Skills are enabled by default. Check:
 DEVSPACE_SKILLS=1 npx @waishnav/devspace serve
 ```
 
-DevSpace looks in standard Agent Skills locations:
+Workbridge looks in standard Agent Skills locations:
 
 - `~/.agents/skills`
 - project `.agents/skills`

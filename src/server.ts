@@ -113,7 +113,7 @@ import { createToolTraceManager } from "./tool-trace.js";
 import { formatAgentsPath, WorkspaceRegistry } from "./workspaces.js";
 
 type Transport = StreamableHTTPServerTransport;
-const WORKSPACE_APP_URI = "ui://devspace/workspace-app.html";
+const WORKSPACE_APP_URI = "ui://workbridge/workspace-app.html";
 const WORKSPACE_APP_MANIFEST_ENTRY = "workspace-app.html";
 const WRITE_TOOL_ANNOTATIONS = {
   readOnlyHint: false,
@@ -254,8 +254,8 @@ export interface ToolNames {
   applyStructuredEdit: "apply_structured_edit";
   checkWorkspaceInvariants: "check_workspace_invariants";
   recordWorkflowEvent: "record_workflow_event";
-  devspaceRouter: "devspace_router";
-  devspaceVerify: "devspace_verify";
+  workbridgeRouter: "workbridge_router";
+  workbridgeVerify: "workbridge_verify";
   exportWorkspaceZip: "export_workspace_zip";
   createZipDownloadUrl: "create_zip_download_url";
   probeImportFileArgShape: "probe_import_file_arg_shape";
@@ -351,8 +351,8 @@ export function toolNamesFor(_config: ServerConfig): ToolNames {
     applyStructuredEdit: "apply_structured_edit",
     checkWorkspaceInvariants: "check_workspace_invariants",
     recordWorkflowEvent: "record_workflow_event",
-    devspaceRouter: "devspace_router",
-    devspaceVerify: "devspace_verify",
+    workbridgeRouter: "workbridge_router",
+    workbridgeVerify: "workbridge_verify",
     exportWorkspaceZip: "export_workspace_zip",
     createZipDownloadUrl: "create_zip_download_url",
     probeImportFileArgShape: "probe_import_file_arg_shape",
@@ -402,7 +402,7 @@ function serverInstructions(config: ServerConfig, toolNames: ToolNames): string 
     : "";
 
   if (config.toolMode === "codex") {
-    return `Use Workbridge as a local AI workbridge for coding workspaces. Workbridge is the public display name; DevSpace is the legacy internal name kept for compatibility. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Codex mode exposes main tools plus ${toolNames.applyPatch}, ${toolNames.execCommand}, and ${toolNames.writeStdin}; fork-origin Workbridge helpers remain hidden. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${workspaceTasks}${showChanges}`;
+    return `Use Workbridge as a local AI workbridge for coding workspaces. Workbridge is the public display name; Workbridge is the legacy internal name kept for compatibility. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Codex mode exposes main tools plus ${toolNames.applyPatch}, ${toolNames.execCommand}, and ${toolNames.writeStdin}; fork-origin Workbridge helpers remain hidden. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${workspaceTasks}${showChanges}`;
   }
 
   if (config.toolMode === "main") {
@@ -414,7 +414,7 @@ function serverInstructions(config: ServerConfig, toolNames: ToolNames): string 
       ? `In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are hidden; prefer ${toolNames.workspaceSnapshot}, ${toolNames.fileOutline}, ${toolNames.grepContext}, ${toolNames.createWorkspaceIndex}, and ${toolNames.readIndexRanges} before broad shell commands. `
       : `Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, ${toolNames.ls}, ${toolNames.workspaceSnapshot}, ${toolNames.grepContext}, and ${toolNames.fileOutline} for file inspection. `)
     : `Use ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, ${toolNames.ls}, and ${toolNames.shell} for inspection. `;
-  return `Use Workbridge as a local AI workbridge for coding workspaces. Workbridge is the public display name; DevSpace is the legacy internal name kept for compatibility. Open one workspace, reuse its workspaceId, keep outputs small, and follow AGENTS.md plus project docs for detailed workflow rules. ${inspection}Do not use shell commands to modify project files when an editing tool fits.${legacyRead}${editMany}${zipExport}${processTools}${workspaceTasks}${showChanges}`;}
+  return `Use Workbridge as a local AI workbridge for coding workspaces. Workbridge is the public display name; Workbridge is the legacy internal name kept for compatibility. Open one workspace, reuse its workspaceId, keep outputs small, and follow AGENTS.md plus project docs for detailed workflow rules. ${inspection}Do not use shell commands to modify project files when an editing tool fits.${legacyRead}${editMany}${zipExport}${processTools}${workspaceTasks}${showChanges}`;}
 
 function isForkToolMode(config: ServerConfig): boolean {
   return config.toolMode === "minimal" || config.toolMode === "full";
@@ -457,8 +457,8 @@ function forkToolNames(toolNames: ToolNames): string[] {
     toolNames.gitStageFiles,
     toolNames.gitStageHunks,
     toolNames.gitCommitStaged,
-    toolNames.devspaceRouter,
-    toolNames.devspaceVerify,
+    toolNames.workbridgeRouter,
+    toolNames.workbridgeVerify,
     toolNames.applyUnifiedPatch,
     toolNames.resolveLocator,
     toolNames.applyStructuredEdit,
@@ -503,7 +503,7 @@ export function expectedRegisteredToolNames(config: ServerConfig, toolNames: Too
         toolNames.gitCommitStaged,
       );
     }
-    if (WORKFLOW_TOOLS_ENABLED) names.push(toolNames.devspaceRouter, toolNames.devspaceVerify, toolNames.applyUnifiedPatch, toolNames.resolveLocator, toolNames.applyStructuredEdit, toolNames.checkWorkspaceInvariants);
+    if (WORKFLOW_TOOLS_ENABLED) names.push(toolNames.workbridgeRouter, toolNames.workbridgeVerify, toolNames.applyUnifiedPatch, toolNames.resolveLocator, toolNames.applyStructuredEdit, toolNames.checkWorkspaceInvariants);
     if (LEGACY_READ_TOOLS_ENABLED) names.push(toolNames.readMany);
     if (EDIT_MANY_ENABLED) names.push(toolNames.editMany);
   }
@@ -542,7 +542,7 @@ export function hiddenRegisteredToolNames(config: ServerConfig, toolNames: ToolN
   if (!isMainExpandedToolMode(config)) hidden.push(toolNames.write, toolNames.grep, toolNames.glob, toolNames.ls);
 
   if (!CODEX_CLI_ENABLED) hidden.push(CODEX_CLI_RUNNER_TOOL_NAME);
-  if (isForkToolMode(config) && !WORKFLOW_TOOLS_ENABLED) hidden.push(toolNames.devspaceRouter, toolNames.devspaceVerify, toolNames.applyUnifiedPatch, toolNames.resolveLocator, toolNames.applyStructuredEdit, toolNames.checkWorkspaceInvariants);
+  if (isForkToolMode(config) && !WORKFLOW_TOOLS_ENABLED) hidden.push(toolNames.workbridgeRouter, toolNames.workbridgeVerify, toolNames.applyUnifiedPatch, toolNames.resolveLocator, toolNames.applyStructuredEdit, toolNames.checkWorkspaceInvariants);
   if (!ZIP_EXPORT_TOOLS_ENABLED) hidden.push(toolNames.exportWorkspaceZip, toolNames.createZipDownloadUrl);
   if (!ZIP_IMPORT_TOOLS_ENABLED) hidden.push(toolNames.importZipFromUrl, toolNames.extractImportedZip);
   if (!ZIP_IMPORT_PROBE_TOOLS_ENABLED) hidden.push(toolNames.probeImportFileArgShape, toolNames.probeImportFile, toolNames.importZipFile);
@@ -626,7 +626,7 @@ function optionalFeatureHints(): Array<{ feature: string; enabled: boolean; enab
       feature: "workflow_tools",
       enabled: WORKFLOW_TOOLS_ENABLED,
       enableWith: "DEVSPACE_ENABLE_WORKFLOW_TOOLS=1",
-      tools: ["devspace_verify", "devspace_router", "apply_unified_patch", "apply_structured_edit"],
+      tools: ["workbridge_verify", "workbridge_router", "apply_unified_patch", "apply_structured_edit"],
     },
     {
       feature: "zip_export_tools",
@@ -657,8 +657,8 @@ function openWorkspaceRecommendedWorkflow(config: ServerConfig): Record<string, 
       ? ["apply_patch", "read"]
       : ["edit_by_line_range", "edit", "apply_patch when codex mode"],
     verify: WORKFLOW_TOOLS_ENABLED
-      ? ["devspace_verify", "git_diff_check", "typecheck_only", "build"]
-      : ["bash for bounded verification", "enable DEVSPACE_ENABLE_WORKFLOW_TOOLS=1 for devspace_verify"],
+      ? ["workbridge_verify", "git_diff_check", "typecheck_only", "build"]
+      : ["bash for bounded verification", "enable DEVSPACE_ENABLE_WORKFLOW_TOOLS=1 for workbridge_verify"],
     command: [
       workspaceTasksEnabled() ? "launch_workspace_task for registered local tasks" : "enable WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1 for registered local tasks",
       processToolsEnabled() || config.toolMode === "codex" ? "exec_command + write_stdin for long-running or interactive commands" : "bash for short bounded commands",
@@ -679,7 +679,7 @@ function openWorkspaceStrategies(config: ServerConfig): Record<string, unknown> 
     },
     command: {
       registeredLocalTask: workspaceTasksEnabled() ? "launch_workspace_task" : "enable WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1",
-      fixedVerification: WORKFLOW_TOOLS_ENABLED ? "devspace_verify" : "enable DEVSPACE_ENABLE_WORKFLOW_TOOLS=1",
+      fixedVerification: WORKFLOW_TOOLS_ENABLED ? "workbridge_verify" : "enable DEVSPACE_ENABLE_WORKFLOW_TOOLS=1",
       shortBoundedCommand: "bash",
       longRunningOrInteractive: processToolsEnabled() || config.toolMode === "codex" ? "exec_command + write_stdin" : "enable WORKBRIDGE_ENABLE_PROCESS_TOOLS=1 or use codex mode",
       avoid: ["raw shell command when a registered workspace task exists", "repeating blocked command shapes"],
@@ -1257,8 +1257,8 @@ function workbridgeGuide(): WorkbridgeGuideResult {
     exec_command: "Use codex-mode process sessions for commands that may need polling, input, PTY, or Ctrl-C.",
     write_stdin: "Use with an exec_command sessionId to poll output, send input, resize PTY, or interrupt.",
     bash: "Use in minimal/full Workbridge modes for bounded tests/builds/inspection; avoid file mutation through shell.",
-    devspace_router: "Legacy-named Workbridge planner for bounded inspection, patch routing, and verification planning.",
-    devspace_verify: "Legacy-named Workbridge fixed verification runner; prefer it over ad-hoc bash for standard checks.",
+    workbridge_router: "Workbridge planner for bounded inspection, patch routing, and verification planning.",
+    workbridge_verify: "Workbridge fixed verification runner; prefer it over ad-hoc bash for standard checks.",
     run_codex_cli: "Optional local Codex CLI wrapper; this is separate from DEVSPACE_TOOL_MODE=codex.",
     git_status: "Check working-tree state before and after edits.",
     git_commit_files: "Commit explicitly selected changed files after tests and user approval or instruction.",
@@ -3632,7 +3632,7 @@ export function createServer(config = loadConfig()): RunningServer {
   );
 
   app.get("/healthz", (_req, res) => {
-    res.json({ ok: true, name: "devspace" });
+    res.json({ ok: true, name: "workbridge", legacyName: "devspace" });
   });
 
   app.get("/devspace-exports/:token.zip", (req, res) => {
@@ -3760,7 +3760,7 @@ if (await isMainModule()) {
   const { app, config, close } = createServer();
   const httpServer = app.listen(config.port, config.host, () => {
     console.log(
-      `devspace listening on http://${config.host}:${config.port}/mcp`,
+      `workbridge listening on http://${config.host}:${config.port}/mcp`,
     );
     console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log("auth: oauth owner-token flow required");

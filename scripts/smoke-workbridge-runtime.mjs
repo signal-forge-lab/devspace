@@ -22,7 +22,7 @@ function main() {
   if (!options.quick) {
     checks.push(runCheck("typecheck", npmBin(), ["run", "typecheck"], { timeoutMs: DEFAULT_TIMEOUT_MS }));
     if (existsSync(".devspace/workflow-events")) {
-      checks.push(runCheck("workflow_log_analysis_json", "node", ["scripts/analyze-devspace-logs.mjs", ".devspace/workflow-events", "--json"], { timeoutMs: DEFAULT_TIMEOUT_MS, validateJson: true }));
+      checks.push(runCheck("workflow_log_analysis_json", "node", ["scripts/analyze-workbridge-logs.mjs", ".devspace/workflow-events", "--json"], { timeoutMs: DEFAULT_TIMEOUT_MS, validateJson: true }));
     }
   }
 
@@ -118,32 +118,32 @@ function buildManualMcpChecks() {
   return [
     {
       id: "tool_visible",
-      action: "Confirm `devspace_verify` is visible in ChatGPT after DevSpace restart.",
+      action: "Confirm `workbridge_verify` is visible in ChatGPT after Workbridge restart.",
       expected: "Tool schema lists all fixed profiles, including build and git_status_check.",
     },
     {
       id: "git_status_check",
-      action: "Run `devspace_verify` with profile `git_status_check` and workflowMode `router`.",
+      action: "Run `workbridge_verify` with profile `git_status_check` and workflowMode `router`.",
       expected: "status=ok, no schema validation error, stdoutOmitted=false.",
     },
     {
       id: "git_diff_check",
-      action: "Run `devspace_verify` with profile `git_diff_check`.",
+      action: "Run `workbridge_verify` with profile `git_diff_check`.",
       expected: "status=ok and no `git diff --check` output.",
     },
     {
       id: "build_profile",
-      action: "Run `devspace_verify` with profile `build`.",
+      action: "Run `workbridge_verify` with profile `build`.",
       expected: "status=ok, stdoutOmitted=true, only bounded stderrTail for known chunk-size warning if present.",
     },
     {
       id: "workflow_event",
       action: "Run at least one verify profile with workflowMode `router`.",
-      expected: "`.devspace/workflow-events/events.jsonl` receives a devspace_verify event.",
+      expected: "`.devspace/workflow-events/events.jsonl` receives a workbridge_verify event.",
     },
     {
       id: "log_report",
-      action: "Run `npm run logs:report` or `node scripts/analyze-devspace-logs.mjs logs .devspace/workflow-events --html reports/devspace-log-analysis.html`.",
+      action: "Run `npm run logs:report` or `node scripts/analyze-workbridge-logs.mjs logs .devspace/workflow-events --html reports/devspace-log-analysis.html`.",
       expected: "HTML report contains Verify Profiles and Workflow Events sections.",
     },
   ];
@@ -151,7 +151,7 @@ function buildManualMcpChecks() {
 
 function formatText(report) {
   const lines = [];
-  lines.push("DevSpace Startup Smoke");
+  lines.push("Workbridge Startup Smoke");
   lines.push("======================");
   lines.push(`Generated: ${report.generatedAt}`);
   lines.push(`Package: ${report.package.name}@${report.package.version}`);
@@ -176,10 +176,10 @@ function tail(value, maxChars) {
 }
 
 function printHelp() {
-  console.log(`DevSpace startup smoke checker
+  console.log(`Workbridge startup smoke checker
 
 Usage:
-  node scripts/smoke-devspace-runtime.mjs [options]
+  node scripts/smoke-workbridge-runtime.mjs [options]
 
 Options:
       --quick   Run only quick local checks.
@@ -189,7 +189,7 @@ Options:
 
 Notes:
   This script cannot call ChatGPT MCP tools by itself. It prints the manual MCP
-  checks that should be run after restarting DevSpace.
+  checks that should be run after restarting Workbridge.
 `);
 }
 

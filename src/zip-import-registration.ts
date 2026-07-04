@@ -176,7 +176,7 @@ export function registerZipImportTools(options: RegisterZipImportToolsOptions): 
     {
       title: "Import ZIP file",
       description:
-        "Import an uploaded ZIP into isolated DevSpace storage.",
+        "Import an uploaded ZIP into isolated Workbridge storage.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace id."),
         file: fileOrUrlParameter,
@@ -239,7 +239,7 @@ export function registerZipImportTools(options: RegisterZipImportToolsOptions): 
     {
       title: "Import ZIP from URL",
       description:
-        "Import a ZIP from an HTTP(S) URL into isolated DevSpace storage.",
+        "Import a ZIP from an HTTP(S) URL into isolated Workbridge storage.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace id."),
         url: zipUrlParameter,
