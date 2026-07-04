@@ -144,6 +144,7 @@ dedicated feature flags. Workbridge uses `DEVSPACE_*` names for compatibility wi
 - `apply_unified_patch` is a Workbridge workflow tool for hash-guarded unified diffs with `expectedBase` / sha256 checks.
 - `bash` is the bounded command tool for `minimal` / `full` modes.
 - `exec_command` and `write_stdin` are process-session tools for `codex` mode.
+- `launch_workspace_task` is an opt-in Workbridge task launcher for allowlisted local workspace tasks. It accepts a task name plus either free-form `args` or a named template, without accepting a raw shell command string. The initial allowlisted task is `aegis_runner`; the initial template is `status_console_5s`.
 - `run_codex_cli` is a local Codex CLI wrapper and is separate from `DEVSPACE_TOOL_MODE=codex`.
 
 Codex-mode commands run without a PTY by default. Set `tty: true` on
@@ -175,6 +176,7 @@ Optional tool flags keep the default schema surface small:
 | `DEVSPACE_ENABLE_ZIP_IMPORT_TOOLS` | `0` | Enables ZIP import tools. |
 | `DEVSPACE_ENABLE_CODEX_CLI` | `0` | Enables the local Codex CLI wrapper tool. |
 | `DEVSPACE_ENABLE_TASK_TOOLS` | `0` | Enables task checkpoint/resume helpers. |
+| `WORKBRIDGE_ENABLE_WORKSPACE_TASKS` / `DEVSPACE_ENABLE_WORKSPACE_TASKS` | `0` | Enables `launch_workspace_task` for allowlisted local workspace task entrypoints. Initially supports `aegis_runner` with dynamic `args` and the `status_console_5s` template. |
 
 At startup DevSpace logs a compact `tool_registry_summary` event containing exposed tool names, hidden tool names, enabled profiles, and feature flag state. Prefer that local log event over repeated schema discovery when checking whether optional tools are hidden.
 

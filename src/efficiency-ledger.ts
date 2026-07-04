@@ -147,7 +147,7 @@ export function summarizeEfficiency(events: EfficiencyEvent[]): EfficiencySummar
   const verifyCallCount = toolCalls.filter((event) => event.tool === "devspace_verify").length;
   const structuredEditCallCount = toolCalls.filter((event) => isStructuredEditTool(event.tool)).length;
   const patchCallCount = toolCalls.filter((event) => isPatchTool(event.tool)).length;
-  const processCommandCallCount = toolCalls.filter((event) => event.tool === "exec_command").length;
+  const processCommandCallCount = toolCalls.filter((event) => event.tool === "exec_command" || event.tool === "launch_workspace_task").length;
   const processInteractionCallCount = toolCalls.filter((event) => event.tool === "write_stdin").length;
   const gitCallCount = toolCalls.filter((event) => String(event.tool ?? "").startsWith("git_")).length;
   const safetyBlockCount = events.filter((event) => event.event === "host_block" || event.category === "host_filter" || event.category === "client_filter").length;

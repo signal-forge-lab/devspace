@@ -48,6 +48,19 @@ assert.equal(foreground.exitCode, 0);
 assert.match(foreground.output, /foreground/);
 assert.equal(foreground.sessionId, undefined);
 
+const argvForeground = await manager.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  argv: {
+    executable: process.execPath,
+    args: ["-e", "console.log('argv-foreground')"],
+  },
+  yieldTimeMs: 2_000,
+});
+assert.equal(argvForeground.running, false);
+assert.equal(argvForeground.exitCode, 0);
+assert.match(argvForeground.output, /argv-foreground/);
+
 const environment = await manager.start({
   workspaceId: "workspace-a",
   cwd: process.cwd(),

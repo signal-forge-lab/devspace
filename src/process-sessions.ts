@@ -14,7 +14,12 @@ const DEFAULT_ROWS = 24;
 
 export interface StartCommandInput {
   workspaceId: string;
-  command: string;
+  command?: string;
+  argv?: {
+    executable: string;
+    args: string[];
+    displayCommand?: string;
+  };
   cwd: string;
   tty?: boolean;
   columns?: number;
@@ -317,15 +322,22 @@ export class ProcessSessionManager {
   }
 
   private startPipe(session: ProcessSession, input: StartCommandInput): void {
-    const shell = resolveShellCommand(input.command);
     const detached = process.platform !== "win32";
-    const child = spawn(input.command, {
+    const shell = input.argv ? undefined : resolveShellCommand(requiredCommand(input));
+    const child = input.argv ? spawn(input.argv.executable, input.argv.args, {
       cwd: input.cwd,
       env: processEnvironment(),
       stdio: "pipe",
       windowsHide: true,
       detached,
-      shell: shell.executable,
+      shell: false,
+    }) : spawn(requiredCommand(input), {
+      cwd: input.cwd,
+      env: processEnvironment(),
+      stdio: "pipe",
+      windowsHide: true,
+      detached,
+      shell: shell?.executable,
     });
 
     session.process = {
@@ -347,10 +359,10 @@ export class ProcessSessionManager {
       throw new Error("PTY support requires the optional node-pty dependency.");
     }
 
-    const shell = resolveShellCommand(input.command);
     let pty: import("node-pty").IPty;
+    const spawnSpec = input.argv ?? resolveShellCommand(requiredCommand(input));
     try {
-      pty = nodePty.spawn(shell.executable, shell.args, {
+      pty = nodePty.spawn(spawnSpec.executable, spawnSpec.args, {
         cwd: input.cwd,
         env: processEnvironment(),
         name: "xterm-256color",
@@ -419,4 +431,9 @@ export class ProcessSessionManager {
     if (session?.cleanupTimer) clearTimeout(session.cleanupTimer);
     this.sessions.delete(sessionId);
   }
+}
+
+function requiredCommand(input: StartCommandInput): string {
+  if (!input.command) throw new Error("Either command or argv must be provided.");
+  return input.command;
 }

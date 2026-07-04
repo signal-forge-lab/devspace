@@ -38,12 +38,14 @@ assert.ok(minimal.tools.includes("edit"));
 assert.ok(!minimal.tools.includes("apply_patch"));
 assert.ok(!minimal.tools.includes("exec_command"));
 assert.ok(!minimal.tools.includes("write_stdin"));
+assert.ok(!minimal.tools.includes("launch_workspace_task"));
 assert.ok(!minimal.tools.includes("grep"));
 assert.ok(!minimal.tools.includes("glob"));
 assert.ok(!minimal.tools.includes("ls"));
 assert.ok(minimal.hidden.includes("apply_patch"));
 assert.ok(minimal.hidden.includes("exec_command"));
 assert.ok(minimal.hidden.includes("write_stdin"));
+assert.ok(minimal.hidden.includes("launch_workspace_task"));
 assert.ok(minimal.hidden.includes("read_many"));
 assert.ok(!minimal.hidden.includes("read"));
 assert.ok(minimal.profiles.includes("tool_mode_minimal"));
@@ -57,6 +59,7 @@ assert.ok(full.tools.includes("ls"));
 assert.ok(!full.tools.includes("apply_patch"));
 assert.ok(!full.tools.includes("exec_command"));
 assert.ok(!full.tools.includes("write_stdin"));
+assert.ok(!full.tools.includes("launch_workspace_task"));
 assert.ok(full.hidden.includes("apply_patch"));
 assert.ok(full.profiles.includes("tool_mode_full"));
 
@@ -68,6 +71,7 @@ assert.ok(codex.tools.includes("read"));
 assert.ok(codex.tools.includes("apply_patch"));
 assert.ok(codex.tools.includes("exec_command"));
 assert.ok(codex.tools.includes("write_stdin"));
+assert.ok(!codex.tools.includes("launch_workspace_task"));
 assert.ok(codex.tools.includes("workspace_snapshot"));
 assert.ok(codex.tools.includes("grep_context"));
 assert.ok(!codex.tools.includes("bash"));
@@ -75,6 +79,7 @@ assert.ok(!codex.tools.includes("grep"));
 assert.ok(!codex.tools.includes("glob"));
 assert.ok(!codex.tools.includes("ls"));
 assert.ok(codex.hidden.includes("bash"));
+assert.ok(codex.hidden.includes("launch_workspace_task"));
 
 process.env.WORKBRIDGE_ENABLE_PROCESS_TOOLS = "1";
 try {
@@ -107,6 +112,30 @@ try {
   assert.ok(minimalWithLegacyProcessFlag.profiles.includes("process_tools"));
 } finally {
   delete process.env.DEVSPACE_ENABLE_PROCESS_TOOLS;
+}
+
+process.env.WORKBRIDGE_ENABLE_WORKSPACE_TASKS = "1";
+try {
+  const minimalWithWorkspaceTasks = surface("minimal");
+  assert.ok(minimalWithWorkspaceTasks.tools.includes("launch_workspace_task"));
+  assert.ok(!minimalWithWorkspaceTasks.hidden.includes("launch_workspace_task"));
+  assert.ok(minimalWithWorkspaceTasks.profiles.includes("workspace_tasks"));
+
+  const codexWithWorkspaceTasks = surface("codex");
+  assert.ok(codexWithWorkspaceTasks.tools.includes("launch_workspace_task"));
+  assert.ok(!codexWithWorkspaceTasks.hidden.includes("launch_workspace_task"));
+  assert.ok(codexWithWorkspaceTasks.profiles.includes("workspace_tasks"));
+} finally {
+  delete process.env.WORKBRIDGE_ENABLE_WORKSPACE_TASKS;
+}
+
+process.env.DEVSPACE_ENABLE_WORKSPACE_TASKS = "1";
+try {
+  const minimalWithLegacyWorkspaceTasks = surface("minimal");
+  assert.ok(minimalWithLegacyWorkspaceTasks.tools.includes("launch_workspace_task"));
+  assert.ok(minimalWithLegacyWorkspaceTasks.profiles.includes("workspace_tasks"));
+} finally {
+  delete process.env.DEVSPACE_ENABLE_WORKSPACE_TASKS;
 }
 assert.ok(codex.hidden.includes("read_many"));
 assert.ok(!codex.hidden.includes("read"));

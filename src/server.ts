@@ -91,6 +91,7 @@ import { WorkspaceZipImportStore } from "./workspace-zip-import.js";
 import { registerZipExportTools } from "./zip-export-registration.js";
 import { registerZipImportTools } from "./zip-import-registration.js";
 import { registerZipTransferTools } from "./zip-transfer-registration.js";
+import { resolveWorkspaceTask, WORKSPACE_TASK_NAMES } from "./workspace-tasks.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
 import { workspaceSnapshot } from "./workspace-snapshot.js";
@@ -145,6 +146,10 @@ const ZIP_EXPORT_TOOLS_ENABLED = process.env.DEVSPACE_ENABLE_ZIP_EXPORT_TOOLS ==
 const CODEX_CLI_ENABLED = process.env.DEVSPACE_ENABLE_CODEX_CLI === "1";
 const TASK_TOOLS_ENABLED = process.env.DEVSPACE_ENABLE_TASK_TOOLS === "1";
 const WORKFLOW_TOOLS_ENABLED = process.env.DEVSPACE_ENABLE_WORKFLOW_TOOLS === "1";
+
+function workspaceTasksEnabled(): boolean {
+  return process.env.WORKBRIDGE_ENABLE_WORKSPACE_TASKS === "1" || process.env.DEVSPACE_ENABLE_WORKSPACE_TASKS === "1";
+}
 
 function processToolsEnabled(): boolean {
   return process.env.WORKBRIDGE_ENABLE_PROCESS_TOOLS === "1" || process.env.DEVSPACE_ENABLE_PROCESS_TOOLS === "1";
@@ -277,6 +282,7 @@ export interface ToolNames {
   applyPatch: "apply_patch";
   execCommand: "exec_command";
   writeStdin: "write_stdin";
+  launchWorkspaceTask: "launch_workspace_task";
 }
 
 interface ToolLogFields {
@@ -373,6 +379,7 @@ export function toolNamesFor(_config: ServerConfig): ToolNames {
     applyPatch: "apply_patch",
     execCommand: "exec_command",
     writeStdin: "write_stdin",
+    launchWorkspaceTask: "launch_workspace_task",
   };
 }
 
@@ -393,6 +400,9 @@ function serverInstructions(config: ServerConfig, toolNames: ToolNames): string 
   const processTools = processToolsEnabled()
     ? " Process session tools are enabled by env flag."
     : "";
+  const workspaceTasks = workspaceTasksEnabled()
+    ? ` Registered workspace task launch is enabled by env flag; use ${toolNames.launchWorkspaceTask} for allowlisted local task entrypoints instead of raw shell commands when a matching task exists.`
+    : "";
 
   if (config.toolMode === "codex") {
     return `Use Workbridge as a local AI workbridge for coding workspaces. Workbridge is the public display name; DevSpace is the legacy internal name kept for compatibility. Call ${toolNames.workbridgeGuide} if unfamiliar. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Use ${toolNames.read} for direct file reads, ${toolNames.applyPatch} for Codex patch-format file modifications, ${toolNames.execCommand} for inspection, tests, builds, and other commands, and ${toolNames.writeStdin} to poll or interact with running processes. Workbridge may also expose bounded inspection, guide, efficiency, git status, and workflow helper tools in codex mode; prefer ${toolNames.applyPatch} over legacy edit tools for file mutations. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${showChanges}`;
@@ -401,7 +411,7 @@ function serverInstructions(config: ServerConfig, toolNames: ToolNames): string 
   const inspection = config.toolMode !== "full"
     ? `In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are hidden; prefer ${toolNames.workspaceSnapshot}, ${toolNames.fileOutline}, ${toolNames.grepContext}, ${toolNames.createWorkspaceIndex}, and ${toolNames.readIndexRanges} before broad shell commands. `
     : `Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, ${toolNames.ls}, ${toolNames.workspaceSnapshot}, ${toolNames.grepContext}, and ${toolNames.fileOutline} for file inspection. `;
-  return `Use Workbridge as a local AI workbridge for coding workspaces. Workbridge is the public display name; DevSpace is the legacy internal name kept for compatibility. If you are unfamiliar with this connector, call ${toolNames.workbridgeGuide} before opening or editing a workspace. Open one workspace, reuse its workspaceId, keep outputs small, and follow AGENTS.md plus project docs for detailed workflow rules. ${inspection}Do not use shell commands to modify project files. Record host/client filter events when the event tool is available.${legacyRead}${editMany}${zipExport}${processTools}${showChanges}`;
+  return `Use Workbridge as a local AI workbridge for coding workspaces. Workbridge is the public display name; DevSpace is the legacy internal name kept for compatibility. If you are unfamiliar with this connector, call ${toolNames.workbridgeGuide} before opening or editing a workspace. Open one workspace, reuse its workspaceId, keep outputs small, and follow AGENTS.md plus project docs for detailed workflow rules. ${inspection}Do not use shell commands to modify project files. Record host/client filter events when the event tool is available.${legacyRead}${editMany}${zipExport}${processTools}${workspaceTasks}${showChanges}`;
 }
 
 function minimalHiddenToolNames(toolNames: ToolNames): string[] {
@@ -473,6 +483,7 @@ export function expectedRegisteredToolNames(config: ServerConfig, toolNames: Too
   if (ZIP_IMPORT_PROBE_TOOLS_ENABLED) names.push(toolNames.probeImportFileArgShape, toolNames.probeImportFile, toolNames.importZipFile);
   if (LEGACY_READ_TOOLS_ENABLED) names.push(toolNames.readMany);
   if (EDIT_MANY_ENABLED) names.push(toolNames.editMany);
+  if (workspaceTasksEnabled()) names.push(toolNames.launchWorkspaceTask);
   if (config.widgets === "changes") names.push("show_changes");
   return Array.from(new Set(names));
 }
@@ -496,6 +507,7 @@ export function hiddenRegisteredToolNames(config: ServerConfig, toolNames: ToolN
   if (!ZIP_IMPORT_PROBE_TOOLS_ENABLED) hidden.push(toolNames.probeImportFileArgShape, toolNames.probeImportFile, toolNames.importZipFile);
   if (!LEGACY_READ_TOOLS_ENABLED) hidden.push(toolNames.readMany);
   if (!EDIT_MANY_ENABLED) hidden.push(toolNames.editMany);
+  if (!workspaceTasksEnabled()) hidden.push(toolNames.launchWorkspaceTask);
   if (config.widgets !== "changes") hidden.push("show_changes");
 
   return Array.from(new Set(hidden)).sort();
@@ -511,6 +523,7 @@ export function enabledToolProfiles(config: ServerConfig): string[] {
   if (ZIP_IMPORT_TOOLS_ENABLED) profiles.push("zip_import_tools");
   if (ZIP_IMPORT_PROBE_TOOLS_ENABLED) profiles.push("zip_import_probe_tools");
   if (processToolsEnabled()) profiles.push("process_tools");
+  if (workspaceTasksEnabled()) profiles.push("workspace_tasks");
   if (LEGACY_READ_TOOLS_ENABLED) profiles.push("legacy_read_tools");
   if (EDIT_MANY_ENABLED) profiles.push("edit_many");
   return profiles;
@@ -527,6 +540,7 @@ function logToolRegistrySummary(config: ServerConfig, toolNames: ToolNames): voi
     zipImportProbeTools: ZIP_IMPORT_PROBE_TOOLS_ENABLED,
     zipExportTools: ZIP_EXPORT_TOOLS_ENABLED,
     processTools: processToolsEnabled(),
+    workspaceTasks: workspaceTasksEnabled(),
     codexCli: CODEX_CLI_ENABLED,
     taskTools: TASK_TOOLS_ENABLED,
     workflowTools: WORKFLOW_TOOLS_ENABLED,
@@ -1223,7 +1237,7 @@ function processOutputSchema(): z.ZodRawShape {
 }
 
 function processToolResponse(
-  tool: "exec_command" | "write_stdin",
+  tool: "exec_command" | "write_stdin" | "launch_workspace_task",
   workspaceId: string,
   snapshot: ProcessSnapshot,
   summary: Record<string, unknown>,
@@ -1251,6 +1265,132 @@ function processToolResponse(
       outputTruncated: snapshot.outputTruncated,
     },
   };
+}
+
+function workspaceTaskOutputSchema(): z.ZodRawShape {
+  return resultOutputSchema({
+    task: z.string().optional(),
+    template: z.string().optional(),
+    command: z.string().optional(),
+    executable: z.string().optional(),
+    args: z.array(z.string()).optional(),
+    dryRun: z.boolean().optional(),
+    sessionId: z.number().optional(),
+    running: z.boolean().optional(),
+    exitCode: z.number().int().optional(),
+    signal: z.string().optional(),
+    wallTimeMs: z.number().nonnegative().optional(),
+    outputTruncated: z.boolean().optional(),
+  });
+}
+
+function registerWorkspaceTaskTool(
+  server: McpServer,
+  config: ServerConfig,
+  workspaces: WorkspaceRegistry,
+  processSessions: ProcessSessionManager,
+): void {
+  const taskEnum = z.enum(WORKSPACE_TASK_NAMES);
+  registerAppTool(
+    server,
+    "launch_workspace_task",
+    {
+      title: "Launch workspace task",
+      description:
+        "Launch an allowlisted workspace task without accepting a raw shell command. The initial allowlisted task is aegis_runner. Use template for common start patterns or args for dynamic CLI arguments.",
+      inputSchema: {
+        workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
+        task: taskEnum.describe("Allowlisted workspace task to launch."),
+        template: z.string().optional().describe("Optional named template for common task arguments, such as status_console_5s."),
+        args: z.array(z.string()).optional().describe("Optional CLI arguments appended after the task template arguments."),
+        dryRun: z.boolean().optional().describe("Resolve and return the command without launching it."),
+        tty: z.boolean().optional().describe("Allocate a pseudo-terminal when supported. Defaults to false."),
+        columns: z.number().int().min(1).max(1_000).optional().describe("Initial PTY width. Defaults to 80."),
+        rows: z.number().int().min(1).max(1_000).optional().describe("Initial PTY height. Defaults to 24."),
+        workingDirectory: z.string().optional().describe("Working directory relative to the workspace root. Defaults to the workspace root."),
+        yieldTimeMs: z.number().int().min(0).max(30_000).optional().describe("Milliseconds to wait before returning a running session."),
+        maxOutputTokens: z.number().int().positive().max(100_000).optional().describe("Approximate output token budget."),
+      },
+      outputSchema: workspaceTaskOutputSchema(),
+      ...toolWidgetDescriptorMeta(config, "shell"),
+      annotations: SHELL_TOOL_ANNOTATIONS,
+    },
+    async ({ workspaceId, task, template, args, dryRun, tty, columns, rows, workingDirectory, yieldTimeMs, maxOutputTokens }) => {
+      const startedAt = performance.now();
+      const workspace = workspaces.getWorkspace(workspaceId);
+      const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
+      const resolved = await resolveWorkspaceTask({
+        workspaceRoot: workspace.root,
+        task,
+        args,
+        template,
+      });
+
+      if (dryRun) {
+        const result = `Resolved workspace task ${resolved.task}: ${resolved.command}`;
+        const content = [textBlock(result)];
+        logToolCall(config, {
+          tool: "launch_workspace_task",
+          workspaceId,
+          workingDirectory: workingDirectory ?? ".",
+          command: resolved.command,
+          commandLength: resolved.command.length,
+          operation: "dry_run",
+          dryRun: true,
+          success: true,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        return {
+          content,
+          structuredContent: {
+            result,
+            task: resolved.task,
+            template: resolved.template,
+            command: resolved.command,
+            executable: resolved.executable,
+            args: resolved.args,
+            dryRun: true,
+          },
+        };
+      }
+
+      const snapshot = await processSessions.start({
+        workspaceId,
+        argv: {
+          executable: resolved.executable,
+          args: resolved.args,
+          displayCommand: resolved.command,
+        },
+        cwd,
+        tty,
+        columns,
+        rows,
+        yieldTimeMs,
+        maxOutputTokens,
+      });
+
+      logToolCall(config, {
+        tool: "launch_workspace_task",
+        workspaceId,
+        workingDirectory: workingDirectory ?? ".",
+        command: resolved.command,
+        commandLength: resolved.command.length,
+        operation: resolved.task,
+        success: true,
+        durationMs: Math.round(performance.now() - startedAt),
+      });
+
+      return processToolResponse("launch_workspace_task", workspaceId, snapshot, {
+        task: resolved.task,
+        template: resolved.template,
+        command: resolved.command,
+        workingDirectory: workingDirectory ?? ".",
+        running: snapshot.running,
+        exitCode: snapshot.exitCode,
+        wallTimeMs: snapshot.wallTimeMs,
+      });
+    },
+  );
 }
 
 function registerCodexProcessTools(
@@ -3451,7 +3591,11 @@ function createMcpServer(
   );
   }
 
-  if (config.toolMode === "codex") {
+  if (workspaceTasksEnabled()) {
+    registerWorkspaceTaskTool(server, config, workspaces, processSessions);
+  }
+
+  if (config.toolMode === "codex" || processToolsEnabled()) {
     registerCodexProcessTools(server, config, workspaces, processSessions);
   }
 

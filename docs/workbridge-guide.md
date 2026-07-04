@@ -39,9 +39,20 @@ Do not use shell redirection, `tee`, `sed -i`, or ad-hoc scripts for project fil
 | Tool | Use when |
 | --- | --- |
 | `devspace_verify` | Fixed verification profiles such as git status/diff, typecheck, tests, and build. Prefer this over ad-hoc shell when a profile fits. |
+| `launch_workspace_task` | Opt-in launcher for allowlisted local workspace tasks without accepting raw shell command strings. Initially supports `aegis_runner` with `args` or the `status_console_5s` template. |
 | `bash` | Bounded minimal/full-mode tests, builds, and inspection commands. Keep output small and avoid file mutation through shell. |
 | `exec_command` | Codex-mode process session command for long-running, interactive, PTY, polling, or Ctrl-C workflows. |
 | `write_stdin` | Follow-up tool for an `exec_command` session. Use it to poll, send input, resize PTY, or interrupt. |
+
+Enable workspace tasks with `WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1` or the legacy-compatible `DEVSPACE_ENABLE_WORKSPACE_TASKS=1`. Example payloads:
+
+```json
+{"task":"aegis_runner","template":"status_console_5s","tty":true,"yieldTimeMs":1000}
+```
+
+```json
+{"task":"aegis_runner","args":["--launch-status-console","--status-console-refresh-seconds","5"],"tty":true,"yieldTimeMs":1000}
+```
 
 ## Router guidance
 
