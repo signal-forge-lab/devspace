@@ -131,9 +131,10 @@ dedicated feature flags. Workbridge uses `DEVSPACE_*` names for compatibility wi
 
 | Value | Behavior |
 | --- | --- |
-| `minimal` | Default Workbridge profile. Exposes core workspace, bounded inspection, targeted edit, git status/commit, shell, event, guide, and efficiency-report tools; hides advanced edit/git helpers plus dedicated `grep`, `glob`, and `ls`. |
-| `full` | Enables the advanced edit/git helpers plus dedicated `grep`, `glob`, and `ls` tools. |
-| `codex` | Codex-compatible Workbridge mode. Exposes `open_workspace`, `read`, `apply_patch`, `exec_command`, and `write_stdin`, while Workbridge guide/diagnostics/bounded workflow helpers may also remain visible. |
+| `minimal` | Default Workbridge profile. Exposes core workspace, bounded Workbridge inspection, targeted edit, git status/commit, and shell tools; hides advanced edit/git helpers plus dedicated `grep`, `glob`, and `ls`. |
+| `full` | Enables the advanced Workbridge edit/git helpers plus dedicated `grep`, `glob`, and `ls` tools. |
+| `main` | Main-only profile. Exposes upstream-style main tools only: `open_workspace`, `read`, `write`, `edit`, `bash`, `grep`, `glob`, and `ls`. Fork-origin Workbridge helpers remain hidden. |
+| `codex` | Main + main/codex profile. Exposes main tools plus `apply_patch`, `exec_command`, and `write_stdin`. Fork-origin Workbridge helpers remain hidden. |
 
 `DEVSPACE_MINIMAL_TOOLS` remains a backward-compatible alias when
 `DEVSPACE_TOOL_MODE` is unset: `1` selects `minimal` and `0` selects `full`.
@@ -142,15 +143,14 @@ dedicated feature flags. Workbridge uses `DEVSPACE_*` names for compatibility wi
 ### Tool selection notes
 
 - `apply_patch` uses Codex patch format and is best for add/update/delete/move operations in `codex` mode.
-- `apply_unified_patch` is a Workbridge workflow tool for hash-guarded unified diffs with `expectedBase` / sha256 checks.
-- `bash` is the bounded command tool for `minimal` / `full` modes.
-- `exec_command` and `write_stdin` are process-session tools for `codex` mode.
+- `apply_unified_patch` is a Workbridge workflow tool for hash-guarded unified diffs with `expectedBase` / sha256 checks. It is available only when fork-origin workflow tools are enabled in a Workbridge mode.
+- `bash` is the bounded command tool for `minimal` / `full` / `main` / `codex` modes.
+- `exec_command` and `write_stdin` are process-session tools for `codex` mode, or when process tools are explicitly enabled.
 - `launch_workspace_task` is an opt-in Workbridge task launcher for allowlisted local workspace tasks. It accepts a task name plus either free-form `args` or a named template, without accepting a raw shell command string. The initial allowlisted task is `aegis_runner`; templates are `status_console_5s`, `daemon_confirm_post`, `daemon_confirm_post_bounded_10m`, `request_pause`, and `resume_daemon`.
 
 - `run_codex_cli` is a local Codex CLI wrapper and is separate from `DEVSPACE_TOOL_MODE=codex`.
 
-`open_workspace` returns a compact workspace guidance bundle so clients do not need to rediscover every tool schema before choosing a workflow. The structured response includes `toolSurface`, `recommendedWorkflow`, `workspaceTasks`, `verificationProfiles`, and `strategies` for edit, command, and git operations. Treat this as the first routing hint for the workspace, then call `workspace_snapshot` for repository state.
-
+`open_workspace` returns a compact workspace guidance bundle so clients do not need to rediscover every tool schema before choosing a workflow. The structured response includes `toolSurface`, `recommendedWorkflow`, `workspaceTasks`, `verificationProfiles`, and `strategies` for edit, command, and git operations. Treat this as the first routing hint for the workspace; in main-only modes use the returned tool surface instead of fork-origin inspection helpers.
 Codex-mode commands run without a PTY by default. Set `tty: true` on
 `exec_command` for interactive terminal programs. PTY support uses the optional
 `node-pty` dependency; `write_stdin` can send input, poll output, and resize PTY

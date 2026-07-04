@@ -426,48 +426,7 @@ export function registerWorkflowTools(options: RegisterWorkflowToolsOptions): vo
     },
   );
 
-  registerAppTool(
-    server,
-    toolNames.recordWorkflowEvent,
-    {
-      title: "Record workflow event",
-      description: "Append a small workflow-mode event for baseline/zip_first/router comparison.",
-      inputSchema: {
-        workspaceId: z.string(),
-        workflowMode: workflowModeSchema,
-        event: z.string().max(120),
-        action: z.string().max(120).optional(),
-        tool: z.string().max(120).optional(),
-        status: z.string().max(80).optional(),
-        filesRead: z.number().int().nonnegative().optional(),
-        filesChanged: z.number().int().nonnegative().optional(),
-        testsRun: z.number().int().nonnegative().optional(),
-        hostBlocks: z.number().int().nonnegative().optional(),
-        outputChars: z.number().int().nonnegative().optional(),
-        durationMs: z.number().int().nonnegative().optional(),
-        note: z.string().max(1000).optional(),
-      },
-      outputSchema: resultSchema({
-        recorded: z.boolean(),
-        eventId: z.string(),
-        path: z.string(),
-        workflowMode: workflowModeSchema,
-      }),
-      _meta: {},
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    },
-    async ({ workspaceId, ...input }) => {
-      const startedAt = performance.now();
-      try {
-        const workspace = workspaces.getWorkspace(workspaceId);
-        const result = await recordWorkflowEvent({ ...input, workspace, workflowMode: input.workflowMode as WorkflowMode });
-        logToolCall({ tool: toolNames.recordWorkflowEvent, workspaceId, operation: "record_workflow_event", resultCharacters: result.result.length, success: true, durationMs: Math.round(performance.now() - startedAt) });
-        return { content: [textBlock(result.result)], structuredContent: result };
-      } catch (error) {
-        return failed(toolNames.recordWorkflowEvent, workspaceId, undefined, startedAt, error, logToolCall);
-      }
-    },
-  );
+
 }
 
 function resultSchema(extra: z.ZodRawShape): z.ZodRawShape {

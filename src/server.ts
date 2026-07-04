@@ -384,10 +384,7 @@ export function toolNamesFor(_config: ServerConfig): ToolNames {
 }
 
 function serverInstructions(config: ServerConfig, toolNames: ToolNames): string {
-  const showChanges =
-    config.widgets === "changes"
-      ? " If the turn successfully modifies files, call show_changes exactly once for that workspace after the final related file change and before your final response."
-      : "";
+  const showChanges = "";
   const legacyRead = LEGACY_READ_TOOLS_ENABLED
     ? " Legacy direct read tools are enabled by env flag."
     : "";
@@ -405,21 +402,32 @@ function serverInstructions(config: ServerConfig, toolNames: ToolNames): string 
     : "";
 
   if (config.toolMode === "codex") {
-    return `Use Workbridge as a local AI workbridge for coding workspaces. Workbridge is the public display name; DevSpace is the legacy internal name kept for compatibility. Call ${toolNames.workbridgeGuide} if unfamiliar. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Use ${toolNames.read} for direct file reads, ${toolNames.applyPatch} for Codex patch-format file modifications, ${toolNames.execCommand} for inspection, tests, builds, and other commands, and ${toolNames.writeStdin} to poll or interact with running processes. Workbridge may also expose bounded inspection, guide, efficiency, git status, and workflow helper tools in codex mode; prefer ${toolNames.applyPatch} over legacy edit tools for file mutations. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${showChanges}`;
+    return `Use Workbridge as a local AI workbridge for coding workspaces. Workbridge is the public display name; DevSpace is the legacy internal name kept for compatibility. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Codex mode exposes main tools plus ${toolNames.applyPatch}, ${toolNames.execCommand}, and ${toolNames.writeStdin}; fork-origin Workbridge helpers remain hidden. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${workspaceTasks}${showChanges}`;
   }
 
-  const inspection = config.toolMode !== "full"
-    ? `In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are hidden; prefer ${toolNames.workspaceSnapshot}, ${toolNames.fileOutline}, ${toolNames.grepContext}, ${toolNames.createWorkspaceIndex}, and ${toolNames.readIndexRanges} before broad shell commands. `
-    : `Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, ${toolNames.ls}, ${toolNames.workspaceSnapshot}, ${toolNames.grepContext}, and ${toolNames.fileOutline} for file inspection. `;
-  return `Use Workbridge as a local AI workbridge for coding workspaces. Workbridge is the public display name; DevSpace is the legacy internal name kept for compatibility. If you are unfamiliar with this connector, call ${toolNames.workbridgeGuide} before opening or editing a workspace. Open one workspace, reuse its workspaceId, keep outputs small, and follow AGENTS.md plus project docs for detailed workflow rules. ${inspection}Do not use shell commands to modify project files. Record host/client filter events when the event tool is available.${legacyRead}${editMany}${zipExport}${processTools}${workspaceTasks}${showChanges}`;
+  if (config.toolMode === "main") {
+    return `Use Workbridge as a local AI workbridge for coding workspaces. Main mode exposes upstream-style tools only: ${toolNames.openWorkspace}, ${toolNames.read}, ${toolNames.write}, ${toolNames.edit}, ${toolNames.grep}, ${toolNames.glob}, ${toolNames.ls}, and ${toolNames.shell}. Fork-origin Workbridge helpers remain hidden. Reuse the workspaceId returned by ${toolNames.openWorkspace}.${processTools}${workspaceTasks}${showChanges}`;
+  }
+
+  const inspection = isForkToolMode(config)
+    ? (config.toolMode !== "full"
+      ? `In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are hidden; prefer ${toolNames.workspaceSnapshot}, ${toolNames.fileOutline}, ${toolNames.grepContext}, ${toolNames.createWorkspaceIndex}, and ${toolNames.readIndexRanges} before broad shell commands. `
+      : `Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, ${toolNames.ls}, ${toolNames.workspaceSnapshot}, ${toolNames.grepContext}, and ${toolNames.fileOutline} for file inspection. `)
+    : `Use ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, ${toolNames.ls}, and ${toolNames.shell} for inspection. `;
+  return `Use Workbridge as a local AI workbridge for coding workspaces. Workbridge is the public display name; DevSpace is the legacy internal name kept for compatibility. Open one workspace, reuse its workspaceId, keep outputs small, and follow AGENTS.md plus project docs for detailed workflow rules. ${inspection}Do not use shell commands to modify project files when an editing tool fits.${legacyRead}${editMany}${zipExport}${processTools}${workspaceTasks}${showChanges}`;}
+
+function isForkToolMode(config: ServerConfig): boolean {
+  return config.toolMode === "minimal" || config.toolMode === "full";
+}
+
+function isMainExpandedToolMode(config: ServerConfig): boolean {
+  return config.toolMode === "main" || config.toolMode === "full" || config.toolMode === "codex";
 }
 
 function minimalHiddenToolNames(toolNames: ToolNames): string[] {
   return [
-    toolNames.editPlanPreflight,
     toolNames.insertByAnchor,
     toolNames.replaceSymbol,
-    toolNames.safeOperationRouter,
     toolNames.gitRecentCommits,
     toolNames.gitStageFiles,
     toolNames.gitStageHunks,
@@ -431,16 +439,11 @@ function minimalHiddenToolNames(toolNames: ToolNames): string[] {
   ];
 }
 
-export function expectedRegisteredToolNames(config: ServerConfig, toolNames: ToolNames): string[] {
-  const names: string[] = [
-    toolNames.workbridgeGuide,
-    toolNames.workbridgeEfficiencyReport,
-    toolNames.openWorkspace,
+function forkToolNames(toolNames: ToolNames): string[] {
+  return [
     toolNames.workspaceSnapshot,
-    toolNames.recordToolEvent,
     toolNames.editByLineRange,
     toolNames.editPreflightIndex,
-    toolNames.bashPreflight,
     toolNames.createWorkspaceIndex,
     toolNames.readIndexRanges,
     toolNames.gitStatus,
@@ -448,71 +451,107 @@ export function expectedRegisteredToolNames(config: ServerConfig, toolNames: Too
     toolNames.gitCommitFiles,
     toolNames.grepContext,
     toolNames.fileOutline,
+    toolNames.insertByAnchor,
+    toolNames.replaceSymbol,
+    toolNames.gitRecentCommits,
+    toolNames.gitStageFiles,
+    toolNames.gitStageHunks,
+    toolNames.gitCommitStaged,
+    toolNames.devspaceRouter,
+    toolNames.devspaceVerify,
+    toolNames.applyUnifiedPatch,
+    toolNames.resolveLocator,
+    toolNames.applyStructuredEdit,
+    toolNames.checkWorkspaceInvariants,
+    toolNames.readMany,
+    toolNames.editMany,
+  ];
+}
+
+export function expectedRegisteredToolNames(config: ServerConfig, toolNames: ToolNames): string[] {
+  const names: string[] = [
+    toolNames.openWorkspace,
     toolNames.read,
     toolNames.edit,
+    toolNames.shell,
   ];
 
-  if (config.toolMode === "codex") {
-    names.push(toolNames.applyPatch, toolNames.execCommand, toolNames.writeStdin);
-  } else {
-    names.push(toolNames.shell);
-    if (processToolsEnabled()) names.push(toolNames.execCommand, toolNames.writeStdin);
+  if (isMainExpandedToolMode(config)) {
+    names.push(toolNames.write, toolNames.grep, toolNames.glob, toolNames.ls);
   }
 
-  if (config.toolMode === "full") {
+  if (isForkToolMode(config)) {
     names.push(
-      toolNames.editPlanPreflight,
-      toolNames.insertByAnchor,
-      toolNames.replaceSymbol,
-      toolNames.safeOperationRouter,
-      toolNames.gitRecentCommits,
-      toolNames.gitStageFiles,
-      toolNames.gitStageHunks,
-      toolNames.gitCommitStaged,
-      toolNames.write,
-      toolNames.grep,
-      toolNames.glob,
-      toolNames.ls,
+      toolNames.workspaceSnapshot,
+      toolNames.editByLineRange,
+      toolNames.editPreflightIndex,
+      toolNames.createWorkspaceIndex,
+      toolNames.readIndexRanges,
+      toolNames.gitStatus,
+      toolNames.gitDiffRanges,
+      toolNames.gitCommitFiles,
+      toolNames.grepContext,
+      toolNames.fileOutline,
     );
+    if (config.toolMode === "full") {
+      names.push(
+        toolNames.insertByAnchor,
+        toolNames.replaceSymbol,
+        toolNames.gitRecentCommits,
+        toolNames.gitStageFiles,
+        toolNames.gitStageHunks,
+        toolNames.gitCommitStaged,
+      );
+    }
+    if (WORKFLOW_TOOLS_ENABLED) names.push(toolNames.devspaceRouter, toolNames.devspaceVerify, toolNames.applyUnifiedPatch, toolNames.resolveLocator, toolNames.applyStructuredEdit, toolNames.checkWorkspaceInvariants);
+    if (LEGACY_READ_TOOLS_ENABLED) names.push(toolNames.readMany);
+    if (EDIT_MANY_ENABLED) names.push(toolNames.editMany);
   }
+
+  if (config.toolMode === "codex") names.push(toolNames.applyPatch, toolNames.execCommand, toolNames.writeStdin);
+  else if (processToolsEnabled()) names.push(toolNames.execCommand, toolNames.writeStdin);
+
   if (CODEX_CLI_ENABLED) names.push(CODEX_CLI_RUNNER_TOOL_NAME);
-  if (TASK_TOOLS_ENABLED) names.push(toolNames.taskCheckpoint, toolNames.taskResume);
-  if (WORKFLOW_TOOLS_ENABLED) names.push(toolNames.devspaceRouter, toolNames.devspaceVerify, toolNames.applyUnifiedPatch, toolNames.resolveLocator, toolNames.applyStructuredEdit, toolNames.checkWorkspaceInvariants, toolNames.recordWorkflowEvent);
   if (ZIP_EXPORT_TOOLS_ENABLED) names.push(toolNames.exportWorkspaceZip, toolNames.createZipDownloadUrl);
   if (ZIP_IMPORT_TOOLS_ENABLED) names.push(toolNames.importZipFromUrl, toolNames.extractImportedZip);
   if (ZIP_IMPORT_PROBE_TOOLS_ENABLED) names.push(toolNames.probeImportFileArgShape, toolNames.probeImportFile, toolNames.importZipFile);
-  if (LEGACY_READ_TOOLS_ENABLED) names.push(toolNames.readMany);
-  if (EDIT_MANY_ENABLED) names.push(toolNames.editMany);
   if (workspaceTasksEnabled()) names.push(toolNames.launchWorkspaceTask);
-  if (config.widgets === "changes") names.push("show_changes");
   return Array.from(new Set(names));
 }
 
 
 export function hiddenRegisteredToolNames(config: ServerConfig, toolNames: ToolNames): string[] {
-  const hidden: string[] = [];
+  const hidden: string[] = [
+    toolNames.workbridgeGuide,
+    toolNames.workbridgeEfficiencyReport,
+    toolNames.recordToolEvent,
+    toolNames.editPlanPreflight,
+    toolNames.safeOperationRouter,
+    toolNames.bashPreflight,
+    toolNames.taskCheckpoint,
+    toolNames.taskResume,
+    toolNames.recordWorkflowEvent,
+    "show_changes",
+  ];
 
-  if (config.toolMode !== "full") hidden.push(...minimalHiddenToolNames(toolNames));
-  if (config.toolMode === "codex") hidden.push(toolNames.shell);
-  else {
-    hidden.push(toolNames.applyPatch);
-    if (!processToolsEnabled()) hidden.push(toolNames.execCommand, toolNames.writeStdin);
-  }
+  if (!isForkToolMode(config)) hidden.push(...forkToolNames(toolNames));
+  else if (config.toolMode !== "full") hidden.push(...minimalHiddenToolNames(toolNames));
+
+  if (config.toolMode !== "codex") hidden.push(toolNames.applyPatch);
+  if (config.toolMode !== "codex" && !processToolsEnabled()) hidden.push(toolNames.execCommand, toolNames.writeStdin);
+  if (!isMainExpandedToolMode(config)) hidden.push(toolNames.write, toolNames.grep, toolNames.glob, toolNames.ls);
 
   if (!CODEX_CLI_ENABLED) hidden.push(CODEX_CLI_RUNNER_TOOL_NAME);
-  if (!TASK_TOOLS_ENABLED) hidden.push(toolNames.taskCheckpoint, toolNames.taskResume);
-  if (!WORKFLOW_TOOLS_ENABLED) hidden.push(toolNames.devspaceRouter, toolNames.devspaceVerify, toolNames.applyUnifiedPatch, toolNames.resolveLocator, toolNames.applyStructuredEdit, toolNames.checkWorkspaceInvariants, toolNames.recordWorkflowEvent);
+  if (isForkToolMode(config) && !WORKFLOW_TOOLS_ENABLED) hidden.push(toolNames.devspaceRouter, toolNames.devspaceVerify, toolNames.applyUnifiedPatch, toolNames.resolveLocator, toolNames.applyStructuredEdit, toolNames.checkWorkspaceInvariants);
   if (!ZIP_EXPORT_TOOLS_ENABLED) hidden.push(toolNames.exportWorkspaceZip, toolNames.createZipDownloadUrl);
   if (!ZIP_IMPORT_TOOLS_ENABLED) hidden.push(toolNames.importZipFromUrl, toolNames.extractImportedZip);
   if (!ZIP_IMPORT_PROBE_TOOLS_ENABLED) hidden.push(toolNames.probeImportFileArgShape, toolNames.probeImportFile, toolNames.importZipFile);
-  if (!LEGACY_READ_TOOLS_ENABLED) hidden.push(toolNames.readMany);
-  if (!EDIT_MANY_ENABLED) hidden.push(toolNames.editMany);
+  if (isForkToolMode(config) && !LEGACY_READ_TOOLS_ENABLED) hidden.push(toolNames.readMany);
+  if (isForkToolMode(config) && !EDIT_MANY_ENABLED) hidden.push(toolNames.editMany);
   if (!workspaceTasksEnabled()) hidden.push(toolNames.launchWorkspaceTask);
-  if (config.widgets !== "changes") hidden.push("show_changes");
 
   return Array.from(new Set(hidden)).sort();
 }
-
 
 export function enabledToolProfiles(config: ServerConfig): string[] {
   const profiles = [`tool_mode_${config.toolMode}`, `widgets_${config.widgets}`];
@@ -1691,87 +1730,7 @@ function createMcpServer(
     },
   );
 
-  registerAppTool(
-    server,
-    toolNames.workbridgeGuide,
-    {
-      title: "Workbridge guide",
-      description:
-        "Read-only onboarding guide for using Workbridge safely. Call this first when the client is unfamiliar with Workbridge or legacy DevSpace tool names.",
-      inputSchema: {},
-      outputSchema: resultOutputSchema({
-        displayName: z.string(),
-        legacyName: z.string(),
-        purpose: z.string(),
-        firstSteps: z.array(z.string()),
-        inspectionWorkflow: z.array(z.string()),
-        editWorkflow: z.array(z.string()),
-        verificationWorkflow: z.array(z.string()),
-        modeSelection: z.array(z.string()),
-        patchToolGuide: z.array(z.string()),
-        processToolGuide: z.array(z.string()),
-        codexGuide: z.array(z.string()),
-        safetyRules: z.array(z.string()),
-        toolHints: z.record(z.string(), z.string()),
-      }),
-      _meta: {},
-      annotations: { readOnlyHint: true },
-    },
-    async () => {
-      const startedAt = performance.now();
-      const guide = workbridgeGuide();
-      logToolCall(config, {
-        tool: toolNames.workbridgeGuide,
-        success: true,
-        durationMs: Math.round(performance.now() - startedAt),
-        resultCharacters: guide.result.length,
-      });
-      return {
-        content: [textBlock(guide.result)],
-        structuredContent: guide as unknown as Record<string, unknown>,
-      };
-    },
-  );
 
-  registerAppTool(
-    server,
-    toolNames.workbridgeEfficiencyReport,
-    {
-      title: "Workbridge efficiency report",
-      description:
-        "Summarize the Workbridge auto efficiency ledger for recent tool usage, failures, bash rate, output volume, and improvement hints.",
-      inputSchema: {
-        sinceHours: z.number().positive().max(24 * 30).optional().describe("Optional lookback window in hours."),
-        limit: z.number().int().positive().max(10000).optional().describe("Optional maximum number of recent ledger events to analyze."),
-      },
-      outputSchema: resultOutputSchema({
-        sourcePath: z.string(),
-        generatedAt: z.string(),
-        sinceHours: z.number().optional(),
-        summary: z.unknown(),
-        byClientKind: z.array(z.unknown()),
-        byWorkspace: z.array(z.unknown()),
-        byAutoThread: z.array(z.unknown()),
-        hints: z.array(z.string()),
-      }),
-      _meta: {},
-      annotations: { readOnlyHint: true },
-    },
-    async ({ sinceHours, limit }) => {
-      const startedAt = performance.now();
-      const report = analyzeEfficiencyLedger({ sinceHours, limit });
-      logToolCall(config, {
-        tool: toolNames.workbridgeEfficiencyReport,
-        success: true,
-        durationMs: Math.round(performance.now() - startedAt),
-        resultCharacters: report.result.length,
-      });
-      return {
-        content: [textBlock(report.result)],
-        structuredContent: report as unknown as Record<string, unknown>,
-      };
-    },
-  );
 
   if (CODEX_CLI_ENABLED) {
     registerAppTool(
@@ -2085,6 +2044,7 @@ function createMcpServer(
     },
   );
 
+  if (isForkToolMode(config)) {
   registerAppTool(
     server,
     toolNames.workspaceSnapshot,
@@ -2178,94 +2138,21 @@ function createMcpServer(
     },
   );
 
-  registerAppTool(
-    server,
-    toolNames.recordToolEvent,
-    {
-      title: "Record tool event",
-      description:
-        "Record a sanitized host/client tool event.",
-      inputSchema: {
-        workspaceId: z.string().optional().describe("Related workspaceId."),
-        toolName: z.string().max(32).describe("Short tool name."),
-        operation: z.string().max(32).describe("Short operation label."),
-        category: z
-          .enum(["host_filter", "client_filter", "repeat_avoidance", "other"])
-          .describe("Event category."),
-        commandShape: z
-          .string()
-          .max(40)
-          .optional()
-          .describe("Compatibility only. Do not provide in normal workflow."),
-        note: z.string().max(60).optional().describe("Compatibility only. Do not provide in normal workflow."),
-      },
-      outputSchema: resultOutputSchema({
-        recorded: z.boolean(),
-      }),
-      _meta: {},
-      annotations: { readOnlyHint: true },
-    },
-    async ({ workspaceId, toolName, operation, category, commandShape, note }) => {
-      const startedAt = performance.now();
-      const traceFields = toolTraces.recordToolEvent({
-        workspaceId,
-        eventTool: toolName,
-        operation,
-        category,
-        commandShape,
-      });
-      const correlationFields = currentRequestCorrelationFields(workspaceId);
-      logEvent(config.logging, "warn", "tool_event_report", {
-        workspaceId,
-        toolName,
-        operation,
-        category,
-        commandShape,
-        note,
-        ...correlationFields,
-        ...traceFields,
-      });
-      appendEfficiencyEvent({
-        event: "host_block",
-        workspaceId,
-        tool: toolName,
-        operation,
-        category,
-        ...correlationFields,
-        clientKind: efficiencyClientKind(correlationFields.clientKind),
-      });
-      logToolCall(config, {
-        tool: toolNames.recordToolEvent,
-        workspaceId,
-        eventTool: toolName,
-        operation,
-        eventCategory: category,
-        traceId: traceFields?.traceId,
-        traceSequence: traceFields?.traceSequence,
-        success: true,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
-      const result = `Recorded ${category} for ${toolName}:${operation}.`;
-      return {
-        content: [textBlock(result)],
-        structuredContent: {
-          recorded: true,
-          result,
-        },
-      };
-    },
-  );
 
+  }
+
+  if (isForkToolMode(config)) {
   registerSafetyTools({
     server,
     workspaces,
     toolNames,
-    enableTaskTools: TASK_TOOLS_ENABLED,
+    enableTaskTools: false,
     enableAdvancedTools: config.toolMode === "full",
     logToolCall: (fields) => logToolCall(config, fields),
   });
+  }
 
-  if (WORKFLOW_TOOLS_ENABLED) {
+  if (isForkToolMode(config) && WORKFLOW_TOOLS_ENABLED) {
     registerWorkflowTools({
       server,
       workspaces,
@@ -2302,6 +2189,7 @@ function createMcpServer(
       logToolCall: (fields) => logToolCall(config, fields),
     });
   }
+  if (isForkToolMode(config)) {
   registerWorkspaceIndexTools({
     server,
     workspaces,
@@ -2428,36 +2316,7 @@ function createMcpServer(
     },
   );
 
-  registerAppTool(
-    server,
-    toolNames.bashPreflight,
-    {
-      title: "Bash preflight",
-      description: "Check a shell command shape.",
-      inputSchema: {
-        workspaceId: z.string().optional().describe("Workspace id."),
-        command: z.string().describe("Command."),
-        workingDirectory: z.string().optional().describe("Workdir."),
-      },
-      outputSchema: resultOutputSchema(bashPreflightOutputSchema.shape),
-      _meta: {},
-      annotations: { readOnlyHint: true },
-    },
-    async ({ workspaceId, ...input }) => {
-      const startedAt = performance.now();
-      try {
-        if (workspaceId) workspaces.getWorkspace(workspaceId);
-        const result = bashPreflight(input);
-        logToolCall(config, { tool: toolNames.bashPreflight, workspaceId, operation: "bash_preflight", resultCharacters: result.result.length, success: true, durationMs: Math.round(performance.now() - startedAt) });
-        return { content: [textBlock(result.result)], structuredContent: result };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const content = [textBlock(message)];
-        logFailedToolResponse(config, { tool: toolNames.bashPreflight, workspaceId, operation: "bash_preflight" }, content, startedAt);
-        return { content, isError: true, structuredContent: { result: message } };
-      }
-    },
-  );
+
 
 
   if (config.toolMode === "full") {
@@ -2846,7 +2705,9 @@ function createMcpServer(
     },
   );
 
-  if (LEGACY_READ_TOOLS_ENABLED) {
+  }
+
+  if (isForkToolMode(config) && LEGACY_READ_TOOLS_ENABLED) {
     registerAppTool(
       server,
       toolNames.readMany,
@@ -3027,7 +2888,7 @@ function createMcpServer(
   );
 
 
-  if (config.toolMode === "full") {
+  if (isMainExpandedToolMode(config)) {
     registerAppTool(
     server,
     toolNames.write,
@@ -3103,7 +2964,7 @@ function createMcpServer(
   );
   }
 
-  if (EDIT_MANY_ENABLED) {
+  if (isForkToolMode(config) && EDIT_MANY_ENABLED) {
     registerAppTool(
       server,
       toolNames.editMany,
@@ -3372,63 +3233,7 @@ function createMcpServer(
     );
   }
 
-  if (config.widgets === "changes") {
-    registerAppTool(
-      server,
-      "show_changes",
-      {
-        title: "Show changes",
-        description:
-          "Show aggregate file changes for an open workspace. If the current turn successfully modified files, call this exactly once after the final related file change and before your final response so the user can inspect the diff.",
-        inputSchema: {
-          workspaceId: z
-            .string()
-            .describe("Workspace identifier returned by open_workspace."),
-        },
-        outputSchema: resultOutputSchema(),
-        ...toolWidgetDescriptorMeta(config, "show_changes"),
-        annotations: { readOnlyHint: true },
-      },
-      async ({ workspaceId }) => {
-        const startedAt = performance.now();
-        const workspace = workspaces.getWorkspace(workspaceId);
-        const review = await reviewCheckpoints.reviewChanges({
-          workspaceId,
-          root: workspace.root,
-          since: "last_shown",
-          markReviewed: true,
-        });
-
-        const content = [textBlock(review.result)];
-        logToolCall(config, {
-          tool: "show_changes",
-          workspaceId,
-          success: true,
-          durationMs: Math.round(performance.now() - startedAt),
-        });
-
-        return {
-          content,
-          _meta: {
-            tool: "show_changes",
-            card: {
-              workspaceId,
-              summary: review.summary,
-              files: review.files,
-              payload: {
-                patch: review.patch,
-              },
-            },
-          },
-          structuredContent: {
-            result: contentText(content),
-          },
-        };
-      },
-    );
-  }
-
-  if (config.toolMode === "full") {
+  if (isMainExpandedToolMode(config)) {
     registerAppTool(
       server,
       toolNames.grep,
@@ -3639,7 +3444,6 @@ function createMcpServer(
     );
   }
 
-  if (config.toolMode !== "codex") {
   registerAppTool(
     server,
     toolNames.shell,
@@ -3729,7 +3533,6 @@ function createMcpServer(
       };
     },
   );
-  }
 
   if (workspaceTasksEnabled()) {
     registerWorkspaceTaskTool(server, config, workspaces, processSessions);

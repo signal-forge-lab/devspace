@@ -6,7 +6,7 @@ import type { OAuthConfig } from "./oauth-provider.js";
 import type { OAuthStaticClientConfig } from "./oauth-store.js";
 import { loadDevspaceFiles } from "./user-config.js";
 
-export type ToolMode = "minimal" | "full" | "codex";
+export type ToolMode = "minimal" | "full" | "codex" | "main";
 export type WidgetMode = "off" | "changes" | "full";
 const DEFAULT_OAUTH_ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -81,7 +81,7 @@ function parseBoolean(value: string | undefined): boolean {
 
 function parseToolMode(env: NodeJS.ProcessEnv): ToolMode {
   const mode = env.DEVSPACE_TOOL_MODE;
-  if (mode === "minimal" || mode === "full" || mode === "codex") return mode;
+  if (mode === "minimal" || mode === "full" || mode === "codex" || mode === "main") return mode;
   if (mode) throw new Error(`Invalid DEVSPACE_TOOL_MODE: ${mode}`);
 
   if (env.DEVSPACE_MINIMAL_TOOLS !== undefined) {
