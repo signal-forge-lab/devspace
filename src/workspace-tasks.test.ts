@@ -32,13 +32,57 @@ assert.deepEqual(templated.args.slice(3), [
   "--status-console-refresh-seconds",
   "5",
 ]);
-assert.deepEqual(workspaceTaskTemplateNames("aegis_runner"), ["status_console_5s"]);
+assert.deepEqual(workspaceTaskTemplateNames("aegis_runner"), [
+  "status_console_5s",
+  "daemon_confirm_post",
+  "daemon_confirm_post_bounded_10m",
+  "request_pause",
+  "resume_daemon",
+]);
+
+const daemon = await resolveWorkspaceTask({
+  workspaceRoot: root,
+  task: "aegis_runner",
+  template: "daemon_confirm_post",
+});
+assert.deepEqual(daemon.args.slice(3), ["--daemon", "--confirm-post"]);
+
+const boundedDaemon = await resolveWorkspaceTask({
+  workspaceRoot: root,
+  task: "aegis_runner",
+  template: "daemon_confirm_post_bounded_10m",
+});
+assert.deepEqual(boundedDaemon.args.slice(3), [
+  "--daemon",
+  "--confirm-post",
+  "--daemon-max-runtime-seconds",
+  "600",
+  "--daemon-poll-seconds",
+  "10",
+  "--daemon-heartbeat-seconds",
+  "10",
+]);
+
+const pause = await resolveWorkspaceTask({
+  workspaceRoot: root,
+  task: "aegis_runner",
+  template: "request_pause",
+});
+assert.deepEqual(pause.args.slice(3), ["--request-pause"]);
+
+const resume = await resolveWorkspaceTask({
+  workspaceRoot: root,
+  task: "aegis_runner",
+  template: "resume_daemon",
+});
+assert.deepEqual(resume.args.slice(3), ["--resume-daemon"]);
 
 const catalog = await workspaceTaskCatalog(root);
 assert.equal(catalog.length, 1);
 assert.equal(catalog[0]?.name, "aegis_runner");
 assert.equal(catalog[0]?.scriptPresent, true);
 assert.equal(catalog[0]?.templates[0]?.name, "status_console_5s");
+assert.equal(catalog[0]?.templates.length, 5);
 assert.deepEqual(catalog[0]?.templates[0]?.args, [
   "--launch-status-console",
   "--status-console-refresh-seconds",

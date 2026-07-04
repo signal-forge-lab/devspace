@@ -94,6 +94,7 @@ DevSpace uses a single-user OAuth approval flow.
 | `DEVSPACE_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` |
 | `DEVSPACE_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` |
 | `DEVSPACE_OAUTH_SCOPES` | `devspace` |
+| `DEVSPACE_TRUST_PROXY` | unset / disabled. Set to `1` when Workbridge runs behind one local tunnel or reverse proxy hop. Express is configured with trust proxy hop count `1`, not permissive `true`. |
 | `DEVSPACE_OAUTH_ALLOWED_REDIRECT_HOSTS` | `chatgpt.com,claude.ai,anthropic.com,localhost,127.0.0.1` |
 | `DEVSPACE_OAUTH_STATIC_CLIENTS_JSON` | unset |
 | `DEVSPACE_OAUTH_SAFE_DIAGNOSTIC_LOGGING` | `true` |
@@ -144,7 +145,8 @@ dedicated feature flags. Workbridge uses `DEVSPACE_*` names for compatibility wi
 - `apply_unified_patch` is a Workbridge workflow tool for hash-guarded unified diffs with `expectedBase` / sha256 checks.
 - `bash` is the bounded command tool for `minimal` / `full` modes.
 - `exec_command` and `write_stdin` are process-session tools for `codex` mode.
-- `launch_workspace_task` is an opt-in Workbridge task launcher for allowlisted local workspace tasks. It accepts a task name plus either free-form `args` or a named template, without accepting a raw shell command string. The initial allowlisted task is `aegis_runner`; the initial template is `status_console_5s`.
+- `launch_workspace_task` is an opt-in Workbridge task launcher for allowlisted local workspace tasks. It accepts a task name plus either free-form `args` or a named template, without accepting a raw shell command string. The initial allowlisted task is `aegis_runner`; templates are `status_console_5s`, `daemon_confirm_post`, `daemon_confirm_post_bounded_10m`, `request_pause`, and `resume_daemon`.
+
 - `run_codex_cli` is a local Codex CLI wrapper and is separate from `DEVSPACE_TOOL_MODE=codex`.
 
 `open_workspace` returns a compact workspace guidance bundle so clients do not need to rediscover every tool schema before choosing a workflow. The structured response includes `toolSurface`, `recommendedWorkflow`, `workspaceTasks`, `verificationProfiles`, and `strategies` for edit, command, and git operations. Treat this as the first routing hint for the workspace, then call `workspace_snapshot` for repository state.
@@ -178,7 +180,8 @@ Optional tool flags keep the default schema surface small:
 | `DEVSPACE_ENABLE_ZIP_IMPORT_TOOLS` | `0` | Enables ZIP import tools. |
 | `DEVSPACE_ENABLE_CODEX_CLI` | `0` | Enables the local Codex CLI wrapper tool. |
 | `DEVSPACE_ENABLE_TASK_TOOLS` | `0` | Enables task checkpoint/resume helpers. |
-| `WORKBRIDGE_ENABLE_WORKSPACE_TASKS` / `DEVSPACE_ENABLE_WORKSPACE_TASKS` | `0` | Enables `launch_workspace_task` for allowlisted local workspace task entrypoints. Initially supports `aegis_runner` with dynamic `args` and the `status_console_5s` template. |
+| `WORKBRIDGE_ENABLE_WORKSPACE_TASKS` / `DEVSPACE_ENABLE_WORKSPACE_TASKS` | `0` | Enables `launch_workspace_task` for allowlisted local workspace task entrypoints. Initially supports `aegis_runner` with dynamic `args` and the templates listed above. |
+
 
 At startup DevSpace logs a compact `tool_registry_summary` event containing exposed tool names, hidden tool names, enabled profiles, and feature flag state. Prefer that local log event over repeated schema discovery when checking whether optional tools are hidden.
 

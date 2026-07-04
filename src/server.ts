@@ -3767,7 +3767,8 @@ export function createServer(config = loadConfig()): RunningServer {
   const processSessions = new ProcessSessionManager();
 
   if (config.logging.trustProxy) {
-    app.set("trust proxy", true);
+    // Trust exactly one local tunnel/reverse-proxy hop; never use permissive true.
+    app.set("trust proxy", 1);
   }
 
   app.use((req, res, next) => {

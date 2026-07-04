@@ -41,7 +41,8 @@ Do not use shell redirection, `tee`, `sed -i`, or ad-hoc scripts for project fil
 | Tool | Use when |
 | --- | --- |
 | `devspace_verify` | Fixed verification profiles such as git status/diff, typecheck, tests, and build. Prefer this over ad-hoc shell when a profile fits. |
-| `launch_workspace_task` | Opt-in launcher for allowlisted local workspace tasks without accepting raw shell command strings. Initially supports `aegis_runner` with `args` or the `status_console_5s` template. |
+| `launch_workspace_task` | Opt-in launcher for allowlisted local workspace tasks without accepting raw shell command strings. Initially supports `aegis_runner` with dynamic `args` or named templates. |
+
 | `bash` | Bounded minimal/full-mode tests, builds, and inspection commands. Keep output small and avoid file mutation through shell. |
 | `exec_command` | Codex-mode process session command for long-running, interactive, PTY, polling, or Ctrl-C workflows. |
 | `write_stdin` | Follow-up tool for an `exec_command` session. Use it to poll, send input, resize PTY, or interrupt. |
@@ -54,6 +55,23 @@ Enable workspace tasks with `WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1` or the legacy-
 
 ```json
 {"task":"aegis_runner","args":["--launch-status-console","--status-console-refresh-seconds","5"],"tty":true,"yieldTimeMs":1000}
+```
+
+Available `aegis_runner` templates:
+
+| Template | Args |
+| --- | --- |
+| `status_console_5s` | `--launch-status-console --status-console-refresh-seconds 5` |
+| `daemon_confirm_post` | `--daemon --confirm-post` |
+| `daemon_confirm_post_bounded_10m` | `--daemon --confirm-post --daemon-max-runtime-seconds 600 --daemon-poll-seconds 10 --daemon-heartbeat-seconds 10` |
+| `request_pause` | `--request-pause` |
+| `resume_daemon` | `--resume-daemon` |
+
+For normal Aegis startup with a status console, launch two tasks instead of mixing both modes into one template:
+
+```text
+1. launch_workspace_task template=status_console_5s
+2. launch_workspace_task template=daemon_confirm_post
 ```
 
 ## Router guidance

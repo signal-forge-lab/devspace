@@ -51,6 +51,31 @@ const WORKSPACE_TASKS: Record<WorkspaceTaskName, WorkspaceTaskDefinition> = {
         args: ["--launch-status-console", "--status-console-refresh-seconds", "5"],
         description: "Launch the Aegis status console with 5-second refresh.",
       },
+      daemon_confirm_post: {
+        args: ["--daemon", "--confirm-post"],
+        description: "Run Aegis Runner daemon with post confirmation enabled.",
+      },
+      daemon_confirm_post_bounded_10m: {
+        args: [
+          "--daemon",
+          "--confirm-post",
+          "--daemon-max-runtime-seconds",
+          "600",
+          "--daemon-poll-seconds",
+          "10",
+          "--daemon-heartbeat-seconds",
+          "10",
+        ],
+        description: "Run Aegis Runner daemon for a bounded 10-minute smoke check.",
+      },
+      request_pause: {
+        args: ["--request-pause"],
+        description: "Request Aegis Runner to pause at the next safe boundary.",
+      },
+      resume_daemon: {
+        args: ["--resume-daemon"],
+        description: "Clear pause state before resuming daemon operation.",
+      },
     },
   },
 };
