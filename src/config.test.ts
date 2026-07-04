@@ -11,7 +11,7 @@ const baseEnv = {
   DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
 };
 
-assert.equal(loadConfig(baseEnv).widgets, "full");
+assert.equal(loadConfig(baseEnv).widgets, "off");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "changes" }).widgets, "changes");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "full" }).widgets, "full");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "off" }).widgets, "off");
@@ -42,15 +42,33 @@ assert.throws(
   /Invalid DEVSPACE_TOOL_MODE: invalid/,
 );
 
-assert.deepEqual(loadConfig(baseEnv).logging, {
-  level: "info",
-  format: "json",
-  requests: true,
-  assets: false,
-  toolCalls: true,
-  shellCommands: false,
-  trustProxy: false,
-});
+const defaultLogging = loadConfig(baseEnv).logging;
+assert.deepEqual(
+  {
+    level: defaultLogging.level,
+    format: defaultLogging.format,
+    requests: defaultLogging.requests,
+    assets: defaultLogging.assets,
+    toolCalls: defaultLogging.toolCalls,
+    shellCommands: defaultLogging.shellCommands,
+    trustProxy: defaultLogging.trustProxy,
+    file: defaultLogging.file,
+  },
+  {
+    level: "info",
+    format: "json",
+    requests: true,
+    assets: false,
+    toolCalls: true,
+    shellCommands: false,
+    trustProxy: false,
+    file: true,
+  },
+);
+assert.match(defaultLogging.filePath ?? "", /logs[\\/]devspace_\d{8}_\d{6}\.jsonl$/);
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE: "0" }).logging.file, false);
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE: "0" }).logging.filePath, undefined);
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_DIR: "custom-logs", DEVSPACE_LOG_FILE_NAME: "custom.jsonl" }).logging.filePath?.endsWith("custom-logs\\custom.jsonl") || loadConfig({ ...baseEnv, DEVSPACE_LOG_DIR: "custom-logs", DEVSPACE_LOG_FILE_NAME: "custom.jsonl" }).logging.filePath?.endsWith("custom-logs/custom.jsonl"), true);
 
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "silent" }).logging.level, "silent");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "error" }).logging.level, "error");
@@ -81,11 +99,15 @@ assert.equal(loadConfig(baseEnv).oauth.ownerToken, "test-owner-token-that-is-lon
 assert.deepEqual(loadConfig(baseEnv).oauth.scopes, ["devspace"]);
 assert.deepEqual(loadConfig(baseEnv).oauth.allowedRedirectHosts, [
   "chatgpt.com",
+  "claude.ai",
+  "anthropic.com",
   "localhost",
   "127.0.0.1",
 ]);
 assert.equal(loadConfig(baseEnv).oauth.accessTokenTtlSeconds, 3600);
 assert.equal(loadConfig(baseEnv).oauth.refreshTokenTtlSeconds, 2592000);
+assert.deepEqual(loadConfig(baseEnv).oauth.staticClients, []);
+assert.equal(loadConfig(baseEnv).oauth.safeDiagnosticLogging, true);
 
 assert.deepEqual(
   loadConfig({ ...baseEnv, DEVSPACE_OAUTH_SCOPES: "devspace,admin" }).oauth.scopes,
@@ -95,6 +117,36 @@ assert.deepEqual(
   loadConfig({ ...baseEnv, DEVSPACE_OAUTH_ALLOWED_REDIRECT_HOSTS: "chatgpt.com,example.com" }).oauth
     .allowedRedirectHosts,
   ["chatgpt.com", "example.com"],
+);
+assert.deepEqual(
+  loadConfig({
+    ...baseEnv,
+    DEVSPACE_OAUTH_STATIC_CLIENTS_JSON: JSON.stringify([
+      {
+        clientId: "claude-web-devspace-iw",
+        clientName: "Claude Web DevSpace IW",
+        redirectUris: ["https://claude.ai/api/mcp/auth/callback"],
+        allowedScopes: ["devspace"],
+      },
+    ]),
+  }).oauth.staticClients,
+  [
+    {
+      clientId: "claude-web-devspace-iw",
+      clientName: "Claude Web DevSpace IW",
+      redirectUris: ["https://claude.ai/api/mcp/auth/callback"],
+      allowedScopes: ["devspace"],
+      disabled: false,
+    },
+  ],
+);
+assert.equal(
+  loadConfig({ ...baseEnv, DEVSPACE_OAUTH_SAFE_DIAGNOSTIC_LOGGING: "0" }).oauth.safeDiagnosticLogging,
+  false,
+);
+assert.throws(
+  () => loadConfig({ ...baseEnv, DEVSPACE_OAUTH_STATIC_CLIENTS_JSON: "{}" }),
+  /must be a JSON array/,
 );
 assert.equal(
   loadConfig({ ...baseEnv, DEVSPACE_OAUTH_ACCESS_TOKEN_TTL_SECONDS: "120" }).oauth

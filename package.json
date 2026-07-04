@@ -1,6 +1,6 @@
 {
   "name": "@waishnav/devspace",
-  "version": "1.0.3",
+  "version": "1.1.52",
   "description": "Expose a secure local coding workspace through an MCP server.",
   "type": "module",
   "main": "dist/server.js",
@@ -26,15 +26,22 @@
     "dev": "node scripts/dev-server.mjs",
     "postinstall": "node scripts/fix-node-pty-permissions.mjs",
     "start": "node dist/cli.js serve",
-    "test": "tsx src/config.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/roots.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/review-checkpoints.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "test": "tsx src/config.test.ts && tsx src/logger.test.ts && tsx src/log-analysis.test.ts && tsx src/startup-smoke.test.ts && tsx src/tool-surface.test.ts && tsx src/devspace-verify.test.ts && tsx src/structured-inspection.test.ts && tsx src/roots.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/batched-tools.test.ts && tsx src/edit-many.test.ts && tsx src/git-tools.test.ts && tsx src/tool-trace.test.ts && tsx src/review-checkpoints.test.ts && tsx src/oauth-store.test.ts && tsx src/efficiency-ledger.test.ts && tsx src/codex-cli-runner.test.ts && tsx src/app-metadata.test.ts && tsx src/safe-editing.test.ts && tsx src/operation-router.test.ts && tsx src/task-checkpoints.test.ts && tsx src/workspace-index.test.ts && tsx src/workspace-zip-export.test.ts && tsx src/workspace-zip-import.test.ts && tsx src/workflow-tools.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/cli.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "connector:refresh": "python scripts/refresh_chatgpt_connector.py",
+    "logs:analyze": "node scripts/analyze-devspace-logs.mjs",
+    "logs:report": "node scripts/analyze-devspace-logs.mjs logs .devspace/workflow-events --html reports/devspace-log-analysis.html",
+    "smoke:startup": "node scripts/smoke-devspace-runtime.mjs --quick",
+    "smoke:startup:full": "node scripts/smoke-devspace-runtime.mjs",
+    "smoke:startup:build": "node scripts/smoke-devspace-runtime.mjs --build",
+    "efficiency:report": "node scripts/analyze-efficiency-ledger.mjs .devspace/efficiency/events.jsonl"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "@clack/prompts": "^1.5.1",
-    "@earendil-works/pi-coding-agent": "^0.80.1",
+    "@earendil-works/pi-coding-agent": "^0.79.4",
     "@modelcontextprotocol/ext-apps": "^1.7.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@pierre/diffs": "^1.2.5",

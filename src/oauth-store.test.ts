@@ -15,6 +15,8 @@ const oauthConfig = {
   refreshTokenTtlSeconds: 2592000,
   scopes: ["devspace"],
   allowedRedirectHosts: ["chatgpt.com"],
+  staticClients: [],
+  safeDiagnosticLogging: true,
 };
 const mcpUrl = new URL("https://agent.example.com/mcp");
 const redirectUri = "https://chatgpt.com/connector_platform_oauth_redirect";
@@ -25,6 +27,8 @@ try {
   testExpiredTokenCleanup(join(root, "expiration"));
   testTransactionalTokenRotation(join(root, "rotation"));
   await testProviderRestartRotationAndRevocation(join(root, "provider"));
+  testStaticClientsAndDiagnostics(join(root, "static-clients"));
+  await testStaticProviderTokenPersistence(join(root, "static-provider"));
 } finally {
   await rm(root, { recursive: true, force: true });
 }
@@ -179,6 +183,84 @@ function testTransactionalTokenRotation(stateDir: string): void {
     assert.equal(store.getRefreshToken("losing-refresh-hash"), undefined);
   } finally {
     store.close();
+  }
+}
+
+
+function testStaticClientsAndDiagnostics(stateDir: string): void {
+  const store = new SqliteOAuthStore(stateDir);
+  const diagnostics: unknown[] = [];
+  try {
+    const clients = new SqliteOAuthClientsStore(store, oauthConfig.allowedRedirectHosts, {
+      staticClients: [
+        {
+          clientId: "claude-web-devspace-iw",
+          clientName: "Claude Web DevSpace IW",
+          redirectUris: ["https://claude.ai/api/mcp/auth/callback"],
+          allowedScopes: ["devspace"],
+        },
+      ],
+      diagnosticLogger: (event) => diagnostics.push(event),
+    });
+    const staticClient = clients.getClient("claude-web-devspace-iw");
+    assert.ok(staticClient);
+    assert.equal(staticClient.client_id, "claude-web-devspace-iw");
+    assert.equal(staticClient.token_endpoint_auth_method, "none");
+    assert.deepEqual(staticClient.redirect_uris, ["https://claude.ai/api/mcp/auth/callback"]);
+    assert.equal(staticClient.scope, "devspace");
+    assert.equal(store.getClient("claude-web-devspace-iw")?.client_id, "claude-web-devspace-iw");
+    assert.equal(clients.getClient("missing-client"), undefined);
+    assert.ok(diagnostics.some((event) => JSON.stringify(event).includes("oauth_static_client_lookup")));
+    assert.ok(!JSON.stringify(diagnostics).includes("client_secret"));
+    assert.ok(!JSON.stringify(diagnostics).includes("access-token-example"));
+  } finally {
+    store.close();
+  }
+}
+
+
+async function testStaticProviderTokenPersistence(stateDir: string): Promise<void> {
+  const provider = new SingleUserOAuthProvider(
+    {
+      ...oauthConfig,
+      staticClients: [
+        {
+          clientId: "claude-web-workbridge",
+          clientName: "Claude Web Workbridge",
+          redirectUris: ["https://claude.ai/api/mcp/auth_callback"],
+          allowedScopes: ["devspace"],
+        },
+      ],
+    },
+    mcpUrl,
+    stateDir,
+  );
+  try {
+    const client = await provider.clientsStore.getClient("claude-web-workbridge");
+    assert.ok(client);
+    const code = "code-static-test-123";
+    provider["codes"].set(code, {
+      clientId: client.client_id,
+      params: {
+        redirectUri: "https://claude.ai/api/mcp/auth_callback",
+        codeChallenge: "challenge",
+        scopes: ["devspace"],
+        resource: mcpUrl,
+      },
+      expiresAtMs: Date.now() + 60_000,
+    });
+    const issued = await provider.exchangeAuthorizationCode(
+      client,
+      code,
+      undefined,
+      "https://claude.ai/api/mcp/auth_callback",
+      mcpUrl,
+    );
+    assert.ok(issued.refresh_token);
+    const verified = await provider.verifyAccessToken(issued.access_token);
+    assert.equal(verified.clientId, "claude-web-workbridge");
+  } finally {
+    provider.close();
   }
 }
 

@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { expandHomePath } from "./roots.js";
 import type { LoggingConfig, LogFormat, LogLevel } from "./logger.js";
 import type { OAuthConfig } from "./oauth-provider.js";
+import type { OAuthStaticClientConfig } from "./oauth-store.js";
 import { loadDevspaceFiles } from "./user-config.js";
 
 export type ToolMode = "minimal" | "full" | "codex";
@@ -121,6 +122,26 @@ function parseStringList(value: string | undefined, fallback: string[]): string[
   return entries && entries.length > 0 ? entries : fallback;
 }
 
+function defaultLogFileName(date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return [
+    "devspace_",
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    "_",
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+    ".jsonl",
+  ].join("");
+}
+
+function sanitizeLogFileName(value: string): string {
+  const sanitized = value.trim().replace(/[\\/:*?"<>|]+/g, "_");
+  return sanitized || defaultLogFileName();
+}
+
 function parsePositiveInteger(value: string | undefined, fallback: number, name: string): number {
   if (!value) return fallback;
 
@@ -133,6 +154,9 @@ function parsePositiveInteger(value: string | undefined, fallback: number, name:
 }
 
 function parseLoggingConfig(env: NodeJS.ProcessEnv): LoggingConfig {
+  const file = env.DEVSPACE_LOG_FILE === undefined ? true : parseBoolean(env.DEVSPACE_LOG_FILE);
+  const fileDir = resolve(expandHomePath(env.DEVSPACE_LOG_DIR ?? "logs"));
+  const fileName = sanitizeLogFileName(env.DEVSPACE_LOG_FILE_NAME ?? defaultLogFileName());
   return {
     level: parseLogLevel(env.DEVSPACE_LOG_LEVEL),
     format: parseLogFormat(env.DEVSPACE_LOG_FORMAT),
@@ -141,12 +165,14 @@ function parseLoggingConfig(env: NodeJS.ProcessEnv): LoggingConfig {
     toolCalls: env.DEVSPACE_LOG_TOOL_CALLS === undefined ? true : parseBoolean(env.DEVSPACE_LOG_TOOL_CALLS),
     shellCommands: parseBoolean(env.DEVSPACE_LOG_SHELL_COMMANDS),
     trustProxy: parseBoolean(env.DEVSPACE_TRUST_PROXY),
+    file,
+    filePath: file ? resolve(fileDir, fileName) : undefined,
   };
 }
 
 function parseWidgetMode(value: string | undefined): WidgetMode {
-  if (!value || value === "full") return "full";
-  if (value === "off" || value === "changes") return value;
+  if (!value || value === "off") return "off";
+  if (value === "full" || value === "changes") return value;
 
   throw new Error(`Invalid DEVSPACE_WIDGETS: ${value}`);
 }
@@ -178,10 +204,80 @@ function parseOAuthConfig(env: NodeJS.ProcessEnv, ownerToken: string | undefined
     scopes: parseStringList(env.DEVSPACE_OAUTH_SCOPES, ["devspace"]),
     allowedRedirectHosts: parseStringList(env.DEVSPACE_OAUTH_ALLOWED_REDIRECT_HOSTS, [
       "chatgpt.com",
+      "claude.ai",
+      "anthropic.com",
       "localhost",
       "127.0.0.1",
     ]),
+    staticClients: parseOAuthStaticClients(env.DEVSPACE_OAUTH_STATIC_CLIENTS_JSON),
+    safeDiagnosticLogging: env.DEVSPACE_OAUTH_SAFE_DIAGNOSTIC_LOGGING === undefined ? true : parseBoolean(env.DEVSPACE_OAUTH_SAFE_DIAGNOSTIC_LOGGING),
   };
+}
+
+function parseOAuthStaticClients(value: string | undefined): OAuthStaticClientConfig[] {
+  if (!value?.trim()) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch (error) {
+    throw new Error(`Invalid DEVSPACE_OAUTH_STATIC_CLIENTS_JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!Array.isArray(parsed)) throw new Error("DEVSPACE_OAUTH_STATIC_CLIENTS_JSON must be a JSON array.");
+  return parsed.map((entry, index) => parseOAuthStaticClient(entry, index));
+}
+
+function parseOAuthStaticClient(entry: unknown, index: number): OAuthStaticClientConfig {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    throw new Error(`DEVSPACE_OAUTH_STATIC_CLIENTS_JSON[${index}] must be an object.`);
+  }
+  const record = entry as Record<string, unknown>;
+  const clientId = requiredString(record.clientId ?? record.client_id, `DEVSPACE_OAUTH_STATIC_CLIENTS_JSON[${index}].clientId`);
+  const redirectUris = parseRedirectUris(record.redirectUris ?? record.redirect_uris, index);
+  const allowedScopes = record.allowedScopes === undefined && record.scopes === undefined
+    ? undefined
+    : parseUnknownStringList(record.allowedScopes ?? record.scopes, `DEVSPACE_OAUTH_STATIC_CLIENTS_JSON[${index}].allowedScopes`);
+  return {
+    clientId,
+    clientName: optionalString(record.clientName ?? record.client_name, `DEVSPACE_OAUTH_STATIC_CLIENTS_JSON[${index}].clientName`),
+    redirectUris,
+    allowedScopes,
+    disabled: Boolean(record.disabled),
+  };
+}
+
+function parseRedirectUris(value: unknown, index: number): string[] {
+  const uris = parseUnknownStringList(value, `DEVSPACE_OAUTH_STATIC_CLIENTS_JSON[${index}].redirectUris`);
+  for (const uri of uris) {
+    try {
+      const parsed = new URL(uri);
+      if (parsed.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)) {
+        throw new Error("must use https unless it is localhost");
+      }
+    } catch (error) {
+      throw new Error(`Invalid static OAuth redirect URI ${uri}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return uris;
+}
+
+function parseUnknownStringList(value: unknown, name: string): string[] {
+  if (Array.isArray(value)) {
+    return value.map((entry, index) => requiredString(entry, `${name}[${index}]`));
+  }
+  if (typeof value === "string") return parseStringList(value, []);
+  throw new Error(`${name} must be a string array or comma-separated string.`);
+}
+
+function requiredString(value: unknown, name: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) throw new Error(`${name} is required.`);
+  return value.trim();
+}
+
+function optionalString(value: unknown, name: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(`${name} must be a string.`);
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function defaultStateDir(): string {

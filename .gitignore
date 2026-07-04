@@ -1,5 +1,11 @@
 node_modules/
 dist/
 releases/
+logs/
+reports/devspace-log-analysis*.html
+.devspace/
 .env
+scripts/chatgpt_connector_refresh.config.local.json
 *.log
+*.jsonl
+.codex/

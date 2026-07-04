@@ -1,0 +1,28 @@
+{
+  "target_url": "https://chatgpt.com/#settings/Connectors?connector=asdk_app_6a4162c9b2c08191a7912251caf30620",
+  "profile_dir": "../../aegis_gate/.chatgpt_profile",
+  "browser": {
+    "cdp_endpoint": "http://127.0.0.1:9222",
+    "open_mode": "foreground",
+    "keep_browser_open_after_exit": true,
+    "start_minimized": false,
+    "bring_to_front": true
+  },
+  "poll": {
+    "page_load_timeout_ms": 60000,
+    "version_wait_timeout_seconds": 300,
+    "interval_seconds": 2
+  },
+  "selectors": {
+    "update_button_names": ["更新", "Update", "Refresh"],
+    "version_note_labels": ["バージョンに関する注記", "Version notes", "Version note"]
+  },
+  "notifications": {
+    "discord": {
+      "enabled": true,
+      "webhook_url_env_key": "DEVSPACE_CONNECTOR_REFRESH_DISCORD_WEBHOOK_URL",
+      "timeout_seconds": 10,
+      "notify_on_failure": true
+    }
+  }
+}

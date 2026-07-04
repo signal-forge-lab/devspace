@@ -133,7 +133,12 @@ and show you what changed.
 
 DevSpace gives ChatGPT tools to:
 
-- read, write, and edit files inside the opened workspace
+- write and edit files inside the opened workspace
+- collect Git, package, instruction, and file-list context with `workspace_snapshot`
+- inspect known file ranges with `create_workspace_index` and `read_index_ranges`
+- use direct `read` / `read_many` only when `DEVSPACE_ENABLE_LEGACY_READ_TOOLS=1`
+- use `edit_many` only when `DEVSPACE_ENABLE_EDIT_MANY=1`
+- use dedicated Git workflow tools for status, staging, commits, and exact hunk staging
 - search code and inspect directories
 - run shell commands for tests, builds, git, and package scripts
 - use isolated Git worktrees for parallel coding sessions
@@ -157,10 +162,30 @@ For a normal ChatGPT coding session:
 4. Approve the connection with the Owner password.
 5. Ask ChatGPT to open a project inside one of your allowed roots.
 
+For fewer MCP round trips at the start of a coding task, clients can use:
+
+```text
+open_workspace
+workspace_snapshot
+create_workspace_index
+read_index_ranges
+```
+
+`workspace_snapshot` performs a bounded, read-only repository survey. Indexed
+range reads keep known-file inspection compact. Legacy direct read tools and
+`edit_many` are hidden by default behind env flags. Dedicated Git tools cover
+status, recent commits, whole-file staging, whole-file commits, staged
+commits, and exact text hunk staging without shell command construction.
+
 ## Platform Support
 
 DevSpace supports Linux, macOS, and Windows environments with a Bash-compatible
 shell.
+
+Optional shell helpers such as `rg`, `fd`, `jq`, and `yq` can make MCP-driven
+inspection faster and more predictable in minimal tool mode. They are not npm
+dependencies of DevSpace; install them on the machine that runs DevSpace and
+restart the terminal before restarting `devspace serve`.
 
 | Platform                                          | Status            | Notes                                          |
 | ------------------------------------------------- | ----------------- | ---------------------------------------------- |
@@ -180,6 +205,7 @@ devspace doctor
 - [Setup Guide](https://github.com/Waishnav/devspace/blob/main/docs/setup.md)
 - [ChatGPT Coding Workflow](https://github.com/Waishnav/devspace/blob/main/docs/chatgpt-coding-workflow.md)
 - [Configuration Reference](https://github.com/Waishnav/devspace/blob/main/docs/configuration.md)
+- [Log Analysis](https://github.com/Waishnav/devspace/blob/main/docs/log-analysis.md)
 - [Security Model](https://github.com/Waishnav/devspace/blob/main/docs/security.md)
 - [Troubleshooting Gotchas](https://github.com/Waishnav/devspace/blob/main/docs/gotchas.md)
 

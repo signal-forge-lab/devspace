@@ -5,7 +5,9 @@ import { resolve } from "node:path";
 import * as prompts from "@clack/prompts";
 import { getShellConfig } from "@earendil-works/pi-coding-agent";
 import { satisfies } from "semver";
+import { getRuntimeInfo } from "./app-metadata.js";
 import { loadConfig } from "./config.js";
+import { closeLogFiles, logEvent } from "./logger.js";
 import {
   generateOwnerToken,
   loadDevspaceFiles,
@@ -183,9 +185,26 @@ async function serve(): Promise<void> {
   const { createServer } = await import("./server.js");
   const config = loadConfig();
   const { app, close } = createServer(config);
+  const runtimeInfo = getRuntimeInfo();
   const httpServer = app.listen(config.port, config.host, () => {
+    logEvent(config.logging, "info", "server_start", {
+      localMcpUrl: `http://${config.host}:${config.port}/mcp`,
+      publicBaseUrl: config.publicBaseUrl,
+      allowedRoots: config.allowedRoots.length,
+      allowedHosts: config.allowedHosts.length,
+      widgets: config.widgets,
+      trustProxy: config.logging.trustProxy,
+      logFile: config.logging.filePath ?? null,
+      processStartedAt: runtimeInfo.processStartedAt,
+      processId: runtimeInfo.processId,
+      cliEntryPath: runtimeInfo.cliEntryPath,
+      runtimeDistPath: runtimeInfo.runtimeDistPath,
+    });
     console.log(`devspace listening on http://${config.host}:${config.port}/mcp`);
     console.log(`public base url: ${config.publicBaseUrl}`);
+    console.log(`version: ${runtimeInfo.displayName} (${runtimeInfo.appName})@${runtimeInfo.appVersion} commit=${runtimeInfo.gitCommit} branch=${runtimeInfo.gitBranch} build=${runtimeInfo.buildSource}`);
+    console.log(`runtime: started=${runtimeInfo.processStartedAt} pid=${runtimeInfo.processId} node=${runtimeInfo.nodeVersion} entry=${runtimeInfo.cliEntryPath}`);
+    console.log(`runtime dist: ${runtimeInfo.runtimeDistPath}`);
     console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log(`allowed hosts: ${config.allowedHosts.join(", ")}`);
     if (config.allowedHosts.includes("*")) {
@@ -193,12 +212,13 @@ async function serve(): Promise<void> {
     }
     console.log("auth: Owner password approval required");
     console.log(`logging: ${config.logging.level} ${config.logging.format}`);
+    console.log(`log file: ${config.logging.filePath ?? "disabled"}`);
   });
 
   const shutdown = () => {
     httpServer.close(() => {
       close();
-      process.exit(0);
+      void closeLogFiles().finally(() => process.exit(0));
     });
   };
   process.once("SIGINT", shutdown);

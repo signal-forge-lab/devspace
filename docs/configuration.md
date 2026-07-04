@@ -1,5 +1,51 @@
 # Configuration Reference
 
+## Workbridge display name
+
+Workbridge is the public display name for this MCP connector. DevSpace remains the legacy internal name for package names, `DEVSPACE_*` environment variables, OAuth scope `devspace`, and some tool names until compatibility aliases are introduced. MCP clients should call `workbridge_guide` first when they need usage instructions.
+
+## Host-side Filter Recording
+
+`record_tool_event` is intentionally minimum-first. When a host-side safety check
+filters a tool call before DevSpace receives it, call `record_tool_event` with
+only `toolName`, `operation`, and `category`, then switch to one safer tool
+shape. Do not include `commandShape` or `note` in normal workflow.
+
+## ZIP-first Read Rule
+
+Use `export_workspace_zip` plus `create_zip_download_url` before broad
+repository reading/searching. This is mandatory when a task may require reading
+3 or more files, inspecting large files, searching across the repository,
+inspecting SDK/node_modules/generated/docs across multiple paths, preparing to
+use repeated MCP reads/searches, or after a host-side read/search filter event. Before
+ZIP transfer, use at most 1 `workspace_snapshot`, 1 `file_outline`, and 1
+focused `read_index_ranges`.
+
+`create_workspace_index` is idempotent by default. Repeated calls with the same
+workspace, filters, tracked file set, file sizes, and mtimes reuse the existing
+index and return a lightweight cache-hit response. Set `includePreview=true` to
+show preview entries on cache hits, or `refresh=true` to force a new index.
+Both `grep_context` and `file_outline` accept `indexId` plus optional `numbers`
+to operate on the indexed file set without adding separate index-specific tools.
+
+ZIP snapshots are read-only context. All writes must still go through MCP
+workspace tools and should live re-read or hash-check target ranges before
+editing.
+
+## ZIP File Import Probe
+
+`DEVSPACE_ENABLE_WORKFLOW_TOOLS=1` exposes workflow primitives for ZIP-first and router experiments: `devspace_router`, `devspace_verify`, `apply_unified_patch`, `resolve_locator`, `apply_structured_edit`, `check_workspace_invariants`, and `record_workflow_event`. `devspace_verify` provides fixed profiles including `typecheck_only`, `related_tests`, `npm_test`, `build`, `git_diff_check`, `git_diff_cached_check`, and `git_status_check`. These tools are opt-in so stable ChatGPT tool lists stay small. See `docs/workflow-router.md` and `skills/devspace-workflow/SKILL.md` for Router v0 usage rules. Router calls automatically append workflow events under `.devspace/workflow-events/events.jsonl`.
+
+`DEVSPACE_LOG_TOOL_REGISTRY_DETAIL=1` enables full registry detail logging at debug level. By default, `tool_registry_summary` logs only counts, enabled profiles, feature flags, and a registry hash to reduce per-session log volume.
+
+`import_zip_from_url` and `extract_imported_zip` perform normal URL-based ZIP import. `import_zip_from_url` accepts non-URL strings only for host rewrite diagnostics; DevSpace still imports only `http(s)` sources. Optional `probe_import_file_arg_shape`, `probe_import_file`, and legacy `import_zip_file` validate the
+ChatGPT-to-DevSpace direction using a top-level MCP file parameter. This is the
+only supported reverse-transfer path. Upload URLs and base64/chunk transfer are
+not part of this workflow. Imported ZIP files are isolated under
+`.devspace/imports/<importId>`, saved as `source.zip`, accompanied by
+`import.json` metadata, and are never extracted directly into the live workspace
+root.
+
 DevSpace can be configured through `devspace init`, persisted config files, or
 environment variables.
 
@@ -48,7 +94,26 @@ DevSpace uses a single-user OAuth approval flow.
 | `DEVSPACE_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` |
 | `DEVSPACE_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` |
 | `DEVSPACE_OAUTH_SCOPES` | `devspace` |
-| `DEVSPACE_OAUTH_ALLOWED_REDIRECT_HOSTS` | `chatgpt.com,localhost,127.0.0.1` |
+| `DEVSPACE_OAUTH_ALLOWED_REDIRECT_HOSTS` | `chatgpt.com,claude.ai,anthropic.com,localhost,127.0.0.1` |
+| `DEVSPACE_OAUTH_STATIC_CLIENTS_JSON` | unset |
+| `DEVSPACE_OAUTH_SAFE_DIAGNOSTIC_LOGGING` | `true` |
+
+`DEVSPACE_OAUTH_STATIC_CLIENTS_JSON` registers fixed public OAuth clients. This is useful for web MCP clients that cannot use dynamic client registration reliably or that ask for an explicit OAuth Client ID.
+
+Example:
+
+```json
+[
+  {
+    "clientId": "claude-web-workbridge",
+    "clientName": "Claude Web Workbridge",
+    "redirectUris": ["https://claude.ai/api/mcp/auth_callback"],
+    "allowedScopes": ["devspace"]
+  }
+]
+```
+
+If the web client does not show its callback URL, temporarily set `redirectUris` to an empty array and try the connection. Workbridge will reject the authorization request, but safe OAuth diagnostics will log the requested `redirect_uri` without logging authorization codes, access tokens, refresh tokens, client secrets, cookies, or authorization headers. Add the observed URI to the static client allowlist and restart Workbridge.
 
 MCP clients discover metadata from:
 
@@ -57,25 +122,61 @@ MCP clients discover metadata from:
 /.well-known/oauth-authorization-server
 ```
 
-## Tool Modes
+## Workbridge Tool Modes
 
-`DEVSPACE_TOOL_MODE` controls the tool surface.
+`DEVSPACE_TOOL_MODE` controls the Workbridge MCP tool surface. Tool names are short-only.
+Legacy direct read and multi-edit tools stay hidden unless enabled by their
+dedicated feature flags. Workbridge uses `DEVSPACE_*` names for compatibility with the upstream DevSpace package.
 
 | Value | Behavior |
 | --- | --- |
-| `minimal` | Default. Exposes `open_workspace`, `read`, `write`, `edit`, and `bash`. Clients use `bash` with tools such as `rg`, `find`, and `ls` for inspection. |
-| `full` | Exposes the minimal tools plus dedicated `grep`, `glob`, and `ls` tools. |
-| `codex` | Experimental. Exposes `open_workspace`, `read`, `apply_patch`, `exec_command`, and `write_stdin`. Existing mutation and shell tools are hidden. |
+| `minimal` | Default Workbridge profile. Exposes core workspace, bounded inspection, targeted edit, git status/commit, shell, event, guide, and efficiency-report tools; hides advanced edit/git helpers plus dedicated `grep`, `glob`, and `ls`. |
+| `full` | Enables the advanced edit/git helpers plus dedicated `grep`, `glob`, and `ls` tools. |
+| `codex` | Codex-compatible Workbridge mode. Exposes `open_workspace`, `read`, `apply_patch`, `exec_command`, and `write_stdin`, while Workbridge guide/diagnostics/bounded workflow helpers may also remain visible. |
 
 `DEVSPACE_MINIMAL_TOOLS` remains a backward-compatible alias when
 `DEVSPACE_TOOL_MODE` is unset: `1` selects `minimal` and `0` selects `full`.
-The `codex` mode must be selected through `DEVSPACE_TOOL_MODE` and always uses
-its fixed short tool names regardless of `DEVSPACE_TOOL_NAMING`.
+
+
+### Tool selection notes
+
+- `apply_patch` uses Codex patch format and is best for add/update/delete/move operations in `codex` mode.
+- `apply_unified_patch` is a Workbridge workflow tool for hash-guarded unified diffs with `expectedBase` / sha256 checks.
+- `bash` is the bounded command tool for `minimal` / `full` modes.
+- `exec_command` and `write_stdin` are process-session tools for `codex` mode.
+- `run_codex_cli` is a local Codex CLI wrapper and is separate from `DEVSPACE_TOOL_MODE=codex`.
 
 Codex-mode commands run without a PTY by default. Set `tty: true` on
 `exec_command` for interactive terminal programs. PTY support uses the optional
 `node-pty` dependency; `write_stdin` can send input, poll output, and resize PTY
 sessions.
+
+Recommended optional shell helpers for minimal mode:
+
+| Tool | Primary use |
+| --- | --- |
+| `rg` or `grep` | Text search. Prefer `rg` when installed; use `grep` as the portable fallback. |
+| `fd` or `find` | File discovery. Prefer `fd` when installed; use `find` as the portable fallback. |
+| `ls` or `tree` | Directory inspection. |
+| `jq` | JSON inspection, including `package.json` and JSONL log summaries. |
+| `yq` | YAML inspection, including Cloudflare Tunnel and GitHub Actions config files. |
+
+Shell helpers must be available on the PATH of the shell that starts DevSpace.
+After installing a helper, restart the terminal and then restart `devspace serve`.
+
+Optional tool flags keep the default schema surface small:
+
+| Variable | Default | Behavior |
+| --- | --- | --- |
+| `DEVSPACE_ENABLE_WORKFLOW_TOOLS` | `0` | Enables workflow tools such as `devspace_router`, `devspace_verify`, structured patch/edit helpers, and workflow event recording. |
+| `DEVSPACE_ENABLE_LEGACY_READ_TOOLS` | `0` | Enables `read_many` and other legacy direct read helpers where still supported. |
+| `DEVSPACE_ENABLE_EDIT_MANY` | `0` | Enables `edit_many`. |
+| `DEVSPACE_ENABLE_ZIP_EXPORT_TOOLS` | `0` | Enables ZIP export/download tools. |
+| `DEVSPACE_ENABLE_ZIP_IMPORT_TOOLS` | `0` | Enables ZIP import tools. |
+| `DEVSPACE_ENABLE_CODEX_CLI` | `0` | Enables the local Codex CLI wrapper tool. |
+| `DEVSPACE_ENABLE_TASK_TOOLS` | `0` | Enables task checkpoint/resume helpers. |
+
+At startup DevSpace logs a compact `tool_registry_summary` event containing exposed tool names, hidden tool names, enabled profiles, and feature flag state. Prefer that local log event over repeated schema discovery when checking whether optional tools are hidden.
 
 ## Widgets
 
@@ -83,9 +184,9 @@ sessions.
 
 | Value | Behavior |
 | --- | --- |
-| `full` | Default. Widget UI is attached to exposed workspace, file, edit, and shell tools. |
+| `full` | Widget UI is attached to exposed workspace, file, edit, and shell tools. |
 | `changes` | Enables the aggregate `show_changes` tool and attaches widget UI to `open_workspace` and `show_changes`. |
-| `off` | Disables widget UI. |
+| `off` | Default. Disables widget UI. |
 
 ## Skills
 
@@ -124,12 +225,23 @@ npx @waishnav/devspace serve
 | `DEVSPACE_LOG_ASSETS` | `0` |
 | `DEVSPACE_LOG_TOOL_CALLS` | `1` |
 | `DEVSPACE_LOG_SHELL_COMMANDS` | `0` |
+| `DEVSPACE_LOG_FILE` | `1` |
+| `DEVSPACE_LOG_DIR` | `logs` |
+| `DEVSPACE_LOG_FILE_NAME` | `devspace_YYYYMMDD_HHMMSS.jsonl` |
 | `DEVSPACE_TRUST_PROXY` | `0` |
 
-Set `DEVSPACE_LOG_FORMAT=pretty` for local debugging.
+By default, DevSpace writes JSONL logs directly to `logs/` as well as to stdout.
+Set `DEVSPACE_LOG_FILE=0` to disable file logging, `DEVSPACE_LOG_DIR` to change
+the output directory, or `DEVSPACE_LOG_FILE_NAME` to force a specific filename.
+
+Set `DEVSPACE_LOG_FORMAT=pretty` for local debugging. File logs remain JSONL so
+the analyzer can read them consistently.
 
 Set `DEVSPACE_LOG_SHELL_COMMANDS=1` only when you intentionally want command
 previews in logs.
+
+To analyze saved JSONL logs and generate a local dashboard, see
+[Log Analysis](./log-analysis.md).
 
 ## Env-Only Example
 
@@ -139,9 +251,26 @@ DEVSPACE_ALLOWED_ROOTS="$HOME/personal,$HOME/work" \
 DEVSPACE_PUBLIC_BASE_URL="https://devspace.example.com" \
 DEVSPACE_WORKTREE_ROOT="$HOME/.devspace/worktrees" \
 DEVSPACE_TOOL_MODE="minimal" \
-DEVSPACE_WIDGETS="full" \
+DEVSPACE_WIDGETS="off" \
 npx @waishnav/devspace serve
 ```
 
 The environment assignments must be part of the same command invocation, or
 exported first.
+
+`devspace_verify` preflight behavior: `git_status_check` returns bounded status output by default, while long-running commands use a timeout guard with SIGTERM followed by a stronger kill signal after a short grace period. <!-- 1.1.27 preflight -->
+
+`devspace_verify` profile names are maintained from a single `DEVSPACE_VERIFY_PROFILES` source and covered by schema smoke tests to reduce MCP structured-output validation regressions.
+
+On Windows, package-manager verify profiles (`typecheck_only`, `related_tests`, `workflow_tools_test`, `safe_editing_test`, `npm_test`, and `build`) are launched through a fixed shell command string because direct `spawn("npm.cmd")` / `spawn("npx.cmd")` can fail with `EINVAL` in the Git Bash-backed runtime. These are still fixed enum profiles, not arbitrary shell commands. <!-- package-manager verify profiles -->
+
+## Auto efficiency ledger
+
+Workbridge writes sanitized tool-efficiency events to `.devspace/efficiency/events.jsonl` by default. The ledger is intended for after-action reviews such as bash usage, failed tool calls, output truncation, structured-tool usage, and verification coverage.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `WORKBRIDGE_EFFICIENCY_LEDGER` / `DEVSPACE_EFFICIENCY_LEDGER` | `1` | Set to `0`, `false`, `off`, or `no` to disable efficiency event writes. |
+| `WORKBRIDGE_EFFICIENCY_LEDGER_PATH` / `DEVSPACE_EFFICIENCY_LEDGER_PATH` | `.devspace/efficiency/events.jsonl` | Override the efficiency ledger JSONL path. |
+
+Use `workbridge_efficiency_report` from MCP clients or `npm run efficiency:report` locally to summarize the ledger.

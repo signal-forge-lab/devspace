@@ -98,3 +98,11 @@ By default, DevSpace logs requests and tool calls. Shell command previews are
 disabled unless `DEVSPACE_LOG_SHELL_COMMANDS=1`.
 
 Do not enable shell command logging if commands may contain secrets.
+
+## Safe OAuth diagnostics
+
+When `DEVSPACE_OAUTH_SAFE_DIAGNOSTIC_LOGGING` is enabled, DevSpace logs only OAuth routing metadata needed for connector setup, such as `client_id`, `redirect_uri`, `redirect_uris`, scope, and rejection reason. It must not log authorization codes, access tokens, refresh tokens, client secrets, cookies, or Authorization headers.
+
+## Workbridge guide visibility
+
+The `workbridge_guide` tool is read-only and intentionally exposed to MCP clients so they can learn safe Workbridge usage without reading repository docs directly. It summarizes bounded inspection, targeted editing, verification, and secret-handling rules.

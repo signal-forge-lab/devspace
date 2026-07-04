@@ -10,7 +10,7 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { checkResourceAllowed, resourceUrlFromServerUrl } from "@modelcontextprotocol/sdk/shared/auth-utils.js";
-import { SqliteOAuthClientsStore, SqliteOAuthStore } from "./oauth-store.js";
+import { SqliteOAuthClientsStore, SqliteOAuthStore, type OAuthDiagnosticLogger, type OAuthStaticClientConfig } from "./oauth-store.js";
 
 export interface OAuthConfig {
   ownerToken: string;
@@ -18,6 +18,8 @@ export interface OAuthConfig {
   refreshTokenTtlSeconds: number;
   scopes: string[];
   allowedRedirectHosts: string[];
+  staticClients: OAuthStaticClientConfig[];
+  safeDiagnosticLogging: boolean;
 }
 
 interface AuthorizationCodeRecord {
@@ -121,10 +123,14 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     private readonly config: OAuthConfig,
     resourceServerUrl: URL,
     stateDir: string,
+    diagnosticLogger?: OAuthDiagnosticLogger,
   ) {
     this.resourceServerUrl = resourceUrlFromServerUrl(resourceServerUrl);
     this.oauthStore = new SqliteOAuthStore(stateDir);
-    this.clientsStore = new SqliteOAuthClientsStore(this.oauthStore, config.allowedRedirectHosts);
+    this.clientsStore = new SqliteOAuthClientsStore(this.oauthStore, config.allowedRedirectHosts, {
+      staticClients: config.staticClients,
+      diagnosticLogger: config.safeDiagnosticLogging ? diagnosticLogger : undefined,
+    });
   }
 
   async authorize(
