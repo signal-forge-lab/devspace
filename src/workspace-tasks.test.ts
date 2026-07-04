@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveWorkspaceTask, workspaceTaskTemplateNames } from "./workspace-tasks.js";
+import { resolveWorkspaceTask, workspaceTaskCatalog, workspaceTaskTemplateNames } from "./workspace-tasks.js";
 
 const root = mkdtempSync(join(tmpdir(), "workbridge-task-"));
 writeFileSync(join(root, "aegis_runner.py"), "print('ok')\n", "utf8");
@@ -33,6 +33,17 @@ assert.deepEqual(templated.args.slice(3), [
   "5",
 ]);
 assert.deepEqual(workspaceTaskTemplateNames("aegis_runner"), ["status_console_5s"]);
+
+const catalog = await workspaceTaskCatalog(root);
+assert.equal(catalog.length, 1);
+assert.equal(catalog[0]?.name, "aegis_runner");
+assert.equal(catalog[0]?.scriptPresent, true);
+assert.equal(catalog[0]?.templates[0]?.name, "status_console_5s");
+assert.deepEqual(catalog[0]?.templates[0]?.args, [
+  "--launch-status-console",
+  "--status-console-refresh-seconds",
+  "5",
+]);
 
 const combined = await resolveWorkspaceTask({
   workspaceRoot: root,

@@ -91,7 +91,7 @@ import { WorkspaceZipImportStore } from "./workspace-zip-import.js";
 import { registerZipExportTools } from "./zip-export-registration.js";
 import { registerZipImportTools } from "./zip-import-registration.js";
 import { registerZipTransferTools } from "./zip-transfer-registration.js";
-import { resolveWorkspaceTask, WORKSPACE_TASK_NAMES } from "./workspace-tasks.js";
+import { resolveWorkspaceTask, WORKSPACE_TASK_NAMES, workspaceTaskCatalog } from "./workspace-tasks.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
 import { workspaceSnapshot } from "./workspace-snapshot.js";
@@ -567,6 +567,110 @@ function logToolRegistrySummary(config: ServerConfig, toolNames: ToolNames): voi
       detail: true,
     });
   }
+}
+
+function optionalFeatureHints(): Array<{ feature: string; enabled: boolean; enableWith: string; tools: string[] }> {
+  return [
+    {
+      feature: "workspace_tasks",
+      enabled: workspaceTasksEnabled(),
+      enableWith: "WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1",
+      tools: ["launch_workspace_task"],
+    },
+    {
+      feature: "process_tools",
+      enabled: processToolsEnabled(),
+      enableWith: "WORKBRIDGE_ENABLE_PROCESS_TOOLS=1",
+      tools: ["exec_command", "write_stdin"],
+    },
+    {
+      feature: "workflow_tools",
+      enabled: WORKFLOW_TOOLS_ENABLED,
+      enableWith: "DEVSPACE_ENABLE_WORKFLOW_TOOLS=1",
+      tools: ["devspace_verify", "devspace_router", "apply_unified_patch", "apply_structured_edit"],
+    },
+    {
+      feature: "zip_export_tools",
+      enabled: ZIP_EXPORT_TOOLS_ENABLED,
+      enableWith: "DEVSPACE_ENABLE_ZIP_EXPORT_TOOLS=1",
+      tools: ["export_workspace_zip", "create_zip_download_url"],
+    },
+  ];
+}
+
+function openWorkspaceToolSurface(config: ServerConfig, toolNames: ToolNames): Record<string, unknown> {
+  const optionalFeatures = optionalFeatureHints();
+  return {
+    toolMode: config.toolMode,
+    widgets: config.widgets,
+    enabledProfiles: enabledToolProfiles(config),
+    enabledOptionalFeatures: optionalFeatures.filter((feature) => feature.enabled),
+    disabledOptionalFeatures: optionalFeatures.filter((feature) => !feature.enabled),
+    visibleTools: expectedRegisteredToolNames(config, toolNames),
+    hiddenTools: hiddenRegisteredToolNames(config, toolNames),
+  };
+}
+
+function openWorkspaceRecommendedWorkflow(config: ServerConfig): Record<string, unknown> {
+  return {
+    inspect: ["workspace_snapshot", "grep_context", "file_outline", "create_workspace_index", "read_index_ranges"],
+    edit: config.toolMode === "codex"
+      ? ["apply_patch", "read"]
+      : ["edit_by_line_range", "edit", "apply_patch when codex mode"],
+    verify: WORKFLOW_TOOLS_ENABLED
+      ? ["devspace_verify", "git_diff_check", "typecheck_only", "build"]
+      : ["bash for bounded verification", "enable DEVSPACE_ENABLE_WORKFLOW_TOOLS=1 for devspace_verify"],
+    command: [
+      workspaceTasksEnabled() ? "launch_workspace_task for registered local tasks" : "enable WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1 for registered local tasks",
+      processToolsEnabled() || config.toolMode === "codex" ? "exec_command + write_stdin for long-running or interactive commands" : "bash for short bounded commands",
+    ],
+    git: ["git_status", "git_diff_ranges", "git_commit_files"],
+    nextRecommendedCalls: ["workspace_snapshot"],
+  };
+}
+
+function openWorkspaceStrategies(config: ServerConfig): Record<string, unknown> {
+  return {
+    edit: {
+      codexPatch: "apply_patch",
+      hashGuardedUnifiedDiff: WORKFLOW_TOOLS_ENABLED ? "apply_unified_patch" : "enable DEVSPACE_ENABLE_WORKFLOW_TOOLS=1",
+      smallTargetedEdit: "edit_by_line_range or edit",
+      structuredSensitiveEdit: WORKFLOW_TOOLS_ENABLED ? "apply_structured_edit" : "enable DEVSPACE_ENABLE_WORKFLOW_TOOLS=1",
+      avoid: ["shell redirection", "tee", "sed -i", "ad-hoc scripts for file mutation"],
+    },
+    command: {
+      registeredLocalTask: workspaceTasksEnabled() ? "launch_workspace_task" : "enable WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1",
+      fixedVerification: WORKFLOW_TOOLS_ENABLED ? "devspace_verify" : "enable DEVSPACE_ENABLE_WORKFLOW_TOOLS=1",
+      shortBoundedCommand: "bash",
+      longRunningOrInteractive: processToolsEnabled() || config.toolMode === "codex" ? "exec_command + write_stdin" : "enable WORKBRIDGE_ENABLE_PROCESS_TOOLS=1 or use codex mode",
+      avoid: ["raw shell command when a registered workspace task exists", "repeating blocked command shapes"],
+    },
+    git: {
+      inspectStatus: "git_status",
+      inspectDiff: "git_diff_ranges",
+      commitSelectedFiles: "git_commit_files",
+      avoid: ["git add && git commit as raw shell when git_commit_files fits"],
+    },
+  };
+}
+
+function openWorkspaceVerificationProfiles(): Record<string, unknown> {
+  return {
+    enabled: WORKFLOW_TOOLS_ENABLED,
+    enableWith: "DEVSPACE_ENABLE_WORKFLOW_TOOLS=1",
+    profiles: [
+      "typecheck_only",
+      "related_tests",
+      "workflow_tools_test",
+      "safe_editing_test",
+      "npm_test",
+      "build",
+      "git_diff_check",
+      "git_diff_cached_check",
+      "git_status_check",
+    ],
+    recommended: ["typecheck_only", "related_tests", "build", "git_diff_check", "git_status_check"],
+  };
 }
 function resultOutputSchema(extra: z.ZodRawShape = {}): z.ZodRawShape {
   return {
@@ -1855,6 +1959,12 @@ function createMcpServer(
         skills: z.array(workspaceSkillOutputSchema),
         skillDiagnostics: z.array(z.unknown()),
         instruction: z.string(),
+        instructionSources: z.unknown(),
+        toolSurface: z.unknown(),
+        recommendedWorkflow: z.unknown(),
+        workspaceTasks: z.unknown(),
+        verificationProfiles: z.unknown(),
+        strategies: z.unknown(),
       },
       ...toolWidgetDescriptorMeta(config, "workspace"),
       annotations: { readOnlyHint: true },
@@ -1882,6 +1992,23 @@ function createMcpServer(
       const availableAgentsFileOutputs = availableAgentsFiles.map((file) => ({
         path: formatAgentsPath(file.path, workspace.root),
       }));
+      const toolSurface = openWorkspaceToolSurface(config, toolNames);
+      const recommendedWorkflow = openWorkspaceRecommendedWorkflow(config);
+      const taskCatalog = await workspaceTaskCatalog(workspace.root);
+      const workspaceTasks = {
+        enabled: workspaceTasksEnabled(),
+        enableWith: "WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1",
+        launcherTool: toolNames.launchWorkspaceTask,
+        tasks: taskCatalog,
+      };
+      const verificationProfiles = openWorkspaceVerificationProfiles();
+      const strategies = openWorkspaceStrategies(config);
+      const instructionSources = {
+        loaded: loadedAgentsFiles.map((file) => file.path),
+        availableNested: availableAgentsFileOutputs.map((file) => file.path),
+        skills: visibleSkills.map((skill) => ({ name: skill.name, path: skill.path })),
+        rule: "Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file. When a task matches an available skill, read its path before proceeding.",
+      };
       const instruction = config.skillsEnabled
         ? "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file. When a task matches an available skill in skills, read its path before proceeding."
         : "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file.";
@@ -1901,6 +2028,11 @@ function createMcpServer(
             visibleSkills.length > 0
               ? `Available skills: ${visibleSkills.map((skill) => skill.name).join(", ")}`
               : undefined,
+            `Tool mode: ${config.toolMode}; widgets: ${config.widgets}; enabled profiles: ${enabledToolProfiles(config).join(", ")}`,
+            workspaceTasks.enabled
+              ? `Workspace tasks enabled: ${taskCatalog.filter((task) => task.scriptPresent).map((task) => task.name).join(", ") || "none found in this workspace"}`
+              : "Workspace tasks disabled. Enable with WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1.",
+            `Recommended next call: ${recommendedWorkflow.nextRecommendedCalls instanceof Array ? recommendedWorkflow.nextRecommendedCalls.join(", ") : "workspace_snapshot"}`,
             instruction,
           ].filter(Boolean).join("\n"),
         },
@@ -1926,6 +2058,8 @@ function createMcpServer(
               availableAgentsFiles: availableAgentsFileOutputs.length,
               skills: visibleSkills.length,
               skillDiagnostics: workspace.skillDiagnostics.length,
+              enabledProfiles: enabledToolProfiles(config).length,
+              workspaceTasks: taskCatalog.filter((task) => task.scriptPresent).length,
             },
           },
         },
@@ -1940,6 +2074,12 @@ function createMcpServer(
           skills: visibleSkills,
           skillDiagnostics: workspace.skillDiagnostics,
           instruction,
+          instructionSources,
+          toolSurface,
+          recommendedWorkflow,
+          workspaceTasks,
+          verificationProfiles,
+          strategies,
         },
       };
     },

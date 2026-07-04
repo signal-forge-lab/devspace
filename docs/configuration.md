@@ -147,6 +147,8 @@ dedicated feature flags. Workbridge uses `DEVSPACE_*` names for compatibility wi
 - `launch_workspace_task` is an opt-in Workbridge task launcher for allowlisted local workspace tasks. It accepts a task name plus either free-form `args` or a named template, without accepting a raw shell command string. The initial allowlisted task is `aegis_runner`; the initial template is `status_console_5s`.
 - `run_codex_cli` is a local Codex CLI wrapper and is separate from `DEVSPACE_TOOL_MODE=codex`.
 
+`open_workspace` returns a compact workspace guidance bundle so clients do not need to rediscover every tool schema before choosing a workflow. The structured response includes `toolSurface`, `recommendedWorkflow`, `workspaceTasks`, `verificationProfiles`, and `strategies` for edit, command, and git operations. Treat this as the first routing hint for the workspace, then call `workspace_snapshot` for repository state.
+
 Codex-mode commands run without a PTY by default. Set `tty: true` on
 `exec_command` for interactive terminal programs. PTY support uses the optional
 `node-pty` dependency; `write_stdin` can send input, poll output, and resize PTY

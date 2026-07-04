@@ -14,6 +14,8 @@ Workbridge connects AI clients such as ChatGPT or Claude to allowed local worksp
 4. Start with bounded inspection: `workspace_snapshot`, `grep_context`, `file_outline`, `create_workspace_index`, or `read_index_ranges`.
 5. Make targeted edits and verify with fixed profiles such as `devspace_verify` before reporting completion.
 
+The `open_workspace` structured response includes workspace routing hints: `toolSurface`, `recommendedWorkflow`, `workspaceTasks`, `verificationProfiles`, and edit/command/git `strategies`. Use these hints before searching the tool registry again.
+
 ## Tool modes
 
 | Mode | Purpose | Typical tools |
