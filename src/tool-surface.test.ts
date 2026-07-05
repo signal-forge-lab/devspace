@@ -7,6 +7,7 @@ import {
   enabledToolProfiles,
   expectedRegisteredToolNames,
   hiddenRegisteredToolNames,
+  openWorkspaceRecommendedWorkflow,
   toolNamesFor,
 } from "./server.js";
 
@@ -25,6 +26,19 @@ function surface(mode: "minimal" | "full" | "codex" | "main") {
     tools: expectedRegisteredToolNames(config, toolNames),
     hidden: hiddenRegisteredToolNames(config, toolNames),
     profiles: enabledToolProfiles(config),
+  };
+}
+
+function workflow(mode: "minimal" | "full" | "codex" | "main") {
+  const config = loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: mode });
+  const toolNames = toolNamesFor(config);
+  return openWorkspaceRecommendedWorkflow(config, toolNames) as {
+    inspect: string[];
+    edit: string[];
+    verify: string[];
+    command: string[];
+    git: string[];
+    nextRecommendedCalls: string[];
   };
 }
 
@@ -127,6 +141,27 @@ assertAlwaysHidden(main, "main");
 assertForkDisabled(main, "main");
 assert.ok(main.profiles.includes("tool_mode_main"));
 
+
+const hiddenInspectionWorkflowTools = ["workspace_snapshot", "grep_context", "file_outline", "create_workspace_index", "read_index_ranges"];
+
+const mainWorkflow = workflow("main");
+assert.deepEqual(mainWorkflow.inspect, ["grep", "glob", "ls", "read"]);
+assert.deepEqual(mainWorkflow.edit, ["edit", "write"]);
+assert.deepEqual(mainWorkflow.git, ["bash for bounded git inspection"]);
+assert.deepEqual(mainWorkflow.nextRecommendedCalls, ["grep"]);
+for (const hiddenTool of hiddenInspectionWorkflowTools) {
+  assert.ok(!mainWorkflow.inspect.includes(hiddenTool), `${hiddenTool} should not be recommended in main mode`);
+}
+
+const codexWorkflow = workflow("codex");
+assert.deepEqual(codexWorkflow.inspect, ["grep", "glob", "ls", "read"]);
+assert.ok(codexWorkflow.edit.includes("apply_patch"));
+assert.ok(codexWorkflow.command.some((item) => item.includes("exec_command")));
+assert.deepEqual(codexWorkflow.nextRecommendedCalls, ["grep"]);
+for (const hiddenTool of hiddenInspectionWorkflowTools) {
+  assert.ok(!codexWorkflow.inspect.includes(hiddenTool), `${hiddenTool} should not be recommended in codex mode`);
+}
+
 const full = surface("full");
 assert.ok(full.tools.includes("bash"));
 assert.ok(full.tools.includes("write"));
@@ -211,6 +246,12 @@ try {
   assert.ok(!codexWithWorkspaceTasks.hidden.includes("launch_workspace_task"));
   assertForkDisabled(codexWithWorkspaceTasks, "codex with workspace tasks");
   assert.ok(codexWithWorkspaceTasks.profiles.includes("workspace_tasks"));
+
+  const codexWorkflowWithWorkspaceTasks = workflow("codex");
+  assert.ok(codexWorkflowWithWorkspaceTasks.command.some((item) => item.includes("launch_workspace_task")));
+  assert.deepEqual(codexWorkflowWithWorkspaceTasks.inspect, ["grep", "glob", "ls", "read"]);
+  assert.deepEqual(codexWorkflowWithWorkspaceTasks.nextRecommendedCalls, ["grep"]);
+
 } finally {
   delete process.env.WORKBRIDGE_ENABLE_WORKSPACE_TASKS;
 }

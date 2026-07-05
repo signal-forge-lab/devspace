@@ -90,11 +90,11 @@ function parseToolMode(env: NodeJS.ProcessEnv): ToolMode {
   return "minimal";
 }
 
-function parseLogLevel(value: string | undefined): LogLevel {
+function parseLogLevel(value: string | undefined, name = "DEVSPACE_LOG_LEVEL"): LogLevel {
   if (!value || value === "info") return "info";
   if (["silent", "error", "warn", "debug"].includes(value)) return value as LogLevel;
 
-  throw new Error(`Invalid DEVSPACE_LOG_LEVEL: ${value}`);
+  throw new Error(`Invalid ${name}: ${value}`);
 }
 
 function parseLogFormat(value: string | undefined): LogFormat {
@@ -159,6 +159,7 @@ function parseLoggingConfig(env: NodeJS.ProcessEnv): LoggingConfig {
   const fileName = sanitizeLogFileName(env.DEVSPACE_LOG_FILE_NAME ?? defaultLogFileName());
   return {
     level: parseLogLevel(env.DEVSPACE_LOG_LEVEL),
+    consoleLevel: parseLogLevel(env.DEVSPACE_CONSOLE_LOG_LEVEL ?? (file ? "warn" : "info"), "DEVSPACE_CONSOLE_LOG_LEVEL"),
     format: parseLogFormat(env.DEVSPACE_LOG_FORMAT),
     requests: env.DEVSPACE_LOG_REQUESTS === undefined ? true : parseBoolean(env.DEVSPACE_LOG_REQUESTS),
     assets: parseBoolean(env.DEVSPACE_LOG_ASSETS),

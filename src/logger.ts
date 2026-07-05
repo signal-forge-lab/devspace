@@ -9,6 +9,7 @@ export type LogFormat = "json" | "pretty";
 
 export interface LoggingConfig {
   level: LogLevel;
+  consoleLevel: LogLevel;
   format: LogFormat;
   requests: boolean;
   assets: boolean;
@@ -59,6 +60,14 @@ const LEVEL_WEIGHT: Record<LogLevel, number> = {
   debug: 4,
 };
 
+const COMPACT_SUCCESS_TOOL_NAMES = new Set([
+  "edit",
+  "write",
+  "apply_patch",
+  "exec_command",
+  "launch_workspace_task",
+]);
+
 const fileStreams = new Map<string, WriteStream>();
 const failedFilePaths = new Set<string>();
 
@@ -84,7 +93,19 @@ export function logEvent(
 
   writeFileLog(config, entry);
 
+  const compactToolLine = compactToolCallConsoleLine(config, level, fields);
+  if (compactToolLine) {
+    writeConsoleLine(level, compactToolLine);
+    return;
+  }
+
+  if (!shouldLog({ ...config, level: config.consoleLevel }, level)) return;
+
   const line = config.format === "pretty" ? formatPretty(entry) : JSON.stringify(entry);
+  writeConsoleLine(level, line);
+}
+
+function writeConsoleLine(level: Exclude<LogLevel, "silent">, line: string): void {
   if (level === "error") {
     console.error(line);
   } else if (level === "warn") {
@@ -92,6 +113,76 @@ export function logEvent(
   } else {
     console.log(line);
   }
+}
+
+function compactToolCallConsoleLine(
+  config: LoggingConfig,
+  level: Exclude<LogLevel, "silent">,
+  fields: LogFields,
+): string | undefined {
+  if (config.consoleLevel === "silent") return undefined;
+  if (fields.tool === undefined || fields.success === undefined) return undefined;
+
+  const tool = String(fields.tool);
+  const success = fields.success === true;
+  const important = !success
+    || level === "error"
+    || level === "warn"
+    || fields.error !== undefined
+    || fields.truncated === true
+    || fields.outputTruncated === true
+    || fields.timedOut === true;
+
+  if (!important && !COMPACT_SUCCESS_TOOL_NAMES.has(tool)) return undefined;
+
+  const label = success ? compactOperationLabel(tool) : "失敗";
+  const parts = [
+    `[${label}]`,
+    tool,
+    success ? "ok" : "failed",
+    formatDurationMs(fields.durationMs),
+  ];
+
+  pushCompactField(parts, "path", fields.path);
+  pushCompactField(parts, "files", fields.fileCount ?? fields.affectedFiles);
+  pushCompactField(parts, "exit", fields.exitCode);
+  pushCompactField(parts, "session", fields.sessionId);
+  pushCompactFlag(parts, "dryRun", fields.dryRun === true);
+  pushCompactField(parts, "template", fields.template);
+  pushCompactFlag(parts, "truncated", fields.truncated === true || fields.outputTruncated === true);
+  pushCompactField(parts, "chars", compactLargeNumber(fields.resultCharacters));
+  pushCompactField(parts, "reason", fields.error);
+
+  return parts.join(" ");
+}
+
+function compactOperationLabel(tool: string): string {
+  if (tool === "launch_workspace_task") return "タスク";
+  if (tool === "exec_command" || tool === "bash" || tool === "write_stdin") return "実行";
+  return "変更";
+}
+
+function formatDurationMs(value: unknown): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "duration=unknown";
+  if (value < 1000) return `${Math.round(value)}ms`;
+  if (value < 60_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}s`;
+  const minutes = Math.floor(value / 60_000);
+  const seconds = Math.round((value % 60_000) / 1000);
+  return `${minutes}m${String(seconds).padStart(2, "0")}s`;
+}
+
+function pushCompactField(parts: string[], name: string, value: unknown): void {
+  if (value === undefined || value === null || value === "") return;
+  parts.push(`${name}=${String(value)}`);
+}
+
+function pushCompactFlag(parts: string[], name: string, enabled: boolean): void {
+  if (enabled) parts.push(`${name}=true`);
+}
+
+function compactLargeNumber(value: unknown): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 10_000) return undefined;
+  return String(Math.round(value));
 }
 
 export async function closeLogFiles(): Promise<void> {

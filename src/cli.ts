@@ -202,17 +202,11 @@ async function serve(): Promise<void> {
     });
     console.log(`workbridge listening on http://${config.host}:${config.port}/mcp`);
     console.log(`public base url: ${config.publicBaseUrl}`);
-    console.log(`version: ${runtimeInfo.displayName} (${runtimeInfo.appName})@${runtimeInfo.appVersion} commit=${runtimeInfo.gitCommit} branch=${runtimeInfo.gitBranch} build=${runtimeInfo.buildSource}`);
-    console.log(`runtime: started=${runtimeInfo.processStartedAt} pid=${runtimeInfo.processId} node=${runtimeInfo.nodeVersion} entry=${runtimeInfo.cliEntryPath}`);
-    console.log(`runtime dist: ${runtimeInfo.runtimeDistPath}`);
-    console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
-    console.log(`allowed hosts: ${config.allowedHosts.join(", ")}`);
+    console.log(`version: ${runtimeInfo.displayName}@${runtimeInfo.appVersion} commit=${runtimeInfo.gitCommit} build=${runtimeInfo.buildSource}`);
+    console.log(`log file: ${config.logging.filePath ?? "disabled"}; console level: ${config.logging.consoleLevel}`);
     if (config.allowedHosts.includes("*")) {
       console.warn("warning: Host header allowlist is disabled because DEVSPACE_ALLOWED_HOSTS=*");
     }
-    console.log("auth: Owner password approval required");
-    console.log(`logging: ${config.logging.level} ${config.logging.format}`);
-    console.log(`log file: ${config.logging.filePath ?? "disabled"}`);
   });
 
   const shutdown = () => {

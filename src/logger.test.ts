@@ -9,6 +9,7 @@ try {
   const filePath = join(root, "logs", "devspace_test.jsonl");
   const config: LoggingConfig = {
     level: "info",
+    consoleLevel: "warn",
     format: "pretty",
     requests: true,
     assets: false,
@@ -19,7 +20,17 @@ try {
     filePath,
   };
 
-  logEvent(config, "info", "test_event", { value: 42 });
+  const originalLog = console.log;
+  const consoleLines: string[] = [];
+  console.log = (line?: unknown) => {
+    consoleLines.push(String(line));
+  };
+  try {
+    logEvent(config, "info", "test_event", { value: 42 });
+  } finally {
+    console.log = originalLog;
+  }
+  assert.deepEqual(consoleLines, []);
   await closeLogFiles();
 
   const lines = (await readFile(filePath, "utf8")).trim().split("\n");
@@ -28,6 +39,55 @@ try {
   assert.equal(entry.event, "test_event");
   assert.equal(entry.level, "info");
   assert.equal(entry.value, 42);
+
+  const compactFilePath = join(root, "logs", "devspace_compact_test.jsonl");
+  const compactConfig: LoggingConfig = {
+    ...config,
+    filePath: compactFilePath,
+  };
+
+  const originalCompactLog = console.log;
+  const originalCompactWarn = console.warn;
+  const consoleLogLines: string[] = [];
+  const consoleWarnLines: string[] = [];
+  console.log = (line?: unknown) => {
+    consoleLogLines.push(String(line));
+  };
+  console.warn = (line?: unknown) => {
+    consoleWarnLines.push(String(line));
+  };
+  try {
+    logEvent(compactConfig, "info", "tool_call", {
+      tool: "read",
+      success: true,
+      durationMs: 12,
+      path: "src/logger.ts",
+    });
+    logEvent(compactConfig, "info", "tool_call", {
+      tool: "apply_patch",
+      success: true,
+      durationMs: 42,
+      fileCount: 2,
+    });
+    logEvent(compactConfig, "warn", "tool_call", {
+      tool: "exec_command",
+      success: false,
+      durationMs: 30_000,
+      exitCode: 1,
+      error: "timeout",
+    });
+  } finally {
+    console.log = originalCompactLog;
+    console.warn = originalCompactWarn;
+  }
+
+  assert.deepEqual(consoleLogLines, ["[変更] apply_patch ok 42ms files=2"]);
+  assert.deepEqual(consoleWarnLines, ["[失敗] exec_command failed 30s exit=1 reason=timeout"]);
+  await closeLogFiles();
+
+  const compactLines = (await readFile(compactFilePath, "utf8")).trim().split("\n");
+  assert.equal(compactLines.length, 3);
+  assert.equal(JSON.parse(compactLines[0]).tool, "read");
 
   const req = {
     header(name: string): string | undefined {

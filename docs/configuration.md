@@ -228,6 +228,7 @@ npx @waishnav/devspace serve
 | --- | --- |
 | `DEVSPACE_LOG_LEVEL` | `info` |
 | `DEVSPACE_LOG_FORMAT` | `json` |
+| `DEVSPACE_CONSOLE_LOG_LEVEL` | `warn` when file logging is enabled; `info` when disabled |
 | `DEVSPACE_LOG_REQUESTS` | `1` |
 | `DEVSPACE_LOG_ASSETS` | `0` |
 | `DEVSPACE_LOG_TOOL_CALLS` | `1` |
@@ -237,9 +238,12 @@ npx @waishnav/devspace serve
 | `DEVSPACE_LOG_FILE_NAME` | `devspace_YYYYMMDD_HHMMSS.jsonl` |
 | `DEVSPACE_TRUST_PROXY` | `0` |
 
-By default, Workbridge writes JSONL logs directly to `logs/` as well as to stdout.
-Set `DEVSPACE_LOG_FILE=0` to disable file logging, `DEVSPACE_LOG_DIR` to change
-the output directory, or `DEVSPACE_LOG_FILE_NAME` to force a specific filename.
+By default, Workbridge writes detailed JSONL logs directly to `logs/` and keeps stdout concise.
+Informational events stay in the local log file, while the console defaults to warnings,
+errors, and compact summaries for important execution-style tool calls.
+Set `DEVSPACE_CONSOLE_LOG_LEVEL=info` for verbose console logging, `DEVSPACE_LOG_FILE=0`
+to disable file logging, `DEVSPACE_LOG_DIR` to change the output directory, or
+`DEVSPACE_LOG_FILE_NAME` to force a specific filename.
 
 Set `DEVSPACE_LOG_FORMAT=pretty` for local debugging. File logs remain JSONL so
 the analyzer can read them consistently.

@@ -650,21 +650,45 @@ function openWorkspaceToolSurface(config: ServerConfig, toolNames: ToolNames): R
   };
 }
 
-function openWorkspaceRecommendedWorkflow(config: ServerConfig): Record<string, unknown> {
+export function openWorkspaceRecommendedWorkflow(config: ServerConfig, toolNames: ToolNames): Record<string, unknown> {
+  const visibleTools = new Set(expectedRegisteredToolNames(config, toolNames));
+  const visible = (tool: string) => visibleTools.has(tool);
+  const visibleList = (tools: string[]) => tools.filter(visible);
+  const firstVisible = (tools: string[], fallback: string) => tools.find(visible) ?? fallback;
+
+  const inspect = visibleList(["workspace_snapshot", "grep_context", "file_outline", "create_workspace_index", "read_index_ranges"]);
+  if (inspect.length === 0) {
+    inspect.push(...visibleList(["grep", "glob", "ls", "read"]));
+  }
+
+  const edit = config.toolMode === "codex"
+    ? visibleList(["apply_patch", "edit", "read"])
+    : visibleList(["edit", "write"]);
+  if (edit.length === 0) edit.push("enable an edit-capable tool profile");
+
+  const verify = WORKFLOW_TOOLS_ENABLED && visible("workbridge_verify")
+    ? ["workbridge_verify", "git_diff_check", "typecheck_only", "build"]
+    : ["bash for bounded verification"];
+
+  const command = [
+    workspaceTasksEnabled() && visible("launch_workspace_task")
+      ? "launch_workspace_task for registered local tasks"
+      : "enable WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1 for registered local tasks",
+    processToolsEnabled() || config.toolMode === "codex"
+      ? "exec_command + write_stdin for long-running or interactive commands"
+      : "bash for short bounded commands",
+  ];
+
+  const git = visibleList(["git_status", "git_diff_ranges", "git_commit_files"]);
+  if (git.length === 0) git.push("bash for bounded git inspection");
+
   return {
-    inspect: ["workspace_snapshot", "grep_context", "file_outline", "create_workspace_index", "read_index_ranges"],
-    edit: config.toolMode === "codex"
-      ? ["apply_patch", "read"]
-      : ["edit_by_line_range", "edit", "apply_patch when codex mode"],
-    verify: WORKFLOW_TOOLS_ENABLED
-      ? ["workbridge_verify", "git_diff_check", "typecheck_only", "build"]
-      : ["bash for bounded verification", "enable DEVSPACE_ENABLE_WORKFLOW_TOOLS=1 for workbridge_verify"],
-    command: [
-      workspaceTasksEnabled() ? "launch_workspace_task for registered local tasks" : "enable WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1 for registered local tasks",
-      processToolsEnabled() || config.toolMode === "codex" ? "exec_command + write_stdin for long-running or interactive commands" : "bash for short bounded commands",
-    ],
-    git: ["git_status", "git_diff_ranges", "git_commit_files"],
-    nextRecommendedCalls: ["workspace_snapshot"],
+    inspect,
+    edit,
+    verify,
+    command,
+    git,
+    nextRecommendedCalls: [firstVisible(["workspace_snapshot", "grep_context", "grep", "glob", "ls", "read"], "open_workspace")],
   };
 }
 
@@ -1952,7 +1976,7 @@ function createMcpServer(
         path: formatAgentsPath(file.path, workspace.root),
       }));
       const toolSurface = openWorkspaceToolSurface(config, toolNames);
-      const recommendedWorkflow = openWorkspaceRecommendedWorkflow(config);
+      const recommendedWorkflow = openWorkspaceRecommendedWorkflow(config, toolNames);
       const taskCatalog = await workspaceTaskCatalog(workspace.root);
       const workspaceTasks = {
         enabled: workspaceTasksEnabled(),
@@ -1991,7 +2015,7 @@ function createMcpServer(
             workspaceTasks.enabled
               ? `Workspace tasks enabled: ${taskCatalog.filter((task) => task.scriptPresent).map((task) => task.name).join(", ") || "none found in this workspace"}`
               : "Workspace tasks disabled. Enable with WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1.",
-            `Recommended next call: ${recommendedWorkflow.nextRecommendedCalls instanceof Array ? recommendedWorkflow.nextRecommendedCalls.join(", ") : "workspace_snapshot"}`,
+            `Recommended next call: ${recommendedWorkflow.nextRecommendedCalls instanceof Array ? recommendedWorkflow.nextRecommendedCalls.join(", ") : "read"}`,
             instruction,
           ].filter(Boolean).join("\n"),
         },
@@ -3203,6 +3227,9 @@ function createMcpServer(
         logToolCall(config, {
           tool: "apply_patch",
           workspaceId,
+          fileCount: applied.files.length,
+          additions: applied.additions,
+          removals: applied.removals,
           success: true,
           durationMs: Math.round(performance.now() - startedAt),
         });
@@ -3759,16 +3786,9 @@ async function isMainModule(): Promise<boolean> {
 if (await isMainModule()) {
   const { app, config, close } = createServer();
   const httpServer = app.listen(config.port, config.host, () => {
-    console.log(
-      `workbridge listening on http://${config.host}:${config.port}/mcp`,
-    );
-    console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
-    console.log("auth: oauth owner-token flow required");
-    console.log(`logging: ${config.logging.level} ${config.logging.format}`);
-    console.log(`log file: ${config.logging.filePath ?? "disabled"}`);
-    console.log(`request logging: ${config.logging.requests ? "enabled" : "disabled"}`);
-    console.log(`asset logging: ${config.logging.assets ? "enabled" : "disabled"}`);
-    console.log(`trust proxy: ${config.logging.trustProxy ? "enabled" : "disabled"}`);
+    console.log(`workbridge listening on http://${config.host}:${config.port}/mcp`);
+    console.log(`public base url: ${config.publicBaseUrl}`);
+    console.log(`log file: ${config.logging.filePath ?? "disabled"}; console level: ${config.logging.consoleLevel}`);
   });
 
   const shutdown = () => {

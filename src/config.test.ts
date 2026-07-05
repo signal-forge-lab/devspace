@@ -46,6 +46,7 @@ const defaultLogging = loadConfig(baseEnv).logging;
 assert.deepEqual(
   {
     level: defaultLogging.level,
+    consoleLevel: defaultLogging.consoleLevel,
     format: defaultLogging.format,
     requests: defaultLogging.requests,
     assets: defaultLogging.assets,
@@ -56,6 +57,7 @@ assert.deepEqual(
   },
   {
     level: "info",
+    consoleLevel: "warn",
     format: "json",
     requests: true,
     assets: false,
@@ -68,6 +70,8 @@ assert.deepEqual(
 assert.match(defaultLogging.filePath ?? "", /logs[\\/]devspace_\d{8}_\d{6}\.jsonl$/);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE: "0" }).logging.file, false);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE: "0" }).logging.filePath, undefined);
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE: "0" }).logging.consoleLevel, "info");
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_CONSOLE_LOG_LEVEL: "error" }).logging.consoleLevel, "error");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_DIR: "custom-logs", DEVSPACE_LOG_FILE_NAME: "custom.jsonl" }).logging.filePath?.endsWith("custom-logs\\custom.jsonl") || loadConfig({ ...baseEnv, DEVSPACE_LOG_DIR: "custom-logs", DEVSPACE_LOG_FILE_NAME: "custom.jsonl" }).logging.filePath?.endsWith("custom-logs/custom.jsonl"), true);
 
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "silent" }).logging.level, "silent");
@@ -75,6 +79,9 @@ assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "error" }).logging.lev
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "warn" }).logging.level, "warn");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "info" }).logging.level, "info");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "debug" }).logging.level, "debug");
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_CONSOLE_LOG_LEVEL: "silent" }).logging.consoleLevel, "silent");
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_CONSOLE_LOG_LEVEL: "warn" }).logging.consoleLevel, "warn");
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_CONSOLE_LOG_LEVEL: "info" }).logging.consoleLevel, "info");
 
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FORMAT: "json" }).logging.format, "json");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FORMAT: "pretty" }).logging.format, "pretty");
@@ -88,6 +95,10 @@ assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TRUST_PROXY: "1" }).logging.trust
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "trace" }),
   /Invalid DEVSPACE_LOG_LEVEL: trace/,
+);
+assert.throws(
+  () => loadConfig({ ...baseEnv, DEVSPACE_CONSOLE_LOG_LEVEL: "trace" }),
+  /Invalid DEVSPACE_CONSOLE_LOG_LEVEL: trace/,
 );
 
 assert.throws(
