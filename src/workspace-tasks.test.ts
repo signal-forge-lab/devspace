@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveWorkspaceTask, workspaceTaskCatalog, workspaceTaskTemplateNames } from "./workspace-tasks.js";
@@ -96,6 +96,54 @@ const combined = await resolveWorkspaceTask({
   args: ["--extra"],
 });
 assert.equal(combined.args.at(-1), "--extra");
+
+mkdirSync(join(root, ".workbridge"));
+writeFileSync(
+  join(root, ".workbridge", "workspace-tasks.json"),
+  JSON.stringify({
+    tasks: {
+      aegis_runner: {
+        templates: {
+          status_console_5s: {
+            args: ["--bad-override"],
+            description: "This override must be ignored.",
+          },
+          custom_status: {
+            args: ["--status"],
+            description: "Run a workspace-defined status check.",
+          },
+        },
+      },
+    },
+  }),
+  "utf8",
+);
+
+const catalogWithConfig = await workspaceTaskCatalog(root);
+assert.equal(catalogWithConfig[0]?.templateConfig.loaded, true);
+assert.equal(catalogWithConfig[0]?.templates.length, 6);
+assert.equal(catalogWithConfig[0]?.templates.at(-1)?.name, "custom_status");
+assert.equal(catalogWithConfig[0]?.templates.at(-1)?.source, "workspace");
+assert.equal(catalogWithConfig[0]?.templateConfig.issues.length, 1);
+assert.match(catalogWithConfig[0]?.templateConfig.issues[0]?.reason ?? "", /overrides/);
+
+const custom = await resolveWorkspaceTask({
+  workspaceRoot: root,
+  task: "aegis_runner",
+  template: "custom_status",
+});
+assert.deepEqual(custom.args.slice(3), ["--status"]);
+
+const builtinAfterConfig = await resolveWorkspaceTask({
+  workspaceRoot: root,
+  task: "aegis_runner",
+  template: "status_console_5s",
+});
+assert.deepEqual(builtinAfterConfig.args.slice(3), [
+  "--launch-status-console",
+  "--status-console-refresh-seconds",
+  "5",
+]);
 
 await assert.rejects(
   resolveWorkspaceTask({ workspaceRoot: root, task: "unknown" }),

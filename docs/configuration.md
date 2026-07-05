@@ -182,6 +182,26 @@ Optional tool flags keep the default schema surface small:
 | `DEVSPACE_ENABLE_TASK_TOOLS` | `0` | Enables task checkpoint/resume helpers. |
 | `WORKBRIDGE_ENABLE_WORKSPACE_TASKS` / `DEVSPACE_ENABLE_WORKSPACE_TASKS` | `0` | Enables `launch_workspace_task` for allowlisted local workspace task entrypoints. Initially supports `aegis_runner` with dynamic `args` and the templates listed above. |
 
+When workspace tasks are enabled, Workbridge also reads optional workspace-local templates from `.workbridge/workspace-tasks.json`.
+The file may add templates for allowlisted tasks, but it cannot add new task entrypoints or override built-in templates.
+
+```json
+{
+  "tasks": {
+    "aegis_runner": {
+      "templates": {
+        "custom_status": {
+          "args": ["--status"],
+          "description": "Run a workspace-defined status check."
+        }
+      }
+    }
+  }
+}
+```
+
+Invalid workspace templates are ignored and reported in `open_workspace` under `workspaceTasks.tasks[].templateConfig.issues`.
+
 
 At startup Workbridge logs a compact `tool_registry_summary` event containing exposed tool names, hidden tool names, enabled profiles, and feature flag state. Prefer that local log event over repeated schema discovery when checking whether optional tools are hidden.
 
