@@ -36,7 +36,8 @@
     "smoke:startup:full": "node scripts/smoke-workbridge-runtime.mjs",
     "smoke:startup:build": "node scripts/smoke-workbridge-runtime.mjs --build",
     "efficiency:report": "node scripts/analyze-efficiency-ledger.mjs .devspace/efficiency/events.jsonl",
-    "session:review": "node scripts/session-review.mjs"
+    "session:review": "node scripts/session-review.mjs",
+    "session:report": "node scripts/analyze-session-reviews.mjs"
   },
   "keywords": [],
   "author": "",

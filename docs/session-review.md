@@ -73,3 +73,24 @@ npm run session:review -- --task "Workbridge cleanup" --size M --result partial 
 At the end of a session, record one event. Use existing efficiency logs for low-level tool telemetry. Use session review for the human-level question: was the amount of work reasonable for the elapsed time, did it finish, what slowed it down, and what should happen next?
 
 Only add detailed scoring later if this summary is not enough.
+
+## Automatic session report
+
+`session:review` is manual. For automatic rough estimates from existing Workbridge telemetry, use:
+
+```powershell
+npm run session:report
+```
+
+The report groups `.devspace/efficiency/events.jsonl` by `workspaceId` / `autoThreadId` and splits sessions when there is a long idle gap.
+
+Default idle gap: 30 minutes.
+
+```powershell
+npm run session:report -- --gap-minutes 45
+npm run session:report -- --json
+```
+
+The automatic report estimates workspace/session start and end time, elapsed minutes, tool call count, read-like calls, write-like calls, process calls, failed calls, rough work size, rough efficiency, and visible delay reason.
+
+The current efficiency ledger does not always record exact files read, lines read, files changed, or lines written for every tool. Current rough proxies are read-like calls, write-like calls, process calls, command length, result characters when available, additions/removals when available, and elapsed minutes. Add exact file/line counters to low-level telemetry later only if this coarse report is not enough.
