@@ -61,6 +61,10 @@ const LEVEL_WEIGHT: Record<LogLevel, number> = {
 };
 
 const COMPACT_SUCCESS_TOOL_NAMES = new Set([
+  "read",
+  "grep",
+  "glob",
+  "ls",
   "edit",
   "write",
   "apply_patch",

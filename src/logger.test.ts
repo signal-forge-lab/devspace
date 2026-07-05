@@ -84,7 +84,10 @@ try {
     console.warn = originalCompactWarn;
   }
 
-  assert.deepEqual(consoleLogLines, ["abc1234567 | 変更   | apply_patch            | ok     | 42ms     | files=2"]);
+  assert.deepEqual(consoleLogLines, [
+    "abc1234567 | 変更   | read                   | ok     | 12ms     | path=src/logger.ts",
+    "abc1234567 | 変更   | apply_patch            | ok     | 42ms     | files=2",
+  ]);
   assert.deepEqual(consoleWarnLines, ["abc1234567 | 失敗   | exec_command           | failed | 30s      | exit=1 reason=timeout"]);
   await closeLogFiles();
 
