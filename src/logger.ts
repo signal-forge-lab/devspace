@@ -137,7 +137,7 @@ function compactToolCallConsoleLine(
 
   const label = success ? compactOperationLabel(tool) : "失敗";
   return [
-    compactCell(String(fields.sessionIdPrefix ?? "--------"), 8),
+    compactCell(workspaceIdCompactPrefix(fields.workspaceId), 10),
     compactCell(label, 4),
     compactCell(tool, 22),
     compactCell(success ? "ok" : "failed", 6),
@@ -165,6 +165,12 @@ function compactCell(value: string, width: number): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   const clipped = normalized.length > width ? `${normalized.slice(0, Math.max(0, width - 1))}…` : normalized;
   return clipped.padEnd(width, " ");
+}
+
+function workspaceIdCompactPrefix(value: unknown): string {
+  if (typeof value !== "string" || value.trim() === "") return "----------";
+  const normalized = value.startsWith("ws_") ? value.slice(3) : value;
+  return normalized.slice(0, 10);
 }
 
 function compactDetailFields(fields: LogFields): string {

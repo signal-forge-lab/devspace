@@ -62,14 +62,14 @@ try {
       success: true,
       durationMs: 12,
       path: "src/logger.ts",
-      sessionIdPrefix: "abcdef12",
+      workspaceId: "ws_abc1234567-extra",
     });
     logEvent(compactConfig, "info", "tool_call", {
       tool: "apply_patch",
       success: true,
       durationMs: 42,
       fileCount: 2,
-      sessionIdPrefix: "abcdef12",
+      workspaceId: "ws_abc1234567-extra",
     });
     logEvent(compactConfig, "warn", "tool_call", {
       tool: "exec_command",
@@ -77,15 +77,15 @@ try {
       durationMs: 30_000,
       exitCode: 1,
       error: "timeout",
-      sessionIdPrefix: "abcdef12",
+      workspaceId: "ws_abc1234567-extra",
     });
   } finally {
     console.log = originalCompactLog;
     console.warn = originalCompactWarn;
   }
 
-  assert.deepEqual(consoleLogLines, ["abcdef12 | 変更   | apply_patch            | ok     | 42ms     | files=2"]);
-  assert.deepEqual(consoleWarnLines, ["abcdef12 | 失敗   | exec_command           | failed | 30s      | exit=1 reason=timeout"]);
+  assert.deepEqual(consoleLogLines, ["abc1234567 | 変更   | apply_patch            | ok     | 42ms     | files=2"]);
+  assert.deepEqual(consoleWarnLines, ["abc1234567 | 失敗   | exec_command           | failed | 30s      | exit=1 reason=timeout"]);
   await closeLogFiles();
 
   const compactLines = (await readFile(compactFilePath, "utf8")).trim().split("\n");
