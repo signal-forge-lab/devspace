@@ -180,12 +180,13 @@ Optional tool flags keep the default schema surface small:
 | `DEVSPACE_ENABLE_ZIP_IMPORT_TOOLS` | `0` | Enables ZIP import tools. |
 | `DEVSPACE_ENABLE_CODEX_CLI` | `0` | Enables the local Codex CLI wrapper tool. |
 | `DEVSPACE_ENABLE_TASK_TOOLS` | `0` | Enables task checkpoint/resume helpers. |
-| `WORKBRIDGE_ENABLE_WORKSPACE_TASKS` / `DEVSPACE_ENABLE_WORKSPACE_TASKS` | `0` | Enables `launch_workspace_task` for allowlisted local workspace task entrypoints. Initially supports `aegis_runner` with dynamic `args` and the templates listed above. |
+| `WORKBRIDGE_ENABLE_WORKSPACE_TASKS` / `DEVSPACE_ENABLE_WORKSPACE_TASKS` | `0` | Enables `launch_workspace_task` for allowlisted local workspace task entrypoints. Initially supports `aegis_runner` with dynamic `args` and templates loaded from config files. |
 
-When workspace tasks are enabled, Workbridge reads one optional central template config at startup.
-By default this is `.workbridge/workspace-tasks.json` relative to the directory where Workbridge is started.
-Set `WORKBRIDGE_WORKSPACE_TASKS_CONFIG` or `DEVSPACE_WORKSPACE_TASKS_CONFIG` to use a different file.
-The file may add templates for allowlisted tasks, but it cannot add new task entrypoints or override built-in templates.
+When workspace tasks are enabled, Workbridge can read templates from two external config locations.
+First, it reads one optional central template config at startup: by default `.workbridge/workspace-tasks.json` relative to the directory where Workbridge is started, or the file named by `WORKBRIDGE_WORKSPACE_TASKS_CONFIG` / `DEVSPACE_WORKSPACE_TASKS_CONFIG`.
+Second, it reads optional workspace-local templates from `<opened workspace>/.workbridge/workspace-tasks.json` when a workspace task catalog or task launch is resolved.
+Workbridge does not keep built-in named workspace task templates in code.
+Config files may define templates for allowlisted tasks, but cannot add new task entrypoints, runtimes, or scripts. Workspace-local templates may add project-specific names, but cannot override templates already defined by the central config.
 
 ```json
 {
