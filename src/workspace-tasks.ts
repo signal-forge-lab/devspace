@@ -1,7 +1,7 @@
 import { access, readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 
-const WORKSPACE_TASK_CONFIG_PATH = ".workbridge/workspace-tasks.json";
+const DEFAULT_WORKSPACE_TASK_CONFIG_PATH = ".workbridge/workspace-tasks.json";
 
 export const WORKSPACE_TASK_NAMES = ["aegis_runner"] as const;
 export type WorkspaceTaskName = (typeof WORKSPACE_TASK_NAMES)[number];
@@ -34,7 +34,7 @@ interface WorkspaceTaskDefinition {
 interface WorkspaceTaskTemplateDefinition {
   args: string[];
   description: string;
-  source?: "builtin" | "workspace";
+  source?: "builtin" | "config";
 }
 
 export interface WorkspaceTaskTemplateIssue {
@@ -55,7 +55,7 @@ export interface WorkspaceTaskCatalogEntry {
   script: string;
   scriptPresent: boolean;
   defaultArgs: string[];
-  templates: Array<{ name: string; args: string[]; description: string; source?: "builtin" | "workspace" }>;
+  templates: Array<{ name: string; args: string[]; description: string; source?: "builtin" | "config" }>;
   templateConfig: WorkspaceTaskTemplateConfigSummary;
   examples: Array<{ description: string; payload: Record<string, unknown> }>;
   description: string;
@@ -114,11 +114,22 @@ interface WorkspaceTaskConfigLoadResult extends WorkspaceTaskTemplateConfigSumma
   templates: Partial<Record<WorkspaceTaskName, Record<string, WorkspaceTaskTemplateDefinition>>>;
 }
 
+let workspaceTaskConfigPromise: Promise<WorkspaceTaskConfigLoadResult> | undefined;
+
+export function initializeWorkspaceTaskConfig(): Promise<WorkspaceTaskConfigLoadResult> {
+  workspaceTaskConfigPromise ??= loadWorkspaceTaskConfig();
+  return workspaceTaskConfigPromise;
+}
+
+export function resetWorkspaceTaskConfigForTest(): void {
+  workspaceTaskConfigPromise = undefined;
+}
+
 async function workspaceTaskDefinitionForRoot(
   workspaceRoot: string,
   task: WorkspaceTaskName,
 ): Promise<{ definition: WorkspaceTaskDefinition; config: WorkspaceTaskConfigLoadResult }> {
-  const config = await loadWorkspaceTaskConfig(workspaceRoot);
+  const config = await initializeWorkspaceTaskConfig();
   const definition = cloneWorkspaceTaskDefinition(WORKSPACE_TASKS[task]);
   const externalTemplates = config.templates[task] ?? {};
   for (const [name, template] of Object.entries(externalTemplates)) {
@@ -143,7 +154,7 @@ function cloneWorkspaceTaskDefinition(definition: WorkspaceTaskDefinition): Work
 }
 
 export async function workspaceTaskCatalog(workspaceRoot: string): Promise<WorkspaceTaskCatalogEntry[]> {
-  const config = await loadWorkspaceTaskConfig(workspaceRoot);
+  const config = await initializeWorkspaceTaskConfig();
   return Promise.all(
     WORKSPACE_TASK_NAMES.map(async (name) => {
       const definition = cloneWorkspaceTaskDefinition(WORKSPACE_TASKS[name]);
@@ -215,10 +226,11 @@ export async function resolveWorkspaceTask(input: ResolveWorkspaceTaskInput): Pr
   };
 }
 
-async function loadWorkspaceTaskConfig(workspaceRoot: string): Promise<WorkspaceTaskConfigLoadResult> {
-  const configPath = resolve(workspaceRoot, WORKSPACE_TASK_CONFIG_PATH);
+async function loadWorkspaceTaskConfig(): Promise<WorkspaceTaskConfigLoadResult> {
+  const configuredPath = workspaceTaskConfigPath();
+  const configPath = isAbsolute(configuredPath) ? configuredPath : resolve(process.cwd(), configuredPath);
   const result: WorkspaceTaskConfigLoadResult = {
-    path: WORKSPACE_TASK_CONFIG_PATH,
+    path: configPath,
     loaded: false,
     issues: [],
     templates: {},
@@ -228,6 +240,9 @@ async function loadWorkspaceTaskConfig(workspaceRoot: string): Promise<Workspace
   try {
     raw = await readFile(configPath, "utf8");
   } catch {
+    if (workspaceTaskConfigPathIsExplicit()) {
+      result.issues.push({ reason: `Config file not found: ${configPath}` });
+    }
     return result;
   }
 
@@ -284,6 +299,16 @@ async function loadWorkspaceTaskConfig(workspaceRoot: string): Promise<Workspace
   return result;
 }
 
+function workspaceTaskConfigPath(): string {
+  return process.env.WORKBRIDGE_WORKSPACE_TASKS_CONFIG?.trim()
+    || process.env.DEVSPACE_WORKSPACE_TASKS_CONFIG?.trim()
+    || DEFAULT_WORKSPACE_TASK_CONFIG_PATH;
+}
+
+function workspaceTaskConfigPathIsExplicit(): boolean {
+  return Boolean(process.env.WORKBRIDGE_WORKSPACE_TASKS_CONFIG?.trim() || process.env.DEVSPACE_WORKSPACE_TASKS_CONFIG?.trim());
+}
+
 function parseWorkspaceTemplate(value: unknown): WorkspaceTaskTemplateDefinition | { reason: string } {
   if (!isRecord(value)) return { reason: "Template entry must be an object." };
   if (!Array.isArray(value.args)) return { reason: "Template args must be an array of strings." };
@@ -301,7 +326,7 @@ function parseWorkspaceTemplate(value: unknown): WorkspaceTaskTemplateDefinition
     ? value.description.trim().slice(0, 240)
     : "Workspace-defined task template.";
 
-  return { args, description, source: "workspace" };
+  return { args, description, source: "config" };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

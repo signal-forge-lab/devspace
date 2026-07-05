@@ -91,7 +91,7 @@ import { WorkspaceZipImportStore } from "./workspace-zip-import.js";
 import { registerZipExportTools } from "./zip-export-registration.js";
 import { registerZipImportTools } from "./zip-import-registration.js";
 import { registerZipTransferTools } from "./zip-transfer-registration.js";
-import { resolveWorkspaceTask, WORKSPACE_TASK_NAMES, workspaceTaskCatalog } from "./workspace-tasks.js";
+import { initializeWorkspaceTaskConfig, resolveWorkspaceTask, WORKSPACE_TASK_NAMES, workspaceTaskCatalog } from "./workspace-tasks.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
 import { workspaceSnapshot } from "./workspace-snapshot.js";
@@ -3575,6 +3575,8 @@ function createMcpServer(
 }
 
 export function createServer(config = loadConfig()): RunningServer {
+  void initializeWorkspaceTaskConfig();
+
   const allowedHosts = config.allowedHosts.includes("*")
     ? undefined
     : Array.from(new Set([config.host, ...config.allowedHosts]));

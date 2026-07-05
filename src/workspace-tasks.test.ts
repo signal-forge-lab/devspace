@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveWorkspaceTask, workspaceTaskCatalog, workspaceTaskTemplateNames } from "./workspace-tasks.js";
+import { resetWorkspaceTaskConfigForTest, resolveWorkspaceTask, workspaceTaskCatalog, workspaceTaskTemplateNames } from "./workspace-tasks.js";
 
 const root = mkdtempSync(join(tmpdir(), "workbridge-task-"));
 writeFileSync(join(root, "aegis_runner.py"), "print('ok')\n", "utf8");
@@ -97,6 +97,7 @@ const combined = await resolveWorkspaceTask({
 });
 assert.equal(combined.args.at(-1), "--extra");
 
+const originalWorkspaceTasksConfig = process.env.WORKBRIDGE_WORKSPACE_TASKS_CONFIG;
 mkdirSync(join(root, ".workbridge"));
 writeFileSync(
   join(root, ".workbridge", "workspace-tasks.json"),
@@ -118,12 +119,14 @@ writeFileSync(
   }),
   "utf8",
 );
+process.env.WORKBRIDGE_WORKSPACE_TASKS_CONFIG = join(root, ".workbridge", "workspace-tasks.json");
+resetWorkspaceTaskConfigForTest();
 
 const catalogWithConfig = await workspaceTaskCatalog(root);
 assert.equal(catalogWithConfig[0]?.templateConfig.loaded, true);
 assert.equal(catalogWithConfig[0]?.templates.length, 6);
 assert.equal(catalogWithConfig[0]?.templates.at(-1)?.name, "custom_status");
-assert.equal(catalogWithConfig[0]?.templates.at(-1)?.source, "workspace");
+assert.equal(catalogWithConfig[0]?.templates.at(-1)?.source, "config");
 assert.equal(catalogWithConfig[0]?.templateConfig.issues.length, 1);
 assert.match(catalogWithConfig[0]?.templateConfig.issues[0]?.reason ?? "", /overrides/);
 
@@ -144,6 +147,12 @@ assert.deepEqual(builtinAfterConfig.args.slice(3), [
   "--status-console-refresh-seconds",
   "5",
 ]);
+if (originalWorkspaceTasksConfig === undefined) {
+  delete process.env.WORKBRIDGE_WORKSPACE_TASKS_CONFIG;
+} else {
+  process.env.WORKBRIDGE_WORKSPACE_TASKS_CONFIG = originalWorkspaceTasksConfig;
+}
+resetWorkspaceTaskConfigForTest();
 
 await assert.rejects(
   resolveWorkspaceTask({ workspaceRoot: root, task: "unknown" }),
