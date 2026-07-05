@@ -136,24 +136,14 @@ function compactToolCallConsoleLine(
   if (!important && !COMPACT_SUCCESS_TOOL_NAMES.has(tool)) return undefined;
 
   const label = success ? compactOperationLabel(tool) : "失敗";
-  const parts = [
-    `[${label}]`,
-    tool,
-    success ? "ok" : "failed",
-    formatDurationMs(fields.durationMs),
-  ];
-
-  pushCompactField(parts, "path", fields.path);
-  pushCompactField(parts, "files", fields.fileCount ?? fields.affectedFiles);
-  pushCompactField(parts, "exit", fields.exitCode);
-  pushCompactField(parts, "session", fields.sessionId);
-  pushCompactFlag(parts, "dryRun", fields.dryRun === true);
-  pushCompactField(parts, "template", fields.template);
-  pushCompactFlag(parts, "truncated", fields.truncated === true || fields.outputTruncated === true);
-  pushCompactField(parts, "chars", compactLargeNumber(fields.resultCharacters));
-  pushCompactField(parts, "reason", fields.error);
-
-  return parts.join(" ");
+  return [
+    compactCell(String(fields.sessionIdPrefix ?? "--------"), 8),
+    compactCell(label, 4),
+    compactCell(tool, 22),
+    compactCell(success ? "ok" : "failed", 6),
+    compactCell(formatDurationMs(fields.durationMs), 8),
+    compactDetailFields(fields),
+  ].filter(Boolean).join(" | ");
 }
 
 function compactOperationLabel(tool: string): string {
@@ -163,12 +153,32 @@ function compactOperationLabel(tool: string): string {
 }
 
 function formatDurationMs(value: unknown): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "duration=unknown";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "unknown";
   if (value < 1000) return `${Math.round(value)}ms`;
   if (value < 60_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}s`;
   const minutes = Math.floor(value / 60_000);
   const seconds = Math.round((value % 60_000) / 1000);
   return `${minutes}m${String(seconds).padStart(2, "0")}s`;
+}
+
+function compactCell(value: string, width: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  const clipped = normalized.length > width ? `${normalized.slice(0, Math.max(0, width - 1))}…` : normalized;
+  return clipped.padEnd(width, " ");
+}
+
+function compactDetailFields(fields: LogFields): string {
+  const parts: string[] = [];
+  pushCompactField(parts, "path", fields.path);
+  pushCompactField(parts, "files", fields.fileCount ?? fields.affectedFiles);
+  pushCompactField(parts, "exit", fields.exitCode);
+  pushCompactField(parts, "proc", fields.sessionId);
+  pushCompactFlag(parts, "dryRun", fields.dryRun === true);
+  pushCompactField(parts, "template", fields.template);
+  pushCompactFlag(parts, "truncated", fields.truncated === true || fields.outputTruncated === true);
+  pushCompactField(parts, "chars", compactLargeNumber(fields.resultCharacters));
+  pushCompactField(parts, "reason", compactReason(fields.error));
+  return parts.join(" ");
 }
 
 function pushCompactField(parts: string[], name: string, value: unknown): void {
@@ -183,6 +193,12 @@ function pushCompactFlag(parts: string[], name: string, enabled: boolean): void 
 function compactLargeNumber(value: unknown): string | undefined {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 10_000) return undefined;
   return String(Math.round(value));
+}
+
+function compactReason(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const text = String(value).replace(/\s+/g, " ").trim();
+  return text.length > 80 ? `${text.slice(0, 77)}...` : text;
 }
 
 export async function closeLogFiles(): Promise<void> {
