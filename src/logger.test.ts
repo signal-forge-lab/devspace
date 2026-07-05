@@ -56,6 +56,7 @@ try {
   console.warn = (line?: unknown) => {
     consoleWarnLines.push(String(line));
   };
+  const longError = `timeout while running command: ${"x".repeat(120)}`;
   try {
     logEvent(compactConfig, "info", "tool_call", {
       tool: "read",
@@ -76,7 +77,7 @@ try {
       success: false,
       durationMs: 30_000,
       exitCode: 1,
-      error: "timeout",
+      error: longError,
       workspaceId: "ws_abc1234567-extra",
     });
     logEvent(compactConfig, "info", "tool_call", {
@@ -97,7 +98,7 @@ try {
     "abc1234567 | 変更   | apply_patch            | ok     | 42ms     | files=2",
     "abc1234567 | タスク  | launch_workspace_task  | ok     | 120ms    | dryRun=true template=mission_start",
   ]);
-  assert.deepEqual(consoleWarnLines, ["abc1234567 | 失敗   | exec_command           | failed | 30s      | exit=1 reason=timeout"]);
+  assert.deepEqual(consoleWarnLines, [`abc1234567 | 失敗   | exec_command           | failed | 30s      | exit=1 reason=${longError}`]);
   await closeLogFiles();
 
   const compactLines = (await readFile(compactFilePath, "utf8")).trim().split("\n");
