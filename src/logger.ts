@@ -153,6 +153,8 @@ function compactToolCallConsoleLine(
 function compactOperationLabel(tool: string): string {
   if (tool === "launch_workspace_task") return "タスク";
   if (tool === "exec_command" || tool === "bash" || tool === "write_stdin") return "実行";
+  if (tool === "read" || tool === "grep" || tool === "glob" || tool === "ls") return "読取";
+  if (tool === "edit" || tool === "write" || tool === "apply_patch") return "変更";
   return "変更";
 }
 
@@ -184,10 +186,10 @@ function compactDetailFields(fields: LogFields): string {
   pushCompactField(parts, "exit", fields.exitCode);
   pushCompactField(parts, "proc", fields.sessionId);
   pushCompactFlag(parts, "dryRun", fields.dryRun === true);
-  pushCompactField(parts, "template", fields.template);
   pushCompactFlag(parts, "truncated", fields.truncated === true || fields.outputTruncated === true);
   pushCompactField(parts, "chars", compactLargeNumber(fields.resultCharacters));
   pushCompactField(parts, "reason", compactReason(fields.error));
+  pushCompactField(parts, "template", fields.template);
   return parts.join(" ");
 }
 

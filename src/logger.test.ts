@@ -79,20 +79,29 @@ try {
       error: "timeout",
       workspaceId: "ws_abc1234567-extra",
     });
+    logEvent(compactConfig, "info", "tool_call", {
+      tool: "launch_workspace_task",
+      success: true,
+      durationMs: 120,
+      dryRun: true,
+      template: "mission_start",
+      workspaceId: "ws_abc1234567-extra",
+    });
   } finally {
     console.log = originalCompactLog;
     console.warn = originalCompactWarn;
   }
 
   assert.deepEqual(consoleLogLines, [
-    "abc1234567 | 変更   | read                   | ok     | 12ms     | path=src/logger.ts",
+    "abc1234567 | 読取   | read                   | ok     | 12ms     | path=src/logger.ts",
     "abc1234567 | 変更   | apply_patch            | ok     | 42ms     | files=2",
+    "abc1234567 | タスク  | launch_workspace_task  | ok     | 120ms    | dryRun=true template=mission_start",
   ]);
   assert.deepEqual(consoleWarnLines, ["abc1234567 | 失敗   | exec_command           | failed | 30s      | exit=1 reason=timeout"]);
   await closeLogFiles();
 
   const compactLines = (await readFile(compactFilePath, "utf8")).trim().split("\n");
-  assert.equal(compactLines.length, 3);
+  assert.equal(compactLines.length, 4);
   assert.equal(JSON.parse(compactLines[0]).tool, "read");
 
   const req = {
