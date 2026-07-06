@@ -93,12 +93,12 @@ try {
     console.warn = originalCompactWarn;
   }
 
-  assert.deepEqual(consoleLogLines, [
-    "abc1234567 | 読取   | read                   | ok     | 12ms     | path=src/logger.ts",
-    "abc1234567 | 変更   | apply_patch            | ok     | 42ms     | files=2",
-    "abc1234567 | タスク  | launch_workspace_task  | ok     | 120ms    | dryRun=true template=mission_start",
-  ]);
-  assert.deepEqual(consoleWarnLines, [`abc1234567 | 失敗   | exec_command           | failed | 30s      | exit=1 reason=${longError}`]);
+  assert.equal(consoleLogLines.length, 3);
+  assert.match(consoleLogLines[0], /^\d{2}\/\d{2} \d{2}:\d{2}:\d{2} \| abc1234567 \| READ   \| read                   \| ok     \| 12ms     \| path=src\/logger\.ts$/);
+  assert.match(consoleLogLines[1], /^\d{2}\/\d{2} \d{2}:\d{2}:\d{2} \| abc1234567 \| CHANGE \| apply_patch            \| ok     \| 42ms     \| files=2$/);
+  assert.match(consoleLogLines[2], /^\d{2}\/\d{2} \d{2}:\d{2}:\d{2} \| abc1234567 \| TASK   \| launch_workspace_task  \| ok     \| 120ms    \| dryRun=true template=mission_start$/);
+  assert.equal(consoleWarnLines.length, 1);
+  assert.match(consoleWarnLines[0], new RegExp(`^\\d{2}\\/\\d{2} \\d{2}:\\d{2}:\\d{2} \\| abc1234567 \\| FAIL   \\| exec_command           \\| failed \\| 30s      \\| exit=1 reason=${longError}$`));
   await closeLogFiles();
 
   const compactLines = (await readFile(compactFilePath, "utf8")).trim().split("\n");

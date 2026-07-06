@@ -139,10 +139,11 @@ function compactToolCallConsoleLine(
 
   if (!important && !COMPACT_SUCCESS_TOOL_NAMES.has(tool)) return undefined;
 
-  const label = success ? compactOperationLabel(tool) : "失敗";
+  const label = success ? compactOperationLabel(tool) : compactFailureLabel();
   return [
+    compactCell(compactTimestamp(), 14),
     compactCell(workspaceIdCompactPrefix(fields.workspaceId), 10),
-    compactCell(label, 4),
+    compactCell(label, 6),
     compactCell(tool, 22),
     compactCell(success ? "ok" : "failed", 6),
     compactCell(formatDurationMs(fields.durationMs), 8),
@@ -151,11 +152,15 @@ function compactToolCallConsoleLine(
 }
 
 function compactOperationLabel(tool: string): string {
-  if (tool === "launch_workspace_task") return "タスク";
-  if (tool === "exec_command" || tool === "bash" || tool === "write_stdin") return "実行";
-  if (tool === "read" || tool === "grep" || tool === "glob" || tool === "ls") return "読取";
-  if (tool === "edit" || tool === "write" || tool === "apply_patch") return "変更";
-  return "変更";
+  if (tool === "launch_workspace_task") return "TASK";
+  if (tool === "exec_command" || tool === "bash" || tool === "write_stdin") return "RUN";
+  if (tool === "read" || tool === "grep" || tool === "glob" || tool === "ls") return "READ";
+  if (tool === "edit" || tool === "write" || tool === "apply_patch") return "CHANGE";
+  return "CHANGE";
+}
+
+function compactFailureLabel(): string {
+  return "FAIL";
 }
 
 function formatDurationMs(value: unknown): string {
@@ -171,6 +176,15 @@ function compactCell(value: string, width: number): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   const clipped = normalized.length > width ? `${normalized.slice(0, Math.max(0, width - 1))}…` : normalized;
   return clipped.padEnd(width, " ");
+}
+
+function compactTimestamp(date = new Date()): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${month}/${day} ${hours}:${minutes}:${seconds}`;
 }
 
 function workspaceIdCompactPrefix(value: unknown): string {
