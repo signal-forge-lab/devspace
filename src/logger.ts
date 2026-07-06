@@ -15,6 +15,24 @@ export interface LoggingConfig {
 
 type LogFields = Record<string, unknown>;
 
+const COMPACT_SUCCESS_TOOL_NAMES = new Set([
+  "read",
+  "grep",
+  "glob",
+  "ls",
+  "edit",
+  "write",
+  "apply_patch",
+  "bash",
+  "exec_command",
+  "write_stdin",
+  "launch_workspace_task",
+]);
+
+const ANSI_RED = "\x1b[31m";
+const ANSI_YELLOW = "\x1b[33m";
+const ANSI_RESET = "\x1b[0m";
+
 const LEVEL_WEIGHT: Record<LogLevel, number> = {
   silent: 0,
   error: 1,
@@ -42,7 +60,12 @@ export function logEvent(
     ...fields,
   };
 
-  const line = config.format === "pretty" ? formatPretty(entry) : JSON.stringify(entry);
+  const compactToolLine = compactToolCallConsoleLine(fields);
+  const line = compactToolLine ?? (config.format === "pretty" ? formatPretty(entry) : JSON.stringify(entry));
+  writeConsoleLine(level, line);
+}
+
+function writeConsoleLine(level: Exclude<LogLevel, "silent">, line: string): void {
   if (level === "error") {
     console.error(line);
   } else if (level === "warn") {
@@ -50,6 +73,153 @@ export function logEvent(
   } else {
     console.log(line);
   }
+}
+
+function compactToolCallConsoleLine(fields: LogFields): string | undefined {
+  if (fields.tool === undefined || fields.success === undefined) return undefined;
+
+  const tool = String(fields.tool);
+  const success = fields.success === true;
+  const important = !success
+    || fields.error !== undefined
+    || fields.truncated === true
+    || fields.outputTruncated === true
+    || fields.timedOut === true;
+
+  if (!important && !COMPACT_SUCCESS_TOOL_NAMES.has(tool)) return undefined;
+
+  const label = success ? compactOperationLabel(tool) : "FAIL";
+  const duration = formatDurationMs(fields.durationMs);
+  const line = [
+    compactCell(compactTimestamp(), 14),
+    compactCell(workspaceIdCompactPrefix(fields.workspaceId), 10),
+    compactCell(label, 6),
+    compactCell(tool, 22),
+    compactCell(success ? "ok" : "failed", 6),
+    compactDurationCell(duration, success),
+    compactDetailFields(fields, success),
+  ].filter(Boolean).join(" | ");
+  return success ? line : colorizeConsoleLine(line, "red");
+}
+
+function compactOperationLabel(tool: string): string {
+  if (tool === "launch_workspace_task") return "TASK";
+  if (tool === "exec_command" || tool === "bash" || tool === "write_stdin") return "RUN";
+  if (tool === "read" || tool === "grep" || tool === "glob" || tool === "ls") return "READ";
+  if (tool === "edit" || tool === "write" || tool === "apply_patch") return "CHANGE";
+  return "CHANGE";
+}
+
+function formatDurationMs(value: unknown): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "unknown";
+  if (value < 1000) return `${Math.round(value)}ms`;
+  if (value < 60_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}s`;
+  const minutes = Math.floor(value / 60_000);
+  const seconds = Math.round((value % 60_000) / 1000);
+  return `${minutes}m${String(seconds).padStart(2, "0")}s`;
+}
+
+function compactCell(value: string, width: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  const clipped = normalized.length > width ? `${normalized.slice(0, Math.max(0, width - 1))}…` : normalized;
+  return clipped.padEnd(width, " ");
+}
+
+function compactTimestamp(date = new Date()): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${month}/${day} ${hours}:${minutes}:${seconds}`;
+}
+
+function workspaceIdCompactPrefix(value: unknown): string {
+  if (typeof value !== "string" || value.trim() === "") return "----------";
+  const normalized = value.startsWith("ws_") ? value.slice(3) : value;
+  return normalized.slice(0, 10);
+}
+
+function compactDurationCell(duration: string, success: boolean): string {
+  const cell = compactCell(duration, 8);
+  if (!success || !durationShouldHighlight(duration)) return cell;
+  return colorizeConsoleLine(cell, "yellow");
+}
+
+function durationShouldHighlight(duration: string): boolean {
+  return /s$/.test(duration) && !duration.endsWith("ms");
+}
+
+function compactDetailFields(fields: LogFields, success: boolean): string {
+  const parts: string[] = [];
+  pushCompactField(parts, "path", fields.path);
+  pushCompactField(parts, "files", fields.fileCount ?? fields.affectedFiles);
+  pushCompactField(parts, "exit", fields.exitCode);
+  pushCompactField(parts, "proc", fields.sessionId);
+  pushCompactField(parts, "cmd", compactCommandPreview(fields));
+  pushCompactFlag(parts, "dryRun", fields.dryRun === true);
+  pushCompactFlag(parts, "truncated", fields.truncated === true || fields.outputTruncated === true);
+  pushCompactField(parts, "chars", compactLargeNumber(fields.resultCharacters));
+  pushCompactField(parts, "reason", compactReason(fields.error, success ? 80 : undefined));
+  pushCompactField(parts, "template", fields.template);
+  return parts.join(" ");
+}
+
+function pushCompactField(parts: string[], name: string, value: unknown): void {
+  if (value === undefined || value === null || value === "") return;
+  parts.push(`${name}=${String(value)}`);
+}
+
+function pushCompactFlag(parts: string[], name: string, enabled: boolean): void {
+  if (enabled) parts.push(`${name}=true`);
+}
+
+function compactLargeNumber(value: unknown): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 10_000) return undefined;
+  return String(Math.round(value));
+}
+
+function compactReason(value: unknown, maxLength?: number): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const text = sanitizeCompactConsoleText(String(value), "reason");
+  if (maxLength === undefined) return text;
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
+function compactCommandPreview(fields: LogFields): string | undefined {
+  const tool = typeof fields.tool === "string" ? fields.tool : "";
+  if (tool !== "exec_command" && tool !== "bash" && tool !== "write_stdin" && tool !== "launch_workspace_task") return undefined;
+  const value = fields.command ?? fields.commandPreview ?? fields.cmd;
+  if (value === undefined || value === null || value === "") return undefined;
+  const text = sanitizeCompactConsoleText(String(value), "cmd");
+  if (text.length <= 80) return text;
+  return `${text.slice(0, 77)}...`;
+}
+
+function sanitizeCompactConsoleText(value: string, fieldName: string): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!looksMojibake(text)) return text;
+  return `[${fieldName}:garbled-output]`;
+}
+
+function looksMojibake(value: string): boolean {
+  const replacementCount = (value.match(/�/g) ?? []).length;
+  if (replacementCount >= 3) return true;
+  if (replacementCount > 0 && replacementCount / Math.max(value.length, 1) >= 0.05) return true;
+  return false;
+}
+
+function colorizeConsoleLine(value: string, color: "red" | "yellow"): string {
+  if (!shouldColorizeConsole()) return value;
+  const prefix = color === "red" ? ANSI_RED : ANSI_YELLOW;
+  return `${prefix}${value}${ANSI_RESET}`;
+}
+
+function shouldColorizeConsole(): boolean {
+  if (process.env.NO_COLOR !== undefined) return false;
+  if (process.env.FORCE_COLOR !== undefined && process.env.FORCE_COLOR !== "0") return true;
+  return process.stdout.isTTY === true || process.stderr.isTTY === true;
 }
 
 export function requestIp(req: Request, trustProxy: boolean): string | undefined {
