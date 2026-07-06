@@ -56,7 +56,7 @@ try {
   console.warn = (line?: unknown) => {
     consoleWarnLines.push(String(line));
   };
-  const longError = `timeout while running command: ${"x".repeat(120)}`;
+  const longError = `timeout while running command: ${"x".repeat(360)}`;
   try {
     logEvent(compactConfig, "info", "tool_call", {
       tool: "read",

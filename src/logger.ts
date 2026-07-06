@@ -188,7 +188,7 @@ function compactDetailFields(fields: LogFields, success: boolean): string {
   pushCompactFlag(parts, "dryRun", fields.dryRun === true);
   pushCompactFlag(parts, "truncated", fields.truncated === true || fields.outputTruncated === true);
   pushCompactField(parts, "chars", compactLargeNumber(fields.resultCharacters));
-  pushCompactField(parts, "reason", compactReason(fields.error, success ? 80 : 240));
+  pushCompactField(parts, "reason", compactReason(fields.error, success ? 80 : undefined));
   pushCompactField(parts, "template", fields.template);
   return parts.join(" ");
 }
@@ -207,9 +207,10 @@ function compactLargeNumber(value: unknown): string | undefined {
   return String(Math.round(value));
 }
 
-function compactReason(value: unknown, maxLength: number): string | undefined {
+function compactReason(value: unknown, maxLength?: number): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   const text = String(value).replace(/\s+/g, " ").trim();
+  if (maxLength === undefined) return text;
   if (text.length <= maxLength) return text;
   return `${text.slice(0, Math.max(0, maxLength - 3))}...`;
 }
