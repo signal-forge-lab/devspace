@@ -91,6 +91,14 @@ try {
       template: "mission_start",
       workspaceId: "ws_abc1234567-extra",
     });
+    logEvent(compactConfig, "warn", "tool_call", {
+      tool: "bash",
+      success: false,
+      durationMs: 89,
+      command: "findstr pattern file.txt",
+      error: "FINDSTR: �J�����D��Ƃ�, ��� (C/C:^.*$) �v���Z�X���܂���",
+      workspaceId: "ws_abc1234567-extra",
+    });
   } finally {
     console.log = originalCompactLog;
     console.warn = originalCompactWarn;
@@ -100,12 +108,13 @@ try {
   assert.match(consoleLogLines[0], /^\d{2}\/\d{2} \d{2}:\d{2}:\d{2} \| abc1234567 \| READ   \| read                   \| ok     \| 12ms     \| path=src\/logger\.ts$/);
   assert.match(consoleLogLines[1], /^\d{2}\/\d{2} \d{2}:\d{2}:\d{2} \| abc1234567 \| CHANGE \| apply_patch            \| ok     \| 42ms     \| files=2$/);
   assert.match(consoleLogLines[2], /^\d{2}\/\d{2} \d{2}:\d{2}:\d{2} \| abc1234567 \| TASK   \| launch_workspace_task  \| ok     \| 120ms    \| dryRun=true template=mission_start$/);
-  assert.equal(consoleWarnLines.length, 1);
+  assert.equal(consoleWarnLines.length, 2);
   assert.match(consoleWarnLines[0], new RegExp(`^\\d{2}\\/\\d{2} \\d{2}:\\d{2}:\\d{2} \\| abc1234567 \\| FAIL   \\| exec_command           \\| failed \\| 30s      \\| exit=1 cmd=${longCommandPreview} reason=${longError}$`));
+  assert.match(consoleWarnLines[1], /^\d{2}\/\d{2} \d{2}:\d{2}:\d{2} \| abc1234567 \| FAIL   \| bash                   \| failed \| 89ms     \| cmd=findstr pattern file\.txt reason=\[reason:garbled-output-see-jsonl\]$/);
   await closeLogFiles();
 
   const compactLines = (await readFile(compactFilePath, "utf8")).trim().split("\n");
-  assert.equal(compactLines.length, 4);
+  assert.equal(compactLines.length, 5);
   assert.equal(JSON.parse(compactLines[0]).tool, "read");
 
   const req = {

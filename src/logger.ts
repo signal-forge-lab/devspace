@@ -254,7 +254,7 @@ function compactLargeNumber(value: unknown): string | undefined {
 
 function compactReason(value: unknown, maxLength?: number): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
-  const text = String(value).replace(/\s+/g, " ").trim();
+  const text = sanitizeCompactConsoleText(String(value), "reason");
   if (maxLength === undefined) return text;
   if (text.length <= maxLength) return text;
   return `${text.slice(0, Math.max(0, maxLength - 3))}...`;
@@ -265,9 +265,22 @@ function compactCommandPreview(fields: LogFields): string | undefined {
   if (tool !== "exec_command" && tool !== "bash" && tool !== "write_stdin") return undefined;
   const value = fields.command ?? fields.cmd;
   if (value === undefined || value === null || value === "") return undefined;
-  const text = String(value).replace(/\s+/g, " ").trim();
+  const text = sanitizeCompactConsoleText(String(value), "cmd");
   if (text.length <= 80) return text;
   return `${text.slice(0, 77)}...`;
+}
+
+function sanitizeCompactConsoleText(value: string, fieldName: string): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!looksMojibake(text)) return text;
+  return `[${fieldName}:garbled-output-see-jsonl]`;
+}
+
+function looksMojibake(value: string): boolean {
+  const replacementCount = (value.match(/�/g) ?? []).length;
+  if (replacementCount >= 3) return true;
+  if (replacementCount > 0 && replacementCount / Math.max(value.length, 1) >= 0.05) return true;
+  return false;
 }
 
 export async function closeLogFiles(): Promise<void> {
