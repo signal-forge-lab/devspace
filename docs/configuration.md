@@ -78,6 +78,19 @@ Codex-mode commands run without a PTY by default. Set `tty: true` on
 `node-pty` dependency; `write_stdin` can send input, poll output, and resize PTY
 sessions.
 
+### Patch consolidation guidance
+
+This section is intentionally named so the guidance can be reverted cleanly if
+it makes model behavior worse. Revert commit `feat guide patch consolidation`
+or remove this section plus the matching `patchConsolidationInstruction` block
+in `src/server.ts`.
+
+In `codex` mode, related file edits should be batched into one `apply_patch`
+call per logical implementation step. A single patch may update multiple files
+and multiple hunks. Repeated small `apply_patch` calls should be avoided unless
+the previous patch failed, the change set is too large to review safely, or the
+user explicitly asks for separate checkpoints.
+
 Set `WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1` to expose `launch_workspace_task`.
 The launcher accepts only allowlisted workspace tasks. The initial task is
 `aegis_runner`, which resolves `aegis_runner.py` inside the opened workspace.
