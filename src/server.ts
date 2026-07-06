@@ -41,6 +41,7 @@ import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
 import { formatAgentsPath, WorkspaceRegistry } from "./workspaces.js";
+import { resolveWorkspaceTask, workspaceTaskCatalog, WORKSPACE_TASK_NAMES } from "./workspace-tasks.js";
 import { summarizeLocalAgentProfile } from "./local-agent-profiles.js";
 import {
   formatLocalAgentProviderAvailabilitySummary,
@@ -179,7 +180,7 @@ function serverInstructions(config: ServerConfig): string {
     return `Use DevSpace as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Use ${toolNames.read} for direct file reads, apply_patch for all file modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${showChangesInstruction}`;
   }
 
-  const inspection = config.toolMode !== "full"
+  const inspection = config.toolMode === "minimal"
     ? `In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are disabled; use ${toolNames.shell} with command-line tools such as grep, rg, find, ls, and tree for search and directory inspection. `
     : `Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} for file inspection. `;
 
@@ -298,7 +299,7 @@ function logToolCall(config: ServerConfig, fields: ToolLogFields): void {
   const { command, ...safeFields } = fields;
   logEvent(config.logging, fields.success ? "info" : "warn", "tool_call", {
     ...safeFields,
-    commandPreview: config.logging.shellCommands && command ? commandPreview(command) : undefined,
+    commandPreview: command ? commandPreview(command) : undefined,
   });
 }
 
@@ -499,7 +500,7 @@ function processOutputSchema(): z.ZodRawShape {
 }
 
 function processToolResponse(
-  tool: "exec_command" | "write_stdin",
+  tool: "exec_command" | "write_stdin" | "launch_workspace_task",
   workspaceId: string,
   snapshot: ProcessSnapshot,
   summary: Record<string, unknown>,
@@ -1276,7 +1277,7 @@ function createMcpServer(
     );
   }
 
-  if (config.toolMode === "full") {
+  if (config.toolMode === "full" || config.toolMode === "main") {
     registerAppTool(
       server,
       toolNames.grep,
@@ -1493,7 +1494,7 @@ function createMcpServer(
     toolNames.shell,
     {
       title: "Bash",
-      description: config.toolMode !== "full"
+      description: config.toolMode === "minimal"
         ? `Run a shell command inside an open workspace. Use only for tests, builds, git inspection, package scripts, search, file discovery, and directory inspection. In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are disabled; use command-line tools such as grep, rg, find, ls, and tree for those read-only inspection actions. Do not use ${toolNames.shell} to create or modify files. Do not use shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or generated scripts to write project files; use ${toolNames.edit} for targeted changes and ${toolNames.write} for new files or full rewrites. Prefer ${toolNames.read} for direct file reads. Call open_workspace first and pass workspaceId. This is powerful local execution and should only be exposed behind strong authentication.`
         : `Run a shell command inside an open workspace. Use only for tests, builds, git inspection, package scripts, and commands that are better executed by the shell. Do not use ${toolNames.shell} to create or modify files. Do not use shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or generated scripts to write project files; use ${toolNames.edit} for targeted changes and ${toolNames.write} for new files or full rewrites. Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} for file inspection. Call open_workspace first and pass workspaceId. This is powerful local execution and should only be exposed behind strong authentication.`,
       inputSchema: {
@@ -1581,6 +1582,90 @@ function createMcpServer(
 
   if (config.toolMode === "codex") {
     registerCodexProcessTools(server, config, workspaces, processSessions);
+  }
+
+  if (config.workspaceTasksEnabled) {
+    registerAppTool(
+      server,
+      "launch_workspace_task",
+      {
+        title: "Launch workspace task",
+        description:
+          "Launch an allowlisted workspace task without accepting a raw shell command. The initial allowlisted task is aegis_runner. Use template for common start patterns or args for dynamic CLI arguments.",
+        inputSchema: {
+          workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
+          task: z.enum(WORKSPACE_TASK_NAMES).describe("Allowlisted workspace task to launch."),
+          template: z.string().optional().describe("Optional named template for common task arguments, such as status_console_5s."),
+          args: z.array(z.string()).optional().describe("Optional CLI arguments appended after the task template arguments."),
+          dryRun: z.boolean().optional().describe("Resolve and return the command without launching it."),
+          tty: z.boolean().optional().describe("Allocate a pseudo-terminal when supported. Defaults to false."),
+          columns: z.number().int().min(1).max(1_000).optional().describe("Initial PTY width. Defaults to 80."),
+          rows: z.number().int().min(1).max(1_000).optional().describe("Initial PTY height. Defaults to 24."),
+          workingDirectory: z.string().optional().describe("Working directory relative to the workspace root. Defaults to the workspace root."),
+          yieldTimeMs: z.number().int().min(0).max(30_000).optional().describe("Milliseconds to wait before returning a running session."),
+          maxOutputTokens: z.number().int().positive().max(100_000).optional().describe("Approximate output token budget."),
+        },
+        outputSchema: processOutputSchema(),
+        ...toolWidgetDescriptorMeta(config, "shell"),
+        annotations: SHELL_TOOL_ANNOTATIONS,
+      },
+      async ({ workspaceId, task, template, args, dryRun, tty, columns, rows, workingDirectory, yieldTimeMs, maxOutputTokens }) => {
+        const startedAt = performance.now();
+        const workspace = workspaces.getWorkspace(workspaceId);
+        const resolved = await resolveWorkspaceTask({ workspaceRoot: workspace.root, task, template, args });
+        const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
+
+        if (dryRun) {
+          const result = `Dry run command: ${resolved.command}`;
+          logToolCall(config, {
+            tool: "launch_workspace_task",
+            workspaceId,
+            workingDirectory: workingDirectory ?? ".",
+            command: resolved.command,
+            commandLength: resolved.command.length,
+            success: true,
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+          return {
+            content: [textBlock(result)],
+            _meta: { tool: "launch_workspace_task", card: { workspaceId, summary: { task, template, dryRun: true, command: resolved.command }, payload: { content: [textBlock(result)] } } },
+            structuredContent: { result, running: false, wallTimeMs: 0, outputTruncated: false },
+          };
+        }
+
+        const snapshot = await processSessions.start({
+          workspaceId,
+          command: resolved.command,
+          cwd,
+          workspaceRoot: workspace.root,
+          tty,
+          columns,
+          rows,
+          yieldTimeMs,
+          maxOutputTokens,
+        });
+
+        logToolCall(config, {
+          tool: "launch_workspace_task",
+          workspaceId,
+          workingDirectory: workingDirectory ?? ".",
+          command: resolved.command,
+          commandLength: resolved.command.length,
+          success: true,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+
+        return processToolResponse("launch_workspace_task", workspaceId, snapshot, {
+          task,
+          template,
+          command: resolved.command,
+          workingDirectory: workingDirectory ?? ".",
+          running: snapshot.running,
+          exitCode: snapshot.exitCode,
+          wallTimeMs: snapshot.wallTimeMs,
+        });
+      },
+    );
   }
 
   return server;

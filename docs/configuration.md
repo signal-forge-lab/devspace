@@ -64,6 +64,7 @@ MCP clients discover metadata from:
 | Value | Behavior |
 | --- | --- |
 | `minimal` | Default. Exposes `open_workspace`, `read`, `write`, `edit`, and `bash`. Clients use `bash` with tools such as `rg`, `find`, and `ls` for inspection. |
+| `main` | Stable primary surface. Exposes the minimal tools plus dedicated `grep`, `glob`, and `ls` tools. |
 | `full` | Exposes the minimal tools plus dedicated `grep`, `glob`, and `ls` tools. |
 | `codex` | Experimental. Exposes `open_workspace`, `read`, `apply_patch`, `exec_command`, and `write_stdin`. Existing mutation and shell tools are hidden. |
 
@@ -76,6 +77,12 @@ Codex-mode commands run without a PTY by default. Set `tty: true` on
 `exec_command` for interactive terminal programs. PTY support uses the optional
 `node-pty` dependency; `write_stdin` can send input, poll output, and resize PTY
 sessions.
+
+Set `WORKBRIDGE_ENABLE_WORKSPACE_TASKS=1` to expose `launch_workspace_task`.
+The launcher accepts only allowlisted workspace tasks. The initial task is
+`aegis_runner`, which resolves `aegis_runner.py` inside the opened workspace.
+Templates may be defined in `.workbridge/workspace-tasks.json` or in a central
+config file set with `WORKBRIDGE_WORKSPACE_TASKS_CONFIG`.
 
 ## Widgets
 
@@ -148,8 +155,10 @@ npx @waishnav/devspace serve
 
 Set `DEVSPACE_LOG_FORMAT=pretty` for local debugging.
 
-Set `DEVSPACE_LOG_SHELL_COMMANDS=1` only when you intentionally want command
-previews in logs.
+Tool-call console output uses a compact fixed-column format:
+`time | workspace | kind | tool | status | duration | details`. Second-level
+durations are highlighted yellow when the terminal supports ANSI colors, while
+failed compact lines are highlighted red. Set `NO_COLOR=1` to disable colors.
 
 ## Env-Only Example
 
