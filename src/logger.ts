@@ -74,6 +74,10 @@ const COMPACT_SUCCESS_TOOL_NAMES = new Set([
   "launch_workspace_task",
 ]);
 
+const ANSI_RED = "\x1b[31m";
+const ANSI_YELLOW = "\x1b[33m";
+const ANSI_RESET = "\x1b[0m";
+
 const fileStreams = new Map<string, WriteStream>();
 const failedFilePaths = new Set<string>();
 
@@ -142,15 +146,17 @@ function compactToolCallConsoleLine(
   if (!important && !COMPACT_SUCCESS_TOOL_NAMES.has(tool)) return undefined;
 
   const label = success ? compactOperationLabel(tool) : compactFailureLabel();
-  return [
+  const duration = formatDurationMs(fields.durationMs);
+  const line = [
     compactCell(compactTimestamp(), 14),
     compactCell(workspaceIdCompactPrefix(fields.workspaceId), 10),
     compactCell(label, 6),
     compactCell(tool, 22),
     compactCell(success ? "ok" : "failed", 6),
-    compactCell(formatDurationMs(fields.durationMs), 8),
+    compactDurationCell(duration, success),
     compactDetailFields(fields, success),
   ].filter(Boolean).join(" | ");
+  return success ? line : colorizeConsoleLine(line, "red");
 }
 
 function compactOperationLabel(tool: string): string {
@@ -178,6 +184,28 @@ function compactCell(value: string, width: number): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   const clipped = normalized.length > width ? `${normalized.slice(0, Math.max(0, width - 1))}…` : normalized;
   return clipped.padEnd(width, " ");
+}
+
+function compactDurationCell(duration: string, success: boolean): string {
+  const cell = compactCell(duration, 8);
+  if (!success || !durationShouldHighlight(duration)) return cell;
+  return colorizeConsoleLine(cell, "yellow");
+}
+
+function durationShouldHighlight(duration: string): boolean {
+  return /s$/.test(duration) && !duration.endsWith("ms");
+}
+
+function colorizeConsoleLine(value: string, color: "red" | "yellow"): string {
+  if (!shouldColorizeConsole()) return value;
+  const prefix = color === "red" ? ANSI_RED : ANSI_YELLOW;
+  return `${prefix}${value}${ANSI_RESET}`;
+}
+
+function shouldColorizeConsole(): boolean {
+  if (process.env.NO_COLOR !== undefined) return false;
+  if (process.env.FORCE_COLOR !== undefined && process.env.FORCE_COLOR !== "0") return true;
+  return process.stdout.isTTY === true || process.stderr.isTTY === true;
 }
 
 function compactTimestamp(date = new Date()): string {

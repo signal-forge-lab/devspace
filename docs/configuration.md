@@ -265,6 +265,7 @@ By default, Workbridge writes detailed JSONL logs directly to `logs/` and keeps 
 Informational events stay in the local log file, while the console defaults to warnings,
 errors, and compact summaries for important execution-style tool calls.
 Compact console tool-call summaries include successful read, inspect, edit, write, command, and task calls, using fixed ASCII columns in the form `time | workspace | kind | tool | status | duration | details`.
+When the terminal supports ANSI colors, second-level durations such as `5.6s` are highlighted yellow, while failed compact lines are highlighted red. Set `NO_COLOR=1` to disable colors.
 Set `DEVSPACE_CONSOLE_LOG_LEVEL=info` for verbose console logging, `DEVSPACE_LOG_FILE=0`
 to disable file logging, `DEVSPACE_LOG_DIR` to change the output directory, or
 `DEVSPACE_LOG_FILE_NAME` to force a specific filename.
