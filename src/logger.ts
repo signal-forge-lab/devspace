@@ -69,6 +69,8 @@ const COMPACT_SUCCESS_TOOL_NAMES = new Set([
   "write",
   "apply_patch",
   "exec_command",
+  "bash",
+  "write_stdin",
   "launch_workspace_task",
 ]);
 
@@ -199,6 +201,7 @@ function compactDetailFields(fields: LogFields, success: boolean): string {
   pushCompactField(parts, "files", fields.fileCount ?? fields.affectedFiles);
   pushCompactField(parts, "exit", fields.exitCode);
   pushCompactField(parts, "proc", fields.sessionId);
+  pushCompactField(parts, "cmd", compactCommandPreview(fields));
   pushCompactFlag(parts, "dryRun", fields.dryRun === true);
   pushCompactFlag(parts, "truncated", fields.truncated === true || fields.outputTruncated === true);
   pushCompactField(parts, "chars", compactLargeNumber(fields.resultCharacters));
@@ -227,6 +230,16 @@ function compactReason(value: unknown, maxLength?: number): string | undefined {
   if (maxLength === undefined) return text;
   if (text.length <= maxLength) return text;
   return `${text.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
+function compactCommandPreview(fields: LogFields): string | undefined {
+  const tool = typeof fields.tool === "string" ? fields.tool : "";
+  if (tool !== "exec_command" && tool !== "bash" && tool !== "write_stdin") return undefined;
+  const value = fields.command ?? fields.cmd;
+  if (value === undefined || value === null || value === "") return undefined;
+  const text = String(value).replace(/\s+/g, " ").trim();
+  if (text.length <= 80) return text;
+  return `${text.slice(0, 77)}...`;
 }
 
 export async function closeLogFiles(): Promise<void> {

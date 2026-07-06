@@ -57,6 +57,8 @@ try {
     consoleWarnLines.push(String(line));
   };
   const longError = `timeout while running command: ${"x".repeat(360)}`;
+  const longCommand = `npm run build -- --very-long-option=${"y".repeat(120)}`;
+  const longCommandPreview = `${longCommand.slice(0, 77)}...`;
   try {
     logEvent(compactConfig, "info", "tool_call", {
       tool: "read",
@@ -77,6 +79,7 @@ try {
       success: false,
       durationMs: 30_000,
       exitCode: 1,
+      command: longCommand,
       error: longError,
       workspaceId: "ws_abc1234567-extra",
     });
@@ -98,7 +101,7 @@ try {
   assert.match(consoleLogLines[1], /^\d{2}\/\d{2} \d{2}:\d{2}:\d{2} \| abc1234567 \| CHANGE \| apply_patch            \| ok     \| 42ms     \| files=2$/);
   assert.match(consoleLogLines[2], /^\d{2}\/\d{2} \d{2}:\d{2}:\d{2} \| abc1234567 \| TASK   \| launch_workspace_task  \| ok     \| 120ms    \| dryRun=true template=mission_start$/);
   assert.equal(consoleWarnLines.length, 1);
-  assert.match(consoleWarnLines[0], new RegExp(`^\\d{2}\\/\\d{2} \\d{2}:\\d{2}:\\d{2} \\| abc1234567 \\| FAIL   \\| exec_command           \\| failed \\| 30s      \\| exit=1 reason=${longError}$`));
+  assert.match(consoleWarnLines[0], new RegExp(`^\\d{2}\\/\\d{2} \\d{2}:\\d{2}:\\d{2} \\| abc1234567 \\| FAIL   \\| exec_command           \\| failed \\| 30s      \\| exit=1 cmd=${longCommandPreview} reason=${longError}$`));
   await closeLogFiles();
 
   const compactLines = (await readFile(compactFilePath, "utf8")).trim().split("\n");
