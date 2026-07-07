@@ -53,6 +53,12 @@ export function logEvent(
 ): void {
   if (!shouldLog(config, level)) return;
 
+  const compactToolLine = compactToolCallConsoleLine(fields);
+  if (compactToolLine) {
+    writeConsoleLine(level, compactToolLine);
+    return;
+  }
+
   const entry = {
     ts: new Date().toISOString(),
     level,
@@ -60,8 +66,7 @@ export function logEvent(
     ...fields,
   };
 
-  const compactToolLine = compactToolCallConsoleLine(fields);
-  const line = compactToolLine ?? (config.format === "pretty" ? formatPretty(entry) : JSON.stringify(entry));
+  const line = config.format === "pretty" ? formatPretty(entry) : JSON.stringify(entry);
   writeConsoleLine(level, line);
 }
 
