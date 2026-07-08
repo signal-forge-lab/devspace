@@ -170,6 +170,7 @@ npx @waishnav/devspace serve
 | `DEVSPACE_LOG_TOOL_CALLS` | `1` |
 | `DEVSPACE_LOG_SHELL_COMMANDS` | `0` |
 | `DEVSPACE_TRUST_PROXY` | `0` |
+| `WORKBRIDGE_EXPERIMENTAL_FEATURES` | unset |
 
 Set `DEVSPACE_LOG_FORMAT=pretty` for local debugging when
 `DEVSPACE_LOG_CONSOLE_JSON=1`.
@@ -187,6 +188,14 @@ when the path is `/mcp`, the status is `400` or higher, or the request takes at
 least 1000ms. HTTP request rows use the workspace column for the request IP when
 no workspace id is available. Other JSON events remain in the JSONL file and are
 hidden from the console unless `DEVSPACE_LOG_CONSOLE_JSON=1` is set.
+
+Set `WORKBRIDGE_EXPERIMENTAL_FEATURES=command_metadata` to add optional
+self-reported metadata fields to `exec_command`. When enabled, `intent` and
+`retryContext` are included in the tool schema and written to JSONL tool-call
+logs when the model supplies them. These fields are not shown in the compact
+console and should be treated as model self-reporting, not observed host-side
+safety-check counts. `DEVSPACE_EXPERIMENTAL_FEATURES` is accepted as a legacy
+alias.
 
 Normal HTTP request lines are highlighted cyan when the terminal supports ANSI
 colors. Second-level durations are highlighted yellow, while failed tool lines

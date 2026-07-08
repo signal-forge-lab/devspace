@@ -18,7 +18,7 @@ import express from "express";
 import type { Request, Response } from "express";
 import * as z from "zod/v4";
 import { applyPatch } from "./apply-patch.js";
-import { loadConfig, type ServerConfig, type WidgetMode } from "./config.js";
+import { loadConfig, type ExperimentalFeature, type ServerConfig, type WidgetMode } from "./config.js";
 import {
   logEvent,
   requestIp,
@@ -171,6 +171,8 @@ interface ToolLogFields {
   success: boolean;
   durationMs: number;
   error?: string;
+  intent?: string;
+  retryContext?: string;
 }
 
 function serverInstructions(config: ServerConfig): string {
@@ -343,6 +345,50 @@ function logFailedToolResponse(
     durationMs: Math.round(performance.now() - startedAt),
     error: toolErrorPreview(content),
   });
+}
+
+function experimentalFeatureEnabled(config: ServerConfig, feature: ExperimentalFeature): boolean {
+  return config.experimentalFeatures.includes(feature);
+}
+
+const COMMAND_METADATA_INTENTS = ["inspect", "modify", "verify", "run", "git", "other"] as const;
+const COMMAND_METADATA_RETRY_CONTEXTS = [
+  "none",
+  "previous_host_safecheck_self_reported",
+  "previous_tool_error",
+  "previous_output_too_large",
+  "split_large_command",
+  "other",
+] as const;
+
+function commandMetadataInputSchema(): z.ZodRawShape {
+  return {
+    intent: z
+      .enum(COMMAND_METADATA_INTENTS)
+      .optional()
+      .describe(
+        "Optional experimental command metadata. Set the closest value when the purpose is obvious. If unsure, omit this field; do not guess.",
+      ),
+    retryContext: z
+      .enum(COMMAND_METADATA_RETRY_CONTEXTS)
+      .optional()
+      .describe(
+        "Optional experimental command metadata. Use previous_host_safecheck_self_reported only when retrying after a host-side safety check or blocked tool call. If unsure, omit this field or use none; do not guess. Do not include secrets or sensitive payloads.",
+      ),
+  };
+}
+
+interface ExecCommandInput {
+  workspaceId: string;
+  cmd: string;
+  tty?: boolean;
+  columns?: number;
+  rows?: number;
+  workingDirectory?: string;
+  yieldTimeMs?: number;
+  maxOutputTokens?: number;
+  intent?: string;
+  retryContext?: string;
 }
 
 function textBlock(text: string): ToolContent {
@@ -549,6 +595,38 @@ function registerCodexProcessTools(
   workspaces: WorkspaceRegistry,
   processSessions: ProcessSessionManager,
 ): void {
+  const execCommandInputSchema: z.ZodRawShape = {
+    workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
+    cmd: z.string().min(1).describe("Shell command to execute."),
+    tty: z
+      .boolean()
+      .optional()
+      .describe("Allocate a pseudo-terminal for interactive commands. Defaults to false."),
+    columns: z.number().int().min(1).max(1_000).optional().describe("Initial PTY width. Defaults to 80."),
+    rows: z.number().int().min(1).max(1_000).optional().describe("Initial PTY height. Defaults to 24."),
+    workingDirectory: z
+      .string()
+      .optional()
+      .describe("Working directory relative to the workspace root. Defaults to the workspace root."),
+    yieldTimeMs: z
+      .number()
+      .int()
+      .min(0)
+      .max(30_000)
+      .optional()
+      .describe("Milliseconds to wait before returning a running session. Defaults to 10000."),
+    maxOutputTokens: z
+      .number()
+      .int()
+      .positive()
+      .max(100_000)
+      .optional()
+      .describe("Approximate output token budget. Defaults to 10000."),
+  };
+  if (experimentalFeatureEnabled(config, "command_metadata")) {
+    Object.assign(execCommandInputSchema, commandMetadataInputSchema());
+  }
+
   registerAppTool(
     server,
     "exec_command",
@@ -556,39 +634,25 @@ function registerCodexProcessTools(
       title: "Execute command",
       description:
         "Run a command inside an open workspace. Returns its result when it exits during the yield window, otherwise returns a sessionId for write_stdin. Use this for file inspection, tests, builds, package scripts, and long-running processes. Call open_workspace first and pass workspaceId.",
-      inputSchema: {
-        workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
-        cmd: z.string().min(1).describe("Shell command to execute."),
-        tty: z
-          .boolean()
-          .optional()
-          .describe("Allocate a pseudo-terminal for interactive commands. Defaults to false."),
-        columns: z.number().int().min(1).max(1_000).optional().describe("Initial PTY width. Defaults to 80."),
-        rows: z.number().int().min(1).max(1_000).optional().describe("Initial PTY height. Defaults to 24."),
-        workingDirectory: z
-          .string()
-          .optional()
-          .describe("Working directory relative to the workspace root. Defaults to the workspace root."),
-        yieldTimeMs: z
-          .number()
-          .int()
-          .min(0)
-          .max(30_000)
-          .optional()
-          .describe("Milliseconds to wait before returning a running session. Defaults to 10000."),
-        maxOutputTokens: z
-          .number()
-          .int()
-          .positive()
-          .max(100_000)
-          .optional()
-          .describe("Approximate output token budget. Defaults to 10000."),
-      },
+      inputSchema: execCommandInputSchema,
       outputSchema: processOutputSchema(),
       ...toolWidgetDescriptorMeta(config, "shell"),
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, maxOutputTokens }) => {
+    async (input) => {
+      const typedInput = input as unknown as ExecCommandInput;
+      const {
+        workspaceId,
+        cmd,
+        tty,
+        columns,
+        rows,
+        workingDirectory,
+        yieldTimeMs,
+        maxOutputTokens,
+        intent,
+        retryContext,
+      } = typedInput;
       const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
       const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
@@ -612,6 +676,8 @@ function registerCodexProcessTools(
         commandLength: cmd.length,
         success: true,
         durationMs: Math.round(performance.now() - startedAt),
+        intent,
+        retryContext,
       });
 
       return processToolResponse("exec_command", workspaceId, snapshot, {

@@ -23,6 +23,13 @@ assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "full" }).toolMode, "f
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "codex" }).toolMode, "codex");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_MINIMAL_TOOLS: "0" }).toolMode, "full");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_MINIMAL_TOOLS: "1" }).toolMode, "minimal");
+assert.deepEqual(loadConfig(baseEnv).experimentalFeatures, []);
+assert.deepEqual(loadConfig({ ...baseEnv, WORKBRIDGE_EXPERIMENTAL_FEATURES: "command_metadata" }).experimentalFeatures, [
+  "command_metadata",
+]);
+assert.deepEqual(loadConfig({ ...baseEnv, DEVSPACE_EXPERIMENTAL_FEATURES: "command_metadata" }).experimentalFeatures, [
+  "command_metadata",
+]);
 assert.equal(loadConfig(baseEnv).workspaceTasksEnabled, false);
 assert.equal(loadConfig({ ...baseEnv, WORKBRIDGE_ENABLE_WORKSPACE_TASKS: "1" }).workspaceTasksEnabled, true);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_ENABLE_WORKSPACE_TASKS: "1" }).workspaceTasksEnabled, true);
@@ -63,6 +70,10 @@ assert.throws(
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "invalid" }),
   /Invalid DEVSPACE_TOOL_MODE: invalid/,
+);
+assert.throws(
+  () => loadConfig({ ...baseEnv, WORKBRIDGE_EXPERIMENTAL_FEATURES: "unknown_feature" }),
+  /Invalid WORKBRIDGE_EXPERIMENTAL_FEATURES entry: unknown_feature/,
 );
 
 const defaultConfig = loadConfig(baseEnv);

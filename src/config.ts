@@ -7,10 +7,12 @@ import { devspaceAgentsDir, devspaceSkillsDir, loadDevspaceFiles } from "./user-
 
 export type ToolMode = "minimal" | "main" | "full" | "codex";
 export type WidgetMode = "off" | "changes" | "full";
+export type ExperimentalFeature = "command_metadata";
 const DEFAULT_OAUTH_ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const DEFAULT_LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_LOG_FILE_MAX_FILES = 5;
+const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = ["command_metadata"];
 
 export interface ServerConfig {
   host: string;
@@ -20,6 +22,7 @@ export interface ServerConfig {
   allowedHosts: string[];
   publicBaseUrl: string;
   toolMode: ToolMode;
+  experimentalFeatures: ExperimentalFeature[];
   workspaceTasksEnabled: boolean;
   widgets: WidgetMode;
   stateDir: string;
@@ -125,6 +128,21 @@ function parseStringList(value: string | undefined, fallback: string[]): string[
     .filter(Boolean);
 
   return entries && entries.length > 0 ? entries : fallback;
+}
+
+function parseExperimentalFeatures(env: NodeJS.ProcessEnv): ExperimentalFeature[] {
+  const value = env.WORKBRIDGE_EXPERIMENTAL_FEATURES ?? env.DEVSPACE_EXPERIMENTAL_FEATURES;
+  const entries = parseStringList(value, []);
+  const features = new Set<ExperimentalFeature>();
+
+  for (const entry of entries) {
+    if (!EXPERIMENTAL_FEATURES.includes(entry as ExperimentalFeature)) {
+      throw new Error(`Invalid WORKBRIDGE_EXPERIMENTAL_FEATURES entry: ${entry}`);
+    }
+    features.add(entry as ExperimentalFeature);
+  }
+
+  return Array.from(features);
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number, name: string): number {
@@ -247,6 +265,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     allowedHosts: parseAllowedHosts(env.DEVSPACE_ALLOWED_HOSTS, derivedAllowedHosts),
     publicBaseUrl,
     toolMode: parseToolMode(env),
+    experimentalFeatures: parseExperimentalFeatures(env),
     workspaceTasksEnabled: parseBoolean(env.WORKBRIDGE_ENABLE_WORKSPACE_TASKS ?? env.DEVSPACE_ENABLE_WORKSPACE_TASKS),
     widgets: parseWidgetMode(env.DEVSPACE_WIDGETS),
     stateDir,
