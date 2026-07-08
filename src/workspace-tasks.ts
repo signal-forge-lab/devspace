@@ -20,6 +20,7 @@ export interface ResolvedWorkspaceTask {
   executable: string;
   args: string[];
   command: string;
+  displayCommand: string;
   scriptPath: string;
 }
 
@@ -152,13 +153,18 @@ export async function resolveWorkspaceTask(input: ResolveWorkspaceTaskInput): Pr
   }
 
   const executable = input.pythonCommand?.trim() || process.env.DEVSPACE_PYTHON_COMMAND?.trim() || "python";
-  const args = [...definition.defaultArgs, scriptPath, ...(template?.args ?? []), ...(input.args ?? [])];
+  const templateArgs = template?.args ?? [];
+  const explicitArgs = input.args ?? [];
+  const args = [...definition.defaultArgs, scriptPath, ...templateArgs, ...explicitArgs];
+  const displayScriptPath = `<workspace>/${definition.script.replace(/\\/g, "/")}`;
+  const displayArgs = [...definition.defaultArgs, displayScriptPath, ...templateArgs, ...explicitArgs];
   return {
     task: input.task,
     template: input.template,
     executable,
     args,
     command: commandPreview([executable, ...args]),
+    displayCommand: commandPreview([executable, ...displayArgs]),
     scriptPath,
   };
 }

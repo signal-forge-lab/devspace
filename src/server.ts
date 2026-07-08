@@ -1705,7 +1705,7 @@ function createMcpServer(
         const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
 
         if (dryRun) {
-          const result = `Dry run command: ${resolved.command}`;
+          const result = `Dry run command: ${resolved.displayCommand}`;
           logToolCall(config, {
             tool: "launch_workspace_task",
             workspaceId,
@@ -1717,7 +1717,7 @@ function createMcpServer(
           });
           return {
             content: [textBlock(result)],
-            _meta: { tool: "launch_workspace_task", card: { workspaceId, summary: { task, template, dryRun: true, command: resolved.command }, payload: { content: [textBlock(result)] } } },
+            _meta: { tool: "launch_workspace_task", card: { workspaceId, summary: { task, template, dryRun: true, command: resolved.displayCommand }, payload: { content: [textBlock(result)] } } },
             structuredContent: { result, running: false, wallTimeMs: 0, outputTruncated: false },
           };
         }
@@ -1747,7 +1747,7 @@ function createMcpServer(
         return processToolResponse("launch_workspace_task", workspaceId, snapshot, {
           task,
           template,
-          command: resolved.command,
+          command: resolved.displayCommand,
           workingDirectory: workingDirectory ?? ".",
           running: snapshot.running,
           exitCode: snapshot.exitCode,
