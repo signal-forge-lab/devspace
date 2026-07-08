@@ -248,6 +248,8 @@ function compactDetailFields(fields: LogFields, success: boolean): string {
   const parts: string[] = [];
   pushCompactField(parts, "path", fields.path);
   pushCompactField(parts, "files", fields.fileCount ?? fields.affectedFiles);
+  pushCompactField(parts, "+", fields.additions);
+  pushCompactField(parts, "-", fields.removals);
   pushCompactField(parts, "exit", fields.exitCode);
   pushCompactField(parts, "proc", fields.sessionId);
   pushCompactField(parts, "cmd", compactCommandPreview(fields));

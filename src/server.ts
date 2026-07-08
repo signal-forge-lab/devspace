@@ -165,6 +165,9 @@ interface ToolLogFields {
   workingDirectory?: string;
   command?: string;
   commandLength?: number;
+  affectedFiles?: number;
+  additions?: number;
+  removals?: number;
   success: boolean;
   durationMs: number;
   error?: string;
@@ -320,6 +323,12 @@ function toolErrorPreview(content: ToolContent[]): string | undefined {
   const text = contentText(content).replace(/\s+/g, " ").trim();
   if (!text) return undefined;
   return text.length > 240 ? `${text.slice(0, 237)}...` : text;
+}
+
+function compactAppliedPatchPath(files: Array<{ path: string }>): string | undefined {
+  if (files.length === 0) return undefined;
+  const text = files.map((file) => file.path).join(",");
+  return text.length > 80 ? `${text.slice(0, 77)}...` : text;
 }
 
 function logFailedToolResponse(
@@ -1197,6 +1206,10 @@ function createMcpServer(
           workspaceId,
           success: true,
           durationMs: Math.round(performance.now() - startedAt),
+          path: compactAppliedPatchPath(applied.files),
+          affectedFiles: applied.files.length,
+          additions: applied.additions,
+          removals: applied.removals,
         });
 
         return {
