@@ -215,6 +215,22 @@ async function serve(): Promise<void> {
   const { app, close, localAgentProviders } = createServer(config);
   const httpServer = app.listen(config.port, config.host, () => {
     console.log(`devspace listening on http://${config.host}:${config.port}/mcp`);
+    console.log(`version: ${String((require("../package.json") as { version?: unknown }).version ?? "unknown")}`);
+    console.log(`git commit: ${(() => {
+      try {
+        return require("node:child_process").execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim() || "unknown";
+      } catch {
+        return "unknown";
+      }
+    })()}`);
+    console.log(`tool mode: ${config.toolMode}`);
+    console.log(`experimental features: ${config.experimentalFeatures.length > 0 ? config.experimentalFeatures.join(",") : "none"}`);
+    console.log(`workspace tasks: ${config.workspaceTasksEnabled ? "enabled" : "disabled"}`);
+    console.log(`widgets: ${config.widgets}`);
+    console.log(`trust proxy: ${config.logging.trustProxy ? "one-hop" : "off"}`);
     console.log(`public base url: ${config.publicBaseUrl}`);
     console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log(`allowed hosts: ${config.allowedHosts.join(", ")}`);
