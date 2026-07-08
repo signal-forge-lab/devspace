@@ -182,9 +182,10 @@ least 1000ms. HTTP request rows use the workspace column for the request IP when
 no workspace id is available. Other JSON events remain in the JSONL file and are
 hidden from the console unless `DEVSPACE_LOG_CONSOLE_JSON=1` is set.
 
-Second-level durations are highlighted yellow when the terminal supports ANSI
-colors, while failed tool lines and HTTP `4xx`/`5xx` lines are highlighted red.
-Set `NO_COLOR=1` to disable colors.
+Normal HTTP request lines are highlighted cyan when the terminal supports ANSI
+colors. Second-level durations are highlighted yellow, while failed tool lines
+and HTTP `4xx`/`5xx` lines are highlighted red. Set `NO_COLOR=1` to disable
+colors.
 
 ## Env-Only Example
 

@@ -38,6 +38,7 @@ const COMPACT_SUCCESS_TOOL_NAMES = new Set([
 
 const ANSI_RED = "\x1b[31m";
 const ANSI_YELLOW = "\x1b[33m";
+const ANSI_CYAN = "\x1b[36m";
 const ANSI_RESET = "\x1b[0m";
 
 const LEVEL_WEIGHT: Record<LogLevel, number> = {
@@ -162,7 +163,7 @@ function compactHttpRequestConsoleLine(event: string, fields: LogFields): string
     compactHttpDetails(fields, path, status, durationMs),
   ].filter(Boolean).join(" | ");
 
-  return success ? line : colorizeConsoleLine(line, "red");
+  return success ? colorizeConsoleLine(line, "cyan") : colorizeConsoleLine(line, "red");
 }
 
 function compactHttpDetails(fields: LogFields, path: string, status: number | undefined, durationMs: number | undefined): string {
@@ -312,9 +313,9 @@ function looksMojibake(value: string): boolean {
   return false;
 }
 
-function colorizeConsoleLine(value: string, color: "red" | "yellow"): string {
+function colorizeConsoleLine(value: string, color: "red" | "yellow" | "cyan"): string {
   if (!shouldColorizeConsole()) return value;
-  const prefix = color === "red" ? ANSI_RED : ANSI_YELLOW;
+  const prefix = color === "red" ? ANSI_RED : color === "yellow" ? ANSI_YELLOW : ANSI_CYAN;
   return `${prefix}${value}${ANSI_RESET}`;
 }
 
