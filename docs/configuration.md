@@ -162,6 +162,8 @@ npx @waishnav/devspace serve
 | `DEVSPACE_LOG_FORMAT` | `json` |
 | `DEVSPACE_LOG_FILE` | `1` |
 | `DEVSPACE_LOG_FILE_PATH` | `<stateDir>/logs/devspace.jsonl` |
+| `DEVSPACE_LOG_FILE_MAX_BYTES` | `10485760` |
+| `DEVSPACE_LOG_FILE_MAX_FILES` | `5` |
 | `DEVSPACE_LOG_CONSOLE_JSON` | `0` |
 | `DEVSPACE_LOG_REQUESTS` | `1` |
 | `DEVSPACE_LOG_ASSETS` | `0` |
@@ -174,7 +176,11 @@ Set `DEVSPACE_LOG_FORMAT=pretty` for local debugging when
 
 Logs are written as JSONL by default to `DEVSPACE_LOG_FILE_PATH`. Console output
 is intentionally compact and uses this fixed-column format:
-`time | workspace | kind | tool | status | duration | details`.
+
+`DEVSPACE_LOG_FILE_MAX_BYTES` rotates the JSONL file before a write would exceed
+the configured size. Set it to `0` to disable rotation. Rotated files are kept as
+`.1`, `.2`, and so on up to `DEVSPACE_LOG_FILE_MAX_FILES - 1`.
+`time | workspace/ip | kind | tool | status | duration | details`.
 
 Tool calls are shown in compact form. HTTP requests are shown in compact form
 when the path is `/mcp`, the status is `400` or higher, or the request takes at

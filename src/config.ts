@@ -9,6 +9,8 @@ export type ToolMode = "minimal" | "main" | "full" | "codex";
 export type WidgetMode = "off" | "changes" | "full";
 const DEFAULT_OAUTH_ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+const DEFAULT_LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
+const DEFAULT_LOG_FILE_MAX_FILES = 5;
 
 export interface ServerConfig {
   host: string;
@@ -136,12 +138,29 @@ function parsePositiveInteger(value: string | undefined, fallback: number, name:
   return parsed;
 }
 
+function parseLogFileMaxBytes(value: string | undefined): number | undefined {
+  if (value === undefined || value === "") return DEFAULT_LOG_FILE_MAX_BYTES;
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`Invalid DEVSPACE_LOG_FILE_MAX_BYTES: ${value}`);
+  }
+
+  return parsed === 0 ? undefined : parsed;
+}
+
 function parseLoggingConfig(env: NodeJS.ProcessEnv, stateDir: string): LoggingConfig {
   return {
     level: parseLogLevel(env.DEVSPACE_LOG_LEVEL),
     format: parseLogFormat(env.DEVSPACE_LOG_FORMAT),
     file: env.DEVSPACE_LOG_FILE === undefined ? true : parseBoolean(env.DEVSPACE_LOG_FILE),
     filePath: resolve(expandHomePath(env.DEVSPACE_LOG_FILE_PATH ?? join(stateDir, "logs", "devspace.jsonl"))),
+    fileMaxBytes: parseLogFileMaxBytes(env.DEVSPACE_LOG_FILE_MAX_BYTES),
+    fileMaxFiles: parsePositiveInteger(
+      env.DEVSPACE_LOG_FILE_MAX_FILES,
+      DEFAULT_LOG_FILE_MAX_FILES,
+      "DEVSPACE_LOG_FILE_MAX_FILES",
+    ),
     consoleJson: parseBoolean(env.DEVSPACE_LOG_CONSOLE_JSON),
     requests: env.DEVSPACE_LOG_REQUESTS === undefined ? true : parseBoolean(env.DEVSPACE_LOG_REQUESTS),
     assets: parseBoolean(env.DEVSPACE_LOG_ASSETS),

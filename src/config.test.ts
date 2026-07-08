@@ -71,6 +71,8 @@ assert.deepEqual(defaultConfig.logging, {
   format: "json",
   file: true,
   filePath: join(defaultConfig.stateDir, "logs", "devspace.jsonl"),
+  fileMaxBytes: 10 * 1024 * 1024,
+  fileMaxFiles: 5,
   consoleJson: false,
   requests: true,
   assets: false,
@@ -91,6 +93,9 @@ assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FORMAT: "pretty" }).logging.f
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE: "0" }).logging.file, false);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE: "1" }).logging.file, true);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE_PATH: "./custom.jsonl" }).logging.filePath, join(process.cwd(), "custom.jsonl"));
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE_MAX_BYTES: "4096" }).logging.fileMaxBytes, 4096);
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE_MAX_BYTES: "0" }).logging.fileMaxBytes, undefined);
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE_MAX_FILES: "2" }).logging.fileMaxFiles, 2);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_CONSOLE_JSON: "1" }).logging.consoleJson, true);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_REQUESTS: "0" }).logging.requests, false);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_ASSETS: "1" }).logging.assets, true);
@@ -106,6 +111,16 @@ assert.throws(
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_LOG_FORMAT: "color" }),
   /Invalid DEVSPACE_LOG_FORMAT: color/,
+);
+
+assert.throws(
+  () => loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE_MAX_BYTES: "-1" }),
+  /Invalid DEVSPACE_LOG_FILE_MAX_BYTES: -1/,
+);
+
+assert.throws(
+  () => loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE_MAX_FILES: "0" }),
+  /Invalid DEVSPACE_LOG_FILE_MAX_FILES: 0/,
 );
 
 assert.equal(loadConfig(baseEnv).oauth.ownerToken, "test-owner-token-that-is-long-enough");

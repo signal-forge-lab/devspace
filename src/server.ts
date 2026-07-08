@@ -1714,7 +1714,7 @@ export function createServer(config = loadConfig()): RunningServer {
     : [];
 
   if (config.logging.trustProxy) {
-    app.set("trust proxy", true);
+    app.set("trust proxy", 1);
   }
 
   app.use((req, res, next) => {

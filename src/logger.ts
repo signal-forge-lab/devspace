@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Request } from "express";
 
@@ -10,6 +10,8 @@ export interface LoggingConfig {
   format: LogFormat;
   file: boolean;
   filePath?: string;
+  fileMaxBytes?: number;
+  fileMaxFiles: number;
   consoleJson: boolean;
   requests: boolean;
   assets: boolean;
@@ -95,11 +97,38 @@ function writeJsonlLog(config: LoggingConfig, entry: LogFields): void {
       mkdirSync(directory, { recursive: true });
       initializedLogDirectories.add(directory);
     }
-    appendFileSync(config.filePath, `${JSON.stringify(entry)}\n`, "utf8");
+    const line = `${JSON.stringify(entry)}\n`;
+    rotateJsonlLogIfNeeded(config.filePath, config.fileMaxBytes, config.fileMaxFiles, Buffer.byteLength(line, "utf8"));
+    appendFileSync(config.filePath, line, "utf8");
   } catch (error) {
     process.stderr.write(
       `[devspace] failed to write log file ${JSON.stringify(config.filePath)}: ${error instanceof Error ? error.message : String(error)}\n`,
     );
+  }
+}
+
+function rotateJsonlLogIfNeeded(
+  filePath: string,
+  maxBytes: number | undefined,
+  maxFiles: number,
+  incomingBytes: number,
+): void {
+  if (maxBytes === undefined || !existsSync(filePath)) return;
+
+  const currentBytes = statSync(filePath).size;
+  if (currentBytes + incomingBytes <= maxBytes) return;
+
+  if (maxFiles <= 1) {
+    rmSync(filePath, { force: true });
+    return;
+  }
+
+  for (let index = maxFiles - 1; index >= 1; index -= 1) {
+    const source = index === 1 ? filePath : `${filePath}.${index - 1}`;
+    const target = `${filePath}.${index}`;
+    if (!existsSync(source)) continue;
+    rmSync(target, { force: true });
+    renameSync(source, target);
   }
 }
 
@@ -212,12 +241,19 @@ function numberField(value: unknown): number | undefined {
   return undefined;
 }
 
-function compactClientKind(userAgent: unknown): string {
+export function compactClientKind(userAgent: unknown): string {
   const value = typeof userAgent === "string" ? userAgent.toLowerCase() : "";
   if (value.includes("openai")) return "openai";
   if (value.includes("claude") || value.includes("anthropic")) return "claude";
-  if (value.includes("mozilla") || value.includes("chrome") || value.includes("safari")) return "browser";
+  if (userAgentIncludesAny(value, ["aiohttp", "python-requests", "python", "urllib", "httpx"])) return "python";
+  if (userAgentIncludesAny(value, ["curl", "wget"])) return "curl";
+  if (userAgentIncludesAny(value, ["nmap", "masscan", "nikto", "sqlmap", "nuclei", "zgrab", "censys", "shodan"])) return "scanner";
+  if (userAgentIncludesAny(value, ["mozilla", "chrome", "safari", "firefox", "edg/"])) return "browser";
   return "unknown";
+}
+
+function userAgentIncludesAny(value: string, needles: string[]): boolean {
+  return needles.some((needle) => value.includes(needle));
 }
 
 function compactCell(value: string, width: number): string {
