@@ -178,8 +178,9 @@ is intentionally compact and uses this fixed-column format:
 
 Tool calls are shown in compact form. HTTP requests are shown in compact form
 when the path is `/mcp`, the status is `400` or higher, or the request takes at
-least 1000ms. Other JSON events remain in the JSONL file and are hidden from the
-console unless `DEVSPACE_LOG_CONSOLE_JSON=1` is set.
+least 1000ms. HTTP request rows use the workspace column for the request IP when
+no workspace id is available. Other JSON events remain in the JSONL file and are
+hidden from the console unless `DEVSPACE_LOG_CONSOLE_JSON=1` is set.
 
 Second-level durations are highlighted yellow when the terminal supports ANSI
 colors, while failed tool lines and HTTP `4xx`/`5xx` lines are highlighted red.

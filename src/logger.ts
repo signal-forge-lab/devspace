@@ -129,7 +129,7 @@ function compactToolCallConsoleLine(fields: LogFields): string | undefined {
   const duration = formatDurationMs(fields.durationMs);
   const line = [
     compactCell(compactTimestamp(), 14),
-    compactCell(workspaceIdCompactPrefix(fields.workspaceId), 10),
+    compactCell(workspaceIdCompactPrefix(fields.workspaceId), 15),
     compactCell(label, 6),
     compactCell(tool, 22),
     compactCell(success ? "ok" : "failed", 6),
@@ -154,7 +154,7 @@ function compactHttpRequestConsoleLine(event: string, fields: LogFields): string
   const duration = formatDurationMs(durationMs);
   const line = [
     compactCell(compactTimestamp(), 14),
-    compactCell(workspaceIdCompactPrefix(fields.workspaceId), 10),
+    compactCell(httpWorkspaceColumn(fields), 15),
     compactCell("HTTP", 6),
     compactCell("http_request", 22),
     compactCell(success ? "ok" : "failed", 6),
@@ -173,6 +173,12 @@ function compactHttpDetails(fields: LogFields, path: string, status: number | un
   pushCompactField(parts, "client", compactClientKind(fields.userAgent));
   pushCompactFlag(parts, "slow", durationMs !== undefined && durationMs >= 1000);
   return parts.join(" ");
+}
+
+function httpWorkspaceColumn(fields: LogFields): string {
+  return stringField(fields.workspaceId) !== undefined
+    ? workspaceIdCompactPrefix(fields.workspaceId)
+    : stringField(fields.ip) ?? "---------------";
 }
 
 function compactOperationLabel(tool: string): string {
