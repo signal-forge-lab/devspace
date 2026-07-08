@@ -158,6 +158,12 @@ const toolNames = {
   shell: "bash",
 } as const;
 
+const WORKSPACE_REUSE_DESCRIPTION =
+  "Pass an existing workspaceId. If a workspaceId for this folder is already available in the current conversation, reuse it instead of calling open_workspace again. Call open_workspace only when no workspaceId is available, switching folders/worktrees, changing checkout/worktree mode, the workspaceId is rejected as unknown, or the user explicitly asks to reopen.";
+
+const WORKSPACE_ID_DESCRIPTION =
+  "Workspace identifier returned by open_workspace. Reuse an existing workspaceId for the same folder when available.";
+
 interface ToolLogFields {
   tool: string;
   workspaceId?: string;
@@ -596,7 +602,7 @@ function registerCodexProcessTools(
   processSessions: ProcessSessionManager,
 ): void {
   const execCommandInputSchema: z.ZodRawShape = {
-    workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
+    workspaceId: z.string().describe(WORKSPACE_ID_DESCRIPTION),
     cmd: z.string().min(1).describe("Shell command to execute."),
     tty: z
       .boolean()
@@ -633,7 +639,7 @@ function registerCodexProcessTools(
     {
       title: "Execute command",
       description:
-        "Run a command inside an open workspace. Returns its result when it exits during the yield window, otherwise returns a sessionId for write_stdin. Use this for file inspection, tests, builds, package scripts, and long-running processes. Call open_workspace first and pass workspaceId.",
+        `Run a command inside an open workspace. Returns its result when it exits during the yield window, otherwise returns a sessionId for write_stdin. Use this for file inspection, tests, builds, package scripts, and long-running processes. ${WORKSPACE_REUSE_DESCRIPTION}`,
       inputSchema: execCommandInputSchema,
       outputSchema: processOutputSchema(),
       ...toolWidgetDescriptorMeta(config, "shell"),
@@ -810,7 +816,7 @@ function createMcpServer(
     {
       title: "Open workspace",
       description:
-        "Open a local project directory as a coding workspace. Call this once per project folder or worktree before reading, editing, searching, writing, showing changes, or running commands. Reuse the returned workspaceId for later calls in the same folder; do not call open_workspace again unless switching folders/worktrees, changing checkout/worktree mode, the workspaceId is rejected as unknown, or the user explicitly asks to reopen. By default this opens the actual checkout; set mode=\"worktree\" when the user asks for an isolated or parallel coding session. Returns a workspaceId, loaded root project instructions, and nested instruction file paths the model should read before working in those directories.",
+        "Open a local project directory as a coding workspace only when no valid workspaceId is available, switching folders/worktrees, changing checkout/worktree mode, the workspaceId is rejected as unknown, or the user explicitly asks to reopen. Do not use this tool when a valid workspaceId for the same folder is already available in the current conversation; reuse that workspaceId instead. By default this opens the actual checkout; set mode=\"worktree\" when the user asks for an isolated or parallel coding session. Returns a workspaceId, loaded root project instructions, and nested instruction file paths the model should read before working in those directories.",
       inputSchema: {
         path: z
           .string()
@@ -970,7 +976,7 @@ function createMcpServer(
       title: "Read file",
       description:
         [
-          "Read a file inside an open workspace. Use this for file inspection instead of shell commands like cat or sed. Call open_workspace first and pass workspaceId.",
+          `Read a file inside an open workspace. Use this for file inspection instead of shell commands like cat or sed. ${WORKSPACE_REUSE_DESCRIPTION}`,
           "Use this tool to inspect relevant AGENTS.md or CLAUDE.md files listed by open_workspace before working in nested directories.",
           config.skillsEnabled
             ? "If available skills were returned and a task matches one, read that skill's path before proceeding. Skill paths may be outside the workspace; only advertised SKILL.md files and files under already-loaded skill directories are readable."
@@ -981,7 +987,7 @@ function createMcpServer(
       inputSchema: {
         workspaceId: z
           .string()
-          .describe("Workspace identifier returned by open_workspace."),
+          .describe(WORKSPACE_ID_DESCRIPTION),
         path: z
           .string()
           .describe(
@@ -1067,11 +1073,11 @@ function createMcpServer(
     {
       title: "Write file",
       description:
-        `Create or completely overwrite a file inside an open workspace. Prefer ${toolNames.edit} for targeted changes to existing files. Call open_workspace first and pass workspaceId.`,
+        `Create or completely overwrite a file inside an open workspace. Prefer ${toolNames.edit} for targeted changes to existing files. ${WORKSPACE_REUSE_DESCRIPTION}`,
       inputSchema: {
         workspaceId: z
           .string()
-          .describe("Workspace identifier returned by open_workspace."),
+          .describe(WORKSPACE_ID_DESCRIPTION),
         path: z
           .string()
           .describe("File path to write, relative to the workspace root."),
@@ -1141,11 +1147,11 @@ function createMcpServer(
     {
       title: "Edit file",
       description:
-        `Edit one file inside an open workspace by replacing exact text blocks. Prefer this over ${toolNames.write} for targeted changes. Each oldText must match a unique, non-overlapping region of the original file; merge nearby changes into one edit and keep oldText as small as possible while still unique. Call open_workspace first and pass workspaceId.`,
+        `Edit one file inside an open workspace by replacing exact text blocks. Prefer this over ${toolNames.write} for targeted changes. Each oldText must match a unique, non-overlapping region of the original file; merge nearby changes into one edit and keep oldText as small as possible while still unique. ${WORKSPACE_REUSE_DESCRIPTION}`,
       inputSchema: {
         workspaceId: z
           .string()
-          .describe("Workspace identifier returned by open_workspace."),
+          .describe(WORKSPACE_ID_DESCRIPTION),
         path: z
           .string()
           .describe("File path to edit, relative to the workspace root."),
@@ -1233,11 +1239,11 @@ function createMcpServer(
       {
         title: "Apply patch",
         description:
-          "Apply one Codex-style patch inside an open workspace. Supports adding, overwriting, updating, deleting, and moving files. Use this for all file modifications. Paths must be relative to the workspace. Call open_workspace first and pass workspaceId. Prefer one apply_patch call for the whole current logical change set: a single patch may contain multiple Add File, Update File, Delete File, and Move File sections. Batch related edits instead of making repeated apply_patch calls for small adjacent edits or one file at a time; split only when a patch failed, the change set is too large to review safely, or the user asks for separate checkpoints.",
+          `Apply one Codex-style patch inside an open workspace. Supports adding, overwriting, updating, deleting, and moving files. Use this for all file modifications. Paths must be relative to the workspace. ${WORKSPACE_REUSE_DESCRIPTION} Prefer one apply_patch call for the whole current logical change set: a single patch may contain multiple Add File, Update File, Delete File, and Move File sections. Batch related edits instead of making repeated apply_patch calls for small adjacent edits or one file at a time; split only when a patch failed, the change set is too large to review safely, or the user asks for separate checkpoints.`,
         inputSchema: {
           workspaceId: z
             .string()
-            .describe("Workspace identifier returned by open_workspace."),
+            .describe(WORKSPACE_ID_DESCRIPTION),
           patch: z
             .string()
             .describe("Patch text enclosed by *** Begin Patch and *** End Patch markers."),
@@ -1315,7 +1321,7 @@ function createMcpServer(
         inputSchema: {
           workspaceId: z
             .string()
-            .describe("Workspace identifier returned by open_workspace."),
+            .describe(WORKSPACE_ID_DESCRIPTION),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "show_changes"),
@@ -1367,11 +1373,11 @@ function createMcpServer(
       {
         title: "Grep",
         description:
-          "Search file contents inside an open workspace. Use this before broad reads when looking for symbols, text, or usage sites. Respects project ignore rules. Call open_workspace first and pass workspaceId.",
+          `Search file contents inside an open workspace. Use this before broad reads when looking for symbols, text, or usage sites. Respects project ignore rules. ${WORKSPACE_REUSE_DESCRIPTION}`,
         inputSchema: {
           workspaceId: z
             .string()
-            .describe("Workspace identifier returned by open_workspace."),
+            .describe(WORKSPACE_ID_DESCRIPTION),
           pattern: z.string().describe("Search pattern."),
           path: z
             .string()
@@ -1440,11 +1446,11 @@ function createMcpServer(
       {
         title: "Glob",
         description:
-          "Find files by glob pattern inside an open workspace. Use this to discover filenames or narrow file sets before reading. Respects project ignore rules. Call open_workspace first and pass workspaceId.",
+          `Find files by glob pattern inside an open workspace. Use this to discover filenames or narrow file sets before reading. Respects project ignore rules. ${WORKSPACE_REUSE_DESCRIPTION}`,
         inputSchema: {
           workspaceId: z
             .string()
-            .describe("Workspace identifier returned by open_workspace."),
+            .describe(WORKSPACE_ID_DESCRIPTION),
           pattern: z.string().describe("File glob pattern."),
           path: z
             .string()
@@ -1510,11 +1516,11 @@ function createMcpServer(
       {
         title: "Ls",
         description:
-          "List a directory inside an open workspace. Use this for directory inspection before reading files. Call open_workspace first and pass workspaceId.",
+          `List a directory inside an open workspace. Use this for directory inspection before reading files. ${WORKSPACE_REUSE_DESCRIPTION}`,
         inputSchema: {
           workspaceId: z
             .string()
-            .describe("Workspace identifier returned by open_workspace."),
+            .describe(WORKSPACE_ID_DESCRIPTION),
           path: z
             .string()
             .describe(
@@ -1578,12 +1584,12 @@ function createMcpServer(
     {
       title: "Bash",
       description: config.toolMode === "minimal"
-        ? `Run a shell command inside an open workspace. Use only for tests, builds, git inspection, package scripts, search, file discovery, and directory inspection. In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are disabled; use command-line tools such as grep, rg, find, ls, and tree for those read-only inspection actions. Do not use ${toolNames.shell} to create or modify files. Do not use shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or generated scripts to write project files; use ${toolNames.edit} for targeted changes and ${toolNames.write} for new files or full rewrites. Prefer ${toolNames.read} for direct file reads. Call open_workspace first and pass workspaceId. This is powerful local execution and should only be exposed behind strong authentication.`
-        : `Run a shell command inside an open workspace. Use only for tests, builds, git inspection, package scripts, and commands that are better executed by the shell. Do not use ${toolNames.shell} to create or modify files. Do not use shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or generated scripts to write project files; use ${toolNames.edit} for targeted changes and ${toolNames.write} for new files or full rewrites. Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} for file inspection. Call open_workspace first and pass workspaceId. This is powerful local execution and should only be exposed behind strong authentication.`,
+        ? `Run a shell command inside an open workspace. Use only for tests, builds, git inspection, package scripts, search, file discovery, and directory inspection. In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are disabled; use command-line tools such as grep, rg, find, ls, and tree for those read-only inspection actions. Do not use ${toolNames.shell} to create or modify files. Do not use shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or generated scripts to write project files; use ${toolNames.edit} for targeted changes and ${toolNames.write} for new files or full rewrites. Prefer ${toolNames.read} for direct file reads. ${WORKSPACE_REUSE_DESCRIPTION} This is powerful local execution and should only be exposed behind strong authentication.`
+        : `Run a shell command inside an open workspace. Use only for tests, builds, git inspection, package scripts, and commands that are better executed by the shell. Do not use ${toolNames.shell} to create or modify files. Do not use shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or generated scripts to write project files; use ${toolNames.edit} for targeted changes and ${toolNames.write} for new files or full rewrites. Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} for file inspection. ${WORKSPACE_REUSE_DESCRIPTION} This is powerful local execution and should only be exposed behind strong authentication.`,
       inputSchema: {
         workspaceId: z
           .string()
-          .describe("Workspace identifier returned by open_workspace."),
+          .describe(WORKSPACE_ID_DESCRIPTION),
         command: z
           .string()
           .describe(
@@ -1674,9 +1680,9 @@ function createMcpServer(
       {
         title: "Launch workspace task",
         description:
-          "Launch an allowlisted workspace task without accepting a raw shell command. The initial allowlisted task is aegis_runner. Use template for common start patterns or args for dynamic CLI arguments.",
+          `Launch an allowlisted workspace task without accepting a raw shell command. The initial allowlisted task is aegis_runner. Use template for common start patterns or args for dynamic CLI arguments. ${WORKSPACE_REUSE_DESCRIPTION}`,
         inputSchema: {
-          workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
+          workspaceId: z.string().describe(WORKSPACE_ID_DESCRIPTION),
           task: z.enum(WORKSPACE_TASK_NAMES).describe("Allowlisted workspace task to launch."),
           template: z.string().optional().describe("Optional named template for common task arguments, such as status_console_5s."),
           args: z.array(z.string()).optional().describe("Optional CLI arguments appended after the task template arguments."),

@@ -101,7 +101,9 @@ export class WorkspaceRegistry {
 
     const session = this.store?.getSession(workspaceId);
     if (!session) {
-      throw new Error(`Unknown workspaceId: ${workspaceId}. Call open_workspace first.`);
+      throw new Error(
+        `Unknown workspaceId: ${workspaceId}. Reuse an existing workspaceId when available; call open_workspace only when no valid workspaceId is available, switching folders/worktrees, changing checkout/worktree mode, or explicitly reopening.`,
+      );
     }
 
     const root = this.assertWorkspaceRootAllowed(session.root, session.mode, session.sourceRoot);
