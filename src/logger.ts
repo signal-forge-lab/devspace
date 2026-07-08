@@ -150,24 +150,25 @@ function compactHttpRequestConsoleLine(event: string, fields: LogFields): string
     || (durationMs !== undefined && durationMs >= 1000);
   if (!shouldShow) return undefined;
 
-  const statusText = status === undefined ? "unknown" : String(status);
+  const success = status === undefined || status < 400;
   const duration = formatDurationMs(durationMs);
   const line = [
     compactCell(compactTimestamp(), 14),
     compactCell(workspaceIdCompactPrefix(fields.workspaceId), 10),
     compactCell("HTTP", 6),
     compactCell("http_request", 22),
-    compactCell(statusText, 6),
-    compactDurationCell(duration, status === undefined || status < 400),
-    compactHttpDetails(fields, path, durationMs),
+    compactCell(success ? "ok" : "failed", 6),
+    compactDurationCell(duration, success),
+    compactHttpDetails(fields, path, status, durationMs),
   ].filter(Boolean).join(" | ");
 
-  return status !== undefined && status >= 400 ? colorizeConsoleLine(line, "red") : line;
+  return success ? line : colorizeConsoleLine(line, "red");
 }
 
-function compactHttpDetails(fields: LogFields, path: string, durationMs: number | undefined): string {
+function compactHttpDetails(fields: LogFields, path: string, status: number | undefined, durationMs: number | undefined): string {
   const parts: string[] = [];
   parts.push(`${stringField(fields.method) ?? "?"} ${path}`);
+  pushCompactField(parts, "code", status);
   pushCompactField(parts, "bytes", fields.contentLength);
   pushCompactField(parts, "client", compactClientKind(fields.userAgent));
   pushCompactFlag(parts, "slow", durationMs !== undefined && durationMs >= 1000);
