@@ -136,10 +136,13 @@ function parsePositiveInteger(value: string | undefined, fallback: number, name:
   return parsed;
 }
 
-function parseLoggingConfig(env: NodeJS.ProcessEnv): LoggingConfig {
+function parseLoggingConfig(env: NodeJS.ProcessEnv, stateDir: string): LoggingConfig {
   return {
     level: parseLogLevel(env.DEVSPACE_LOG_LEVEL),
     format: parseLogFormat(env.DEVSPACE_LOG_FORMAT),
+    file: env.DEVSPACE_LOG_FILE === undefined ? true : parseBoolean(env.DEVSPACE_LOG_FILE),
+    filePath: resolve(expandHomePath(env.DEVSPACE_LOG_FILE_PATH ?? join(stateDir, "logs", "devspace.jsonl"))),
+    consoleJson: parseBoolean(env.DEVSPACE_LOG_CONSOLE_JSON),
     requests: env.DEVSPACE_LOG_REQUESTS === undefined ? true : parseBoolean(env.DEVSPACE_LOG_REQUESTS),
     assets: parseBoolean(env.DEVSPACE_LOG_ASSETS),
     toolCalls: env.DEVSPACE_LOG_TOOL_CALLS === undefined ? true : parseBoolean(env.DEVSPACE_LOG_TOOL_CALLS),
@@ -207,6 +210,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const publicBaseUrl = parsePublicBaseUrl(
     env.DEVSPACE_PUBLIC_BASE_URL ?? files.config.publicBaseUrl ?? localPublicBaseUrl(host, port),
   );
+  const stateDir = resolve(expandHomePath(env.DEVSPACE_STATE_DIR ?? files.config.stateDir ?? defaultStateDir()));
   const derivedAllowedHosts = [
     "localhost",
     "127.0.0.1",
@@ -226,7 +230,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     toolMode: parseToolMode(env),
     workspaceTasksEnabled: parseBoolean(env.WORKBRIDGE_ENABLE_WORKSPACE_TASKS ?? env.DEVSPACE_ENABLE_WORKSPACE_TASKS),
     widgets: parseWidgetMode(env.DEVSPACE_WIDGETS),
-    stateDir: resolve(expandHomePath(env.DEVSPACE_STATE_DIR ?? files.config.stateDir ?? defaultStateDir())),
+    stateDir,
     worktreeRoot: resolve(expandHomePath(env.DEVSPACE_WORKTREE_ROOT ?? files.config.worktreeRoot ?? defaultWorktreeRoot())),
     skillsEnabled: env.DEVSPACE_SKILLS === undefined ? true : parseBoolean(env.DEVSPACE_SKILLS),
     skillPaths: parsePathList(env.DEVSPACE_SKILL_PATHS),
@@ -237,7 +241,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
         ? files.config.subagents === true
         : parseBoolean(env.DEVSPACE_SUBAGENTS),
     agentDir: resolve(expandHomePath(env.DEVSPACE_AGENT_DIR ?? files.config.agentDir ?? defaultAgentDir())),
-    logging: parseLoggingConfig(env),
+    logging: parseLoggingConfig(env, stateDir),
   };
 }
 

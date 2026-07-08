@@ -1,3 +1,5 @@
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import type { Request } from "express";
 
 export type LogLevel = "silent" | "error" | "warn" | "info" | "debug";
@@ -6,6 +8,9 @@ export type LogFormat = "json" | "pretty";
 export interface LoggingConfig {
   level: LogLevel;
   format: LogFormat;
+  file: boolean;
+  filePath?: string;
+  consoleJson: boolean;
   requests: boolean;
   assets: boolean;
   toolCalls: boolean;
@@ -14,6 +19,8 @@ export interface LoggingConfig {
 }
 
 type LogFields = Record<string, unknown>;
+
+const initializedLogDirectories = new Set<string>();
 
 const COMPACT_SUCCESS_TOOL_NAMES = new Set([
   "read",
@@ -53,21 +60,46 @@ export function logEvent(
 ): void {
   if (!shouldLog(config, level)) return;
 
-  const compactToolLine = compactToolCallConsoleLine(fields);
-  if (compactToolLine) {
-    writeConsoleLine(level, compactToolLine);
-    return;
-  }
-
   const entry = {
     ts: new Date().toISOString(),
     level,
     event,
     ...fields,
   };
+  writeJsonlLog(config, entry);
 
+  const compactToolLine = compactToolCallConsoleLine(fields);
+  if (compactToolLine) {
+    writeConsoleLine(level, compactToolLine);
+    return;
+  }
+
+  const compactHttpLine = compactHttpRequestConsoleLine(event, fields);
+  if (compactHttpLine) {
+    writeConsoleLine(level, compactHttpLine);
+    return;
+  }
+
+  if (!config.consoleJson) return;
   const line = config.format === "pretty" ? formatPretty(entry) : JSON.stringify(entry);
   writeConsoleLine(level, line);
+}
+
+function writeJsonlLog(config: LoggingConfig, entry: LogFields): void {
+  if (!config.file || !config.filePath) return;
+
+  try {
+    const directory = dirname(config.filePath);
+    if (!initializedLogDirectories.has(directory)) {
+      mkdirSync(directory, { recursive: true });
+      initializedLogDirectories.add(directory);
+    }
+    appendFileSync(config.filePath, `${JSON.stringify(entry)}\n`, "utf8");
+  } catch (error) {
+    process.stderr.write(
+      `[devspace] failed to write log file ${JSON.stringify(config.filePath)}: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+  }
 }
 
 function writeConsoleLine(level: Exclude<LogLevel, "silent">, line: string): void {
@@ -107,6 +139,41 @@ function compactToolCallConsoleLine(fields: LogFields): string | undefined {
   return success ? line : colorizeConsoleLine(line, "red");
 }
 
+function compactHttpRequestConsoleLine(event: string, fields: LogFields): string | undefined {
+  if (event !== "http_request") return undefined;
+
+  const path = stringField(fields.path) ?? "unknown";
+  const status = numberField(fields.status);
+  const durationMs = numberField(fields.durationMs);
+  const shouldShow = path === "/mcp"
+    || (status !== undefined && status >= 400)
+    || (durationMs !== undefined && durationMs >= 1000);
+  if (!shouldShow) return undefined;
+
+  const statusText = status === undefined ? "unknown" : String(status);
+  const duration = formatDurationMs(durationMs);
+  const line = [
+    compactCell(compactTimestamp(), 14),
+    compactCell(workspaceIdCompactPrefix(fields.workspaceId), 10),
+    compactCell("HTTP", 6),
+    compactCell("http_request", 22),
+    compactCell(statusText, 6),
+    compactDurationCell(duration, status === undefined || status < 400),
+    compactHttpDetails(fields, path, durationMs),
+  ].filter(Boolean).join(" | ");
+
+  return status !== undefined && status >= 400 ? colorizeConsoleLine(line, "red") : line;
+}
+
+function compactHttpDetails(fields: LogFields, path: string, durationMs: number | undefined): string {
+  const parts: string[] = [];
+  parts.push(`${stringField(fields.method) ?? "?"} ${path}`);
+  pushCompactField(parts, "bytes", fields.contentLength);
+  pushCompactField(parts, "client", compactClientKind(fields.userAgent));
+  pushCompactFlag(parts, "slow", durationMs !== undefined && durationMs >= 1000);
+  return parts.join(" ");
+}
+
 function compactOperationLabel(tool: string): string {
   if (tool === "launch_workspace_task") return "TASK";
   if (tool === "exec_command" || tool === "bash" || tool === "write_stdin") return "RUN";
@@ -122,6 +189,27 @@ function formatDurationMs(value: unknown): string {
   const minutes = Math.floor(value / 60_000);
   const seconds = Math.round((value % 60_000) / 1000);
   return `${minutes}m${String(seconds).padStart(2, "0")}s`;
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function numberField(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function compactClientKind(userAgent: unknown): string {
+  const value = typeof userAgent === "string" ? userAgent.toLowerCase() : "";
+  if (value.includes("openai")) return "openai";
+  if (value.includes("claude") || value.includes("anthropic")) return "claude";
+  if (value.includes("mozilla") || value.includes("chrome") || value.includes("safari")) return "browser";
+  return "unknown";
 }
 
 function compactCell(value: string, width: number): string {

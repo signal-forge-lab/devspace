@@ -160,18 +160,30 @@ npx @waishnav/devspace serve
 | --- | --- |
 | `DEVSPACE_LOG_LEVEL` | `info` |
 | `DEVSPACE_LOG_FORMAT` | `json` |
+| `DEVSPACE_LOG_FILE` | `1` |
+| `DEVSPACE_LOG_FILE_PATH` | `<stateDir>/logs/devspace.jsonl` |
+| `DEVSPACE_LOG_CONSOLE_JSON` | `0` |
 | `DEVSPACE_LOG_REQUESTS` | `1` |
 | `DEVSPACE_LOG_ASSETS` | `0` |
 | `DEVSPACE_LOG_TOOL_CALLS` | `1` |
 | `DEVSPACE_LOG_SHELL_COMMANDS` | `0` |
 | `DEVSPACE_TRUST_PROXY` | `0` |
 
-Set `DEVSPACE_LOG_FORMAT=pretty` for local debugging.
+Set `DEVSPACE_LOG_FORMAT=pretty` for local debugging when
+`DEVSPACE_LOG_CONSOLE_JSON=1`.
 
-Tool-call console output uses a compact fixed-column format:
-`time | workspace | kind | tool | status | duration | details`. Second-level
-durations are highlighted yellow when the terminal supports ANSI colors, while
-failed compact lines are highlighted red. Set `NO_COLOR=1` to disable colors.
+Logs are written as JSONL by default to `DEVSPACE_LOG_FILE_PATH`. Console output
+is intentionally compact and uses this fixed-column format:
+`time | workspace | kind | tool | status | duration | details`.
+
+Tool calls are shown in compact form. HTTP requests are shown in compact form
+when the path is `/mcp`, the status is `400` or higher, or the request takes at
+least 1000ms. Other JSON events remain in the JSONL file and are hidden from the
+console unless `DEVSPACE_LOG_CONSOLE_JSON=1` is set.
+
+Second-level durations are highlighted yellow when the terminal supports ANSI
+colors, while failed tool lines and HTTP `4xx`/`5xx` lines are highlighted red.
+Set `NO_COLOR=1` to disable colors.
 
 ## Env-Only Example
 

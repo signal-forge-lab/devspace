@@ -65,9 +65,13 @@ assert.throws(
   /Invalid DEVSPACE_TOOL_MODE: invalid/,
 );
 
-assert.deepEqual(loadConfig(baseEnv).logging, {
+const defaultConfig = loadConfig(baseEnv);
+assert.deepEqual(defaultConfig.logging, {
   level: "info",
   format: "json",
+  file: true,
+  filePath: join(defaultConfig.stateDir, "logs", "devspace.jsonl"),
+  consoleJson: false,
   requests: true,
   assets: false,
   toolCalls: true,
@@ -84,6 +88,10 @@ assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "debug" }).logging.lev
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FORMAT: "json" }).logging.format, "json");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FORMAT: "pretty" }).logging.format, "pretty");
 
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE: "0" }).logging.file, false);
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE: "1" }).logging.file, true);
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FILE_PATH: "./custom.jsonl" }).logging.filePath, join(process.cwd(), "custom.jsonl"));
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_CONSOLE_JSON: "1" }).logging.consoleJson, true);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_REQUESTS: "0" }).logging.requests, false);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_ASSETS: "1" }).logging.assets, true);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_TOOL_CALLS: "0" }).logging.toolCalls, false);
