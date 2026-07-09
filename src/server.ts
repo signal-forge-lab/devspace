@@ -164,6 +164,12 @@ const WORKSPACE_REUSE_DESCRIPTION =
 const WORKSPACE_ID_DESCRIPTION =
   "Workspace identifier returned by open_workspace. Reuse an existing workspaceId for the same folder when available.";
 
+const WORKSPACE_DISPLAY_PATH = "<workspace>";
+
+function displayWorkspacePath(): string {
+  return WORKSPACE_DISPLAY_PATH;
+}
+
 interface ToolLogFields {
   tool: string;
   workspaceId?: string;
@@ -897,12 +903,16 @@ function createMcpServer(
       const instruction = config.skillsEnabled
         ? "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file. When a task matches an available skill in skills, read its path before proceeding."
         : "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file.";
+      const displayRoot = displayWorkspacePath();
+      const displayWorktree = workspace.worktree
+        ? { ...workspace.worktree, path: displayRoot }
+        : undefined;
       const resultContent: ToolContent[] = [
         {
           type: "text" as const,
           text: [
             `Opened workspace ${workspace.id}`,
-            `Root: ${workspace.root}`,
+            `Root: ${displayRoot}`,
             `Mode: ${workspace.mode}`,
             loadedAgentsFiles.length > 0
               ? `Loaded project instructions: ${loadedAgentsFiles.map((file) => file.path).join(", ")}`
@@ -929,7 +939,7 @@ function createMcpServer(
       logToolCall(config, {
         tool: "open_workspace",
         workspaceId: workspace.id,
-        path: workspace.root,
+        path: displayRoot,
         success: true,
         durationMs: Math.round(performance.now() - startedAt),
       });
@@ -940,8 +950,8 @@ function createMcpServer(
           tool: "open_workspace",
           card: {
             workspaceId: workspace.id,
-            root: workspace.root,
-            path: workspace.root,
+            root: displayRoot,
+            path: displayRoot,
             summary: {
               agentsFiles: loadedAgentsFiles.length,
               availableAgentsFiles: availableAgentsFileOutputs.length,
@@ -954,10 +964,10 @@ function createMcpServer(
         },
         structuredContent: {
           workspaceId: workspace.id,
-          root: workspace.root,
+          root: displayRoot,
           mode: workspace.mode,
-          sourceRoot: workspace.sourceRoot,
-          worktree: workspace.worktree,
+          sourceRoot: workspace.sourceRoot ? displayRoot : undefined,
+          worktree: displayWorktree,
           agentsFiles: loadedAgentsFiles,
           availableAgentsFiles: availableAgentsFileOutputs,
           skills: visibleSkills,
