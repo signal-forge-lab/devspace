@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { resolveShellCommand, terminateProcessTree } from "./process-platform.js";
+import { redactPathsInText, type PathRedaction } from "./path-redaction.js";
 
 const DEFAULT_EXEC_YIELD_MS = 10_000;
 const DEFAULT_INTERACTIVE_YIELD_MS = 250;
@@ -17,6 +18,7 @@ export interface StartCommandInput {
   command: string;
   cwd: string;
   workspaceRoot?: string;
+  outputRedactions?: PathRedaction[];
   outputMode?: "full" | "status";
   tty?: boolean;
   columns?: number;
@@ -60,6 +62,7 @@ interface ProcessSession {
   columns: number;
   rows: number;
   buffer: HeadTailBuffer;
+  outputRedactions: PathRedaction[];
   outputMode: "full" | "status";
   running: boolean;
   exitCode?: number;
@@ -319,6 +322,7 @@ export class ProcessSessionManager {
       columns: terminalSize(input.columns, DEFAULT_COLUMNS),
       rows: terminalSize(input.rows, DEFAULT_ROWS),
       buffer: new HeadTailBuffer(this.maxBufferCharacters),
+      outputRedactions: input.outputRedactions ?? [],
       outputMode: input.outputMode ?? "full",
       running: true,
       exitPromise,
@@ -413,7 +417,7 @@ export class ProcessSessionManager {
 
     return {
       sessionId: session.running ? session.id : undefined,
-      output: outputSuppressed ? "" : buffered.output,
+      output: outputSuppressed ? "" : redactPathsInText(buffered.output, session.outputRedactions),
       outputTruncated: outputSuppressed ? false : buffered.truncated,
       outputSuppressed: outputSuppressed || undefined,
       running: session.running,

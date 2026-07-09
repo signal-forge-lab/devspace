@@ -36,6 +36,7 @@ import {
   writeFileTool,
 } from "./pi-tools.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
+import { redactPathsInText, workspacePathRedactions, type PathRedaction } from "./path-redaction.js";
 import { ProcessSessionManager, type ProcessSnapshot } from "./process-sessions.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { formatPathForPrompt } from "./skills.js";
@@ -407,6 +408,22 @@ function textBlock(text: string): ToolContent {
   return { type: "text", text };
 }
 
+function redactToolContent(content: ToolContent[], redactions: readonly PathRedaction[]): ToolContent[] {
+  if (redactions.length === 0) return content;
+  return content.map((item) => {
+    if (item.type !== "text") return item;
+    return { ...item, text: redactPathsInText(item.text, redactions) };
+  });
+}
+
+function redactToolResponse<T extends { content: ToolContent[] }>(
+  response: T,
+  redactions: readonly PathRedaction[],
+): T {
+  if (redactions.length === 0) return response;
+  return { ...response, content: redactToolContent(response.content, redactions) };
+}
+
 function textSummary(content: ToolContent[]): {
   lines: number;
   characters: number;
@@ -598,6 +615,7 @@ function processToolResponse(
       signal: snapshot.signal,
       wallTimeMs: snapshot.wallTimeMs,
       outputTruncated: snapshot.outputTruncated,
+      outputSuppressed: snapshot.outputSuppressed,
     },
   };
 }
@@ -668,12 +686,15 @@ function registerCodexProcessTools(
       } = typedInput;
       const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
+      const redactions = workspacePathRedactions(workspace.root);
+      const displayCommand = redactPathsInText(cmd, redactions);
       const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
       const snapshot = await processSessions.start({
         workspaceId,
         command: cmd,
         cwd,
         workspaceRoot: workspace.root,
+        outputRedactions: redactions,
         tty,
         columns,
         rows,
@@ -685,8 +706,8 @@ function registerCodexProcessTools(
         tool: "exec_command",
         workspaceId,
         workingDirectory: workingDirectory ?? ".",
-        command: cmd,
-        commandLength: cmd.length,
+        command: displayCommand,
+        commandLength: displayCommand.length,
         success: true,
         durationMs: Math.round(performance.now() - startedAt),
         intent,
@@ -694,7 +715,7 @@ function registerCodexProcessTools(
       });
 
       return processToolResponse("exec_command", workspaceId, snapshot, {
-        command: cmd,
+        command: displayCommand,
         workingDirectory: workingDirectory ?? ".",
         running: snapshot.running,
         exitCode: snapshot.exitCode,
@@ -1626,28 +1647,30 @@ function createMcpServer(
     async ({ workspaceId, workingDirectory, ...input }) => {
       const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
+      const redactions = workspacePathRedactions(workspace.root);
       const cwd = workspaces.resolveWorkingDirectory(
         workspace,
         workingDirectory,
       );
-      const response = await runShellTool(input, {
+      const response = redactToolResponse(await runShellTool(input, {
         cwd,
         root: workspace.root,
-      });
+      }), redactions);
+      const displayCommand = redactPathsInText(input.command, redactions);
 
       if (response.isError) {
         logFailedToolResponse(config, {
           tool: toolNames.shell,
           workspaceId,
           workingDirectory: workingDirectory ?? ".",
-          command: input.command,
-          commandLength: input.command.length,
+          command: displayCommand,
+          commandLength: displayCommand.length,
         }, response.content, startedAt);
         return response;
       }
 
       const summary = {
-        command: input.command,
+        command: displayCommand,
         workingDirectory: workingDirectory ?? ".",
         ...textSummary(response.content),
       };
@@ -1655,8 +1678,8 @@ function createMcpServer(
         tool: toolNames.shell,
         workspaceId,
         workingDirectory: workingDirectory ?? ".",
-        command: input.command,
-        commandLength: input.command.length,
+        command: displayCommand,
+        commandLength: displayCommand.length,
         success: true,
         durationMs: Math.round(performance.now() - startedAt),
       });

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { HeadTailBuffer, ProcessSessionManager } from "./process-sessions.js";
+import { workspacePathRedactions } from "./path-redaction.js";
 
 const smallBuffer = new HeadTailBuffer(100);
 smallBuffer.append("hello\n");
@@ -47,6 +48,18 @@ assert.equal(foreground.running, false);
 assert.equal(foreground.exitCode, 0);
 assert.match(foreground.output, /foreground/);
 assert.equal(foreground.sessionId, undefined);
+
+const redactedForeground = await manager.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "console.log(process.cwd())"`,
+  workspaceRoot: process.cwd(),
+  outputRedactions: workspacePathRedactions(process.cwd()),
+  yieldTimeMs: 2_000,
+});
+assert.equal(redactedForeground.running, false);
+assert.equal(redactedForeground.exitCode, 0);
+assert.equal(redactedForeground.output.trim(), "<workspace>");
 
 const statusOnly = await manager.start({
   workspaceId: "workspace-a",
