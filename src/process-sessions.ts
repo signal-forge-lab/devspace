@@ -17,6 +17,7 @@ export interface StartCommandInput {
   command: string;
   cwd: string;
   workspaceRoot?: string;
+  outputMode?: "full" | "status";
   tty?: boolean;
   columns?: number;
   rows?: number;
@@ -38,6 +39,7 @@ export interface ProcessSnapshot {
   sessionId?: number;
   output: string;
   outputTruncated: boolean;
+  outputSuppressed?: boolean;
   running: boolean;
   exitCode?: number;
   signal?: string;
@@ -58,6 +60,7 @@ interface ProcessSession {
   columns: number;
   rows: number;
   buffer: HeadTailBuffer;
+  outputMode: "full" | "status";
   running: boolean;
   exitCode?: number;
   signal?: string;
@@ -316,6 +319,7 @@ export class ProcessSessionManager {
       columns: terminalSize(input.columns, DEFAULT_COLUMNS),
       rows: terminalSize(input.rows, DEFAULT_ROWS),
       buffer: new HeadTailBuffer(this.maxBufferCharacters),
+      outputMode: input.outputMode ?? "full",
       running: true,
       exitPromise,
       resolveExit,
@@ -405,11 +409,13 @@ export class ProcessSessionManager {
     const limit = boundedInteger(maxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS, 100_000);
     const maxCharacters = Math.max(256, limit * 4);
     const buffered = session.buffer.drain(maxCharacters);
+    const outputSuppressed = session.outputMode === "status";
 
     return {
       sessionId: session.running ? session.id : undefined,
-      output: buffered.output,
-      outputTruncated: buffered.truncated,
+      output: outputSuppressed ? "" : buffered.output,
+      outputTruncated: outputSuppressed ? false : buffered.truncated,
+      outputSuppressed: outputSuppressed || undefined,
       running: session.running,
       exitCode: session.exitCode,
       signal: session.signal,

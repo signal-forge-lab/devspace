@@ -48,6 +48,41 @@ assert.equal(foreground.exitCode, 0);
 assert.match(foreground.output, /foreground/);
 assert.equal(foreground.sessionId, undefined);
 
+const statusOnly = await manager.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "console.log('sensitive-path:C:/Users/example/project/file.py')"`,
+  outputMode: "status",
+  yieldTimeMs: 2_000,
+});
+assert.equal(statusOnly.running, false);
+assert.equal(statusOnly.exitCode, 0);
+assert.equal(statusOnly.output, "");
+assert.equal(statusOnly.outputTruncated, false);
+assert.equal(statusOnly.outputSuppressed, true);
+
+const statusOnlyBackground = await manager.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "setTimeout(() => console.log('sensitive-later:C:/Users/example/project/file.py'), 100)"`,
+  outputMode: "status",
+  yieldTimeMs: 5,
+});
+assert.equal(statusOnlyBackground.running, true);
+assert.ok(statusOnlyBackground.sessionId);
+assert.equal(statusOnlyBackground.output, "");
+assert.equal(statusOnlyBackground.outputSuppressed, true);
+
+const statusOnlyCompleted = await manager.write({
+  workspaceId: "workspace-a",
+  sessionId: statusOnlyBackground.sessionId,
+  yieldTimeMs: 2_000,
+});
+assert.equal(statusOnlyCompleted.running, false);
+assert.equal(statusOnlyCompleted.exitCode, 0);
+assert.equal(statusOnlyCompleted.output, "");
+assert.equal(statusOnlyCompleted.outputSuppressed, true);
+
 const environment = await manager.start({
   workspaceId: "workspace-a",
   workspaceRoot: "/tmp/devspace-workspace-a",

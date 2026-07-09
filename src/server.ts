@@ -561,6 +561,7 @@ function processOutputSchema(): z.ZodRawShape {
     signal: z.string().optional(),
     wallTimeMs: z.number().nonnegative(),
     outputTruncated: z.boolean(),
+    outputSuppressed: z.boolean().optional(),
   });
 }
 
@@ -1710,8 +1711,8 @@ function createMcpServer(
             tool: "launch_workspace_task",
             workspaceId,
             workingDirectory: workingDirectory ?? ".",
-            command: resolved.command,
-            commandLength: resolved.command.length,
+            command: resolved.displayCommand,
+            commandLength: resolved.displayCommand.length,
             success: true,
             durationMs: Math.round(performance.now() - startedAt),
           });
@@ -1727,6 +1728,7 @@ function createMcpServer(
           command: resolved.command,
           cwd,
           workspaceRoot: workspace.root,
+          outputMode: "status",
           tty,
           columns,
           rows,
@@ -1738,8 +1740,8 @@ function createMcpServer(
           tool: "launch_workspace_task",
           workspaceId,
           workingDirectory: workingDirectory ?? ".",
-          command: resolved.command,
-          commandLength: resolved.command.length,
+          command: resolved.displayCommand,
+          commandLength: resolved.displayCommand.length,
           success: true,
           durationMs: Math.round(performance.now() - startedAt),
         });
