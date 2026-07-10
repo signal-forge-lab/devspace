@@ -447,6 +447,33 @@ workspace taskはraw shellより安全だが、OSレベルの完全なsecurity b
   - `GET /.well-known/openid-configuration` の404
 - 改善: `failed`ではなく`auth`、`probe`、`ignored`等の分類を検討
 
+### P2-8: ユーザー向け表示名をWorkbridgeへ統一
+
+- 状態: 未着手
+- 目的: 互換識別子を壊さず、ユーザーから見える旧名称`DevSpace`を`Workbridge`へ整理する
+- 変更候補:
+  - MCP server title・instructions・tool/card description
+  - OAuth認証画面のtitle、heading、button、resource表示
+  - workspace diff UIのHTML title
+  - CLI setup、doctor、起動メッセージ、エラー説明の製品名
+  - local agent連携へ渡すclient表示名
+  - 起動ログなどの表示用名称
+- 原則維持する互換識別子:
+  - npm package `@waishnav/devspace`
+  - CLI command `devspace`
+  - `DEVSPACE_*`環境変数
+  - `.devspace/`、`~/.devspace/`
+  - OAuth scope `devspace`
+  - DB名・migration table・既存Git ref prefix
+  - runtime metadataの`legacyName: "DevSpace"`
+- 別途判断する範囲:
+  - upstreamとの差分が大きくなるREADME、AGENTS.md、docs全体の全面置換
+  - TypeScript内部関数名・型名・ファイル名
+- 完了条件:
+  - 通常利用時に表示される製品名がWorkbridgeへ統一される
+  - 既存CLI、設定、OAuth、DB、保存済みstateとの互換性が維持される
+  - 互換識別子を意図せずrenameしていないことを回帰テストで確認する
+
 ## 8. 未対応P3タスク
 
 ### P3-1: `src/server.ts`分割
@@ -536,12 +563,12 @@ npm pack --dry-run
 
 ## 12. 現在のGit状態
 
-2026-07-11のP1実装完了時点:
+2026-07-11のP1実装完了・P2-8追加時点:
 
 ```text
 branch: feature/workbridge-stable-surface
 remote tracking: origin/feature/workbridge-stable-surface
-ahead: 21 commits
+ahead: 22 commits
 tracked changes: none
 untracked: none
 ```
@@ -555,7 +582,8 @@ untracked: none
 3. P2-4 / P2-5 lifecycle cleanup
 4. P2-6 version統一
 5. P2-7 HTTPログ分類
-6. P3保守性改善
+6. P2-8 ユーザー向け表示名のWorkbridge統一
+7. P3保守性改善
 
 各タスク着手時は、本書の状態を「作業中」へ変更し、完了後に以下を追記する。
 
