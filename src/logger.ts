@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Request } from "express";
+import { PRODUCT_DISPLAY_NAME } from "./branding.js";
 
 export type LogLevel = "silent" | "error" | "warn" | "info" | "debug";
 export type LogFormat = "json" | "pretty";
@@ -103,7 +104,7 @@ function writeJsonlLog(config: LoggingConfig, entry: LogFields): void {
     appendFileSync(config.filePath, line, "utf8");
   } catch (error) {
     process.stderr.write(
-      `[devspace] failed to write log file ${JSON.stringify(config.filePath)}: ${error instanceof Error ? error.message : String(error)}\n`,
+      `[${PRODUCT_DISPLAY_NAME.toLowerCase()}] failed to write log file ${JSON.stringify(config.filePath)}: ${error instanceof Error ? error.message : String(error)}\n`,
     );
   }
 }

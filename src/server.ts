@@ -18,6 +18,7 @@ import express from "express";
 import type { Request, Response } from "express";
 import * as z from "zod/v4";
 import { applyPatch } from "./apply-patch.js";
+import { LEGACY_SERVICE_NAME, PRODUCT_DISPLAY_NAME } from "./branding.js";
 import { loadConfig, type ExperimentalFeature, type ServerConfig, type WidgetMode } from "./config.js";
 import {
   classifyHttpRequest,
@@ -214,7 +215,7 @@ function serverInstructions(config: ServerConfig): string {
     " When modifying files, batch related changes aggressively. For each logical implementation step, prepare all intended file edits first, then call apply_patch once with all related file changes. A single apply_patch may update multiple files and multiple hunks. Do not call apply_patch repeatedly for small adjacent edits or one file at a time. Only split patches when the patch failed, the change set is too large to review safely, or the user explicitly asks for separate checkpoints.";
 
   if (config.toolMode === "codex") {
-    return `Use DevSpace as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Use ${toolNames.read} for direct file reads, apply_patch for all file modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes.${patchConsolidationInstruction} Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${showChangesInstruction}`;
+    return `Use ${PRODUCT_DISPLAY_NAME} as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Use ${toolNames.read} for direct file reads, apply_patch for all file modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes.${patchConsolidationInstruction} Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${showChangesInstruction}`;
   }
 
   const inspection = config.toolMode === "minimal"
@@ -227,7 +228,7 @@ function serverInstructions(config: ServerConfig): string {
 
   const agentsMd = `Follow instructions returned by ${toolNames.openWorkspace}. Before working under a path listed in availableAgentsFiles, use ${toolNames.read} to inspect that instruction file and follow it. `;
 
-  return `Use DevSpace as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree to obtain a workspaceId. Reuse that same workspaceId for all later file, search, edit, write, show-changes, and shell tools in that folder; do not call ${toolNames.openWorkspace} again unless switching folders/worktrees, changing checkout/worktree mode, the workspaceId is rejected as unknown, or the user explicitly asks to reopen. ${agentsMd}${skills}${inspection}Prefer ${toolNames.edit} for targeted modifications, ${toolNames.write} only for new files or complete rewrites, and ${toolNames.shell} for tests, builds, git inspection, package scripts, and commands that are better executed by the shell. Do not create or modify files with ${toolNames.shell}; avoid shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or any command whose purpose is to write project files.${showChangesInstruction}`;
+  return `Use ${PRODUCT_DISPLAY_NAME} as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree to obtain a workspaceId. Reuse that same workspaceId for all later file, search, edit, write, show-changes, and shell tools in that folder; do not call ${toolNames.openWorkspace} again unless switching folders/worktrees, changing checkout/worktree mode, the workspaceId is rejected as unknown, or the user explicitly asks to reopen. ${agentsMd}${skills}${inspection}Prefer ${toolNames.edit} for targeted modifications, ${toolNames.write} only for new files or complete rewrites, and ${toolNames.shell} for tests, builds, git inspection, package scripts, and commands that are better executed by the shell. Do not create or modify files with ${toolNames.shell}; avoid shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or any command whose purpose is to write project files.${showChangesInstruction}`;
 }
 
 function formatVisibleAgent(agent: {
@@ -557,7 +558,7 @@ function workspaceAppHtml(config: ServerConfig): string {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DevSpace Workspace</title>
+    <title>${PRODUCT_DISPLAY_NAME} Workspace</title>
     <script type="module" crossorigin src="${assetUrl(baseUrl, entry.file)}"></script>
 ${stylesheets}
   </head>
@@ -831,8 +832,8 @@ function createMcpServer(
 ): McpServer {
   const server = new McpServer(
     {
-      name: "devspace",
-      title: "DevSpace",
+      name: LEGACY_SERVICE_NAME,
+      title: PRODUCT_DISPLAY_NAME,
       version: PACKAGE_VERSION,
       description:
         "Secure local coding workspace for MCP clients. Provides workspace-scoped file, search, edit, write, and shell tools.",
@@ -844,10 +845,10 @@ function createMcpServer(
 
   registerAppResource(
     server,
-    "DevSpace Diff Card",
+    `${PRODUCT_DISPLAY_NAME} Diff Card`,
     WORKSPACE_APP_URI,
     {
-      description: "Interactive card for viewing DevSpace file diffs.",
+      description: `Interactive card for viewing ${PRODUCT_DISPLAY_NAME} file diffs.`,
       _meta: {
         ui: {
           csp: appCsp(config),
@@ -1930,7 +1931,7 @@ export function createServer(config = loadConfig()): RunningServer {
       baseUrl: new URL(config.publicBaseUrl),
       resourceServerUrl,
       scopesSupported: config.oauth.scopes,
-      resourceName: "DevSpace",
+      resourceName: PRODUCT_DISPLAY_NAME,
     }),
   );
 
@@ -1950,7 +1951,7 @@ export function createServer(config = loadConfig()): RunningServer {
   );
 
   app.get("/healthz", (_req, res) => {
-    res.json({ ok: true, name: "devspace" });
+    res.json({ ok: true, name: LEGACY_SERVICE_NAME });
   });
 
   app.all("/mcp", async (req, res) => {
@@ -2071,7 +2072,7 @@ if (await isMainModule()) {
   const { app, config, close, localAgentProviders } = createServer();
   const httpServer = app.listen(config.port, config.host, () => {
     console.log(
-      `devspace listening on http://${config.host}:${config.port}/mcp`,
+      `${PRODUCT_DISPLAY_NAME} listening on http://${config.host}:${config.port}/mcp`,
     );
     console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log("auth: oauth owner-token flow required");

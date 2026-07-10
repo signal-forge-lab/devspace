@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js";
 import { InvalidRequestError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { PRODUCT_DISPLAY_NAME } from "./branding.js";
 import { openDatabase, type DatabaseHandle } from "./db/client.js";
 import { isAllowedOAuthRedirectUri } from "./oauth-security.js";
 
@@ -52,7 +53,7 @@ export class SqliteOAuthStore {
     maxRegisteredClients = 50,
   ): OAuthClientInformationFull {
     if (!client.redirect_uris.every((uri) => isAllowedOAuthRedirectUri(String(uri), allowedRedirectHosts))) {
-      throw new InvalidRequestError("Client redirect_uri is not allowed for this DevSpace server");
+      throw new InvalidRequestError(`Client redirect_uri is not allowed for this ${PRODUCT_DISPLAY_NAME} server`);
     }
 
     const registeredClients = this.database.sqlite

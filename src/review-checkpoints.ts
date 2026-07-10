@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PRODUCT_DISPLAY_NAME } from "./branding.js";
 import { git, getGitEligibility, safeWorkspaceRefSegment } from "./git.js";
 
 export type ReviewSince = "last_shown" | "last_review" | "workspace_open";
@@ -166,7 +167,7 @@ async function createWorkingTreeSnapshot(gitRoot: string): Promise<string> {
     await git(gitRoot, ["add", "-A", "--", "."], { env });
     const tree = (await git(gitRoot, ["write-tree"], { env })).stdout.trim();
     const parent = (await git(gitRoot, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout.trim();
-    return (await git(gitRoot, ["commit-tree", tree, "-p", parent, "-m", "DevSpace review snapshot"], { env })).stdout.trim();
+    return (await git(gitRoot, ["commit-tree", tree, "-p", parent, "-m", `${PRODUCT_DISPLAY_NAME} review snapshot`], { env })).stdout.trim();
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -175,9 +176,9 @@ async function createWorkingTreeSnapshot(gitRoot: string): Promise<string> {
 function checkpointEnv(indexPath: string): NodeJS.ProcessEnv {
   return {
     GIT_INDEX_FILE: indexPath,
-    GIT_AUTHOR_NAME: "DevSpace",
+    GIT_AUTHOR_NAME: PRODUCT_DISPLAY_NAME,
     GIT_AUTHOR_EMAIL: "devspace@users.noreply.local",
-    GIT_COMMITTER_NAME: "DevSpace",
+    GIT_COMMITTER_NAME: PRODUCT_DISPLAY_NAME,
     GIT_COMMITTER_EMAIL: "devspace@users.noreply.local",
   };
 }

@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { LEGACY_OAUTH_SCOPE, PRODUCT_DISPLAY_NAME } from "./branding.js";
 import { expandHomePath } from "./roots.js";
 import type { LoggingConfig, LogFormat, LogLevel } from "./logger.js";
 import type { OAuthConfig } from "./oauth-provider.js";
@@ -218,7 +219,7 @@ function parseWidgetMode(value: string | undefined): WidgetMode {
 function parseRequiredSecret(value: string | undefined, name: string): string {
   const secret = value?.trim();
   if (!secret) {
-    throw new Error(`${name} is required for DevSpace OAuth. Run: devspace init`);
+    throw new Error(`${name} is required for ${PRODUCT_DISPLAY_NAME} OAuth. Run: devspace init`);
   }
   if (secret.length < 16) {
     throw new Error(`${name} must be at least 16 characters long.`);
@@ -239,7 +240,7 @@ function parseOAuthConfig(env: NodeJS.ProcessEnv, ownerToken: string | undefined
       DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS,
       "DEVSPACE_OAUTH_REFRESH_TOKEN_TTL_SECONDS",
     ),
-    scopes: parseStringList(env.DEVSPACE_OAUTH_SCOPES, ["devspace"]),
+    scopes: parseStringList(env.DEVSPACE_OAUTH_SCOPES, [LEGACY_OAUTH_SCOPE]),
     allowedRedirectHosts: parseStringList(env.DEVSPACE_OAUTH_ALLOWED_REDIRECT_HOSTS, [
       "chatgpt.com",
       "localhost",

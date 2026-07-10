@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import * as prompts from "@clack/prompts";
 import { getShellConfig } from "@earendil-works/pi-coding-agent";
 import { satisfies } from "semver";
+import { PRODUCT_DISPLAY_NAME } from "./branding.js";
 import { loadConfig } from "./config.js";
 import { runLocalAgentProvider } from "./local-agent-adapters.js";
 import {
@@ -91,7 +92,7 @@ async function ensureConfigured(): Promise<void> {
   if (!input.isTTY || !output.isTTY) {
     throw new Error(
       [
-        "DevSpace is not configured and this terminal is non-interactive.",
+        `${PRODUCT_DISPLAY_NAME} is not configured and this terminal is non-interactive.`,
         "",
         "Run:",
         "  devspace init",
@@ -107,13 +108,13 @@ async function ensureConfigured(): Promise<void> {
 async function runInit({ force }: { force: boolean }): Promise<void> {
   const files = loadDevspaceFiles();
   if (!force && files.configExists && files.authExists) {
-    prompts.log.info(`DevSpace is already configured at ${files.dir}`);
+    prompts.log.info(`${PRODUCT_DISPLAY_NAME} is already configured at ${files.dir}`);
     prompts.log.info("Run `devspace init --force` to update it.");
     return;
   }
 
   try {
-    prompts.intro("DevSpace setup");
+    prompts.intro(`${PRODUCT_DISPLAY_NAME} setup`);
 
     const defaultRoots = files.config.allowedRoots?.join(", ") || process.cwd();
     const rootsAnswer = await textPrompt({
@@ -129,7 +130,7 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
 
     const defaultPort = String(files.config.port ?? 7676);
     const portAnswer = await textPrompt({
-      message: `Which local port should DevSpace use? Press Enter to use ${defaultPort}`,
+      message: `Which local port should ${PRODUCT_DISPLAY_NAME} use? Press Enter to use ${defaultPort}`,
       placeholder: defaultPort,
       defaultValue: defaultPort,
       validate: validatePort,
@@ -138,7 +139,7 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
 
     prompts.note(
       [
-        "DevSpace needs a public base URL so ChatGPT or Claude can reach this MCP server.",
+        `${PRODUCT_DISPLAY_NAME} needs a public base URL so ChatGPT or Claude can reach this MCP server.`,
         "Create a tunnel or reverse proxy with Cloudflare Tunnel, ngrok, Pinggy, Tailscale Funnel, or your own HTTPS proxy.",
         "Paste the public origin here, without /mcp.",
         "",
@@ -177,11 +178,11 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
       `Local MCP URL: http://${config.host}:${config.port}/mcp`,
       ...(publicBaseUrl ? [`Public MCP URL: ${publicBaseUrl}/mcp`] : []),
     ];
-    prompts.note(lines.join("\n"), "DevSpace configured");
+    prompts.note(lines.join("\n"), `${PRODUCT_DISPLAY_NAME} configured`);
     prompts.note(
       [
         `Owner password: ${auth.ownerToken}`,
-        "Use this when ChatGPT or Claude asks you to approve DevSpace access.",
+        `Use this when ChatGPT or Claude asks you to approve ${PRODUCT_DISPLAY_NAME} access.`,
         `Stored at: ${authPath}`,
       ].join("\n"),
       "Owner password",
@@ -214,7 +215,7 @@ async function serve(): Promise<void> {
   const config = loadConfig();
   const { app, close, localAgentProviders } = createServer(config);
   const httpServer = app.listen(config.port, config.host, () => {
-    console.log(`devspace listening on http://${config.host}:${config.port}/mcp`);
+    console.log(`${PRODUCT_DISPLAY_NAME} listening on http://${config.host}:${config.port}/mcp`);
     console.log(`version: ${PACKAGE_VERSION}`);
     console.log(`git commit: ${(() => {
       try {
@@ -308,7 +309,7 @@ function runConfigCommand(args: string[]): void {
 function printHelp(): void {
   console.log(
     [
-      "DevSpace",
+      PRODUCT_DISPLAY_NAME,
       "",
       "Usage:",
       "  devspace                 Run first-time setup if needed, then start the server",
@@ -572,7 +573,7 @@ function sleep(ms: number): Promise<void> {
 function printAgentsHelp(): void {
   console.log(
     [
-      "DevSpace agents",
+      `${PRODUCT_DISPLAY_NAME} agents`,
       "",
       "Usage:",
       "  devspace agents ls",
@@ -647,7 +648,7 @@ function assertSupportedNode(): void {
 
   throw new Error(
     [
-      `DevSpace requires Node ${SUPPORTED_NODE_RANGE}.`,
+      `${PRODUCT_DISPLAY_NAME} requires Node ${SUPPORTED_NODE_RANGE}.`,
       `Current Node: ${process.version}`,
       "",
       "Install Node 22 LTS or use a version manager such as nvm, fnm, or mise.",
