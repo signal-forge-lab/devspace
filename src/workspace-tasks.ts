@@ -12,6 +12,7 @@ export interface ResolveWorkspaceTaskInput {
   args?: string[];
   template?: string;
   pythonCommand?: string;
+  allowDynamicArgs?: boolean;
 }
 
 export interface ResolvedWorkspaceTask {
@@ -120,16 +121,12 @@ export async function workspaceTaskCatalog(workspaceRoot: string): Promise<Works
           loaded: config.loaded,
           issues: config.issues,
         },
-        examples: [
-          {
-            description: "Launch a common template.",
-            payload: { task: name, template: templates[0]?.name, tty: true, yieldTimeMs: 1000 },
-          },
-          {
-            description: "Launch with explicit CLI args.",
-            payload: { task: name, args: templates[0]?.args ?? [], tty: true, yieldTimeMs: 1000 },
-          },
-        ],
+        examples: templates[0]
+          ? [{
+              description: "Launch a common template.",
+              payload: { task: name, template: templates[0].name, tty: true, yieldTimeMs: 1000 },
+            }]
+          : [],
         description: definition.description,
       };
     }),
@@ -155,6 +152,18 @@ export async function resolveWorkspaceTask(input: ResolveWorkspaceTaskInput): Pr
   const executable = input.pythonCommand?.trim() || process.env.DEVSPACE_PYTHON_COMMAND?.trim() || "python";
   const templateArgs = template?.args ?? [];
   const explicitArgs = input.args ?? [];
+  if (!input.allowDynamicArgs) {
+    if (!input.template) {
+      throw new Error(
+        `A named template is required for ${input.task}. Set WORKBRIDGE_ENABLE_WORKSPACE_TASK_DYNAMIC_ARGS=1 only when explicit CLI arguments are intentionally needed.`,
+      );
+    }
+    if (explicitArgs.length > 0) {
+      throw new Error(
+        `Dynamic CLI arguments are disabled for ${input.task}. Use the named template without args, or explicitly enable WORKBRIDGE_ENABLE_WORKSPACE_TASK_DYNAMIC_ARGS=1.`,
+      );
+    }
+  }
   const args = [...definition.defaultArgs, scriptPath, ...templateArgs, ...explicitArgs];
   const displayScriptPath = `<workspace>/${definition.script.replace(/\\/g, "/")}`;
   const displayArgs = [...definition.defaultArgs, displayScriptPath, ...templateArgs, ...explicitArgs];

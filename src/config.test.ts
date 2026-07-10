@@ -33,6 +33,11 @@ assert.deepEqual(loadConfig({ ...baseEnv, DEVSPACE_EXPERIMENTAL_FEATURES: "comma
 assert.equal(loadConfig(baseEnv).workspaceTasksEnabled, false);
 assert.equal(loadConfig({ ...baseEnv, WORKBRIDGE_ENABLE_WORKSPACE_TASKS: "1" }).workspaceTasksEnabled, true);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_ENABLE_WORKSPACE_TASKS: "1" }).workspaceTasksEnabled, true);
+assert.equal(loadConfig(baseEnv).workspaceTaskDynamicArgsEnabled, false);
+assert.equal(
+  loadConfig({ ...baseEnv, WORKBRIDGE_ENABLE_WORKSPACE_TASK_DYNAMIC_ARGS: "1" }).workspaceTaskDynamicArgsEnabled,
+  true,
+);
 assert.equal(loadConfig(baseEnv).skillsEnabled, true);
 assert.equal(loadConfig(baseEnv).devspaceSkillsDir, join(emptyConfigDir, "skills"));
 assert.equal(loadConfig(baseEnv).devspaceAgentsDir, join(emptyConfigDir, "agents"));

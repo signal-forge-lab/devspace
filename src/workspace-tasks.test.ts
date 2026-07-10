@@ -7,10 +7,28 @@ import { resolveWorkspaceTask, resetWorkspaceTaskConfigForTest } from "./workspa
 const workspaceRoot = await mkdtemp(join(tmpdir(), "devspace-workspace-tasks-test-"));
 await writeFile(join(workspaceRoot, "aegis_runner.py"), "print('ok')\n", "utf8");
 
+await assert.rejects(
+  () => resolveWorkspaceTask({
+    workspaceRoot,
+    task: "aegis_runner",
+    args: ["--open-mission-archive-finalize-ui"],
+  }),
+  /named template is required|Dynamic CLI arguments are disabled/,
+);
+
+await assert.rejects(
+  () => resolveWorkspaceTask({
+    workspaceRoot,
+    task: "aegis_runner",
+  }),
+  /named template is required/,
+);
+
 const resolved = await resolveWorkspaceTask({
   workspaceRoot,
   task: "aegis_runner",
   args: ["--open-mission-archive-finalize-ui"],
+  allowDynamicArgs: true,
 });
 
 assert.ok(resolved.command.includes(workspaceRoot));

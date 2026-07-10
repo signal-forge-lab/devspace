@@ -24,6 +24,7 @@ export interface ServerConfig {
   toolMode: ToolMode;
   experimentalFeatures: ExperimentalFeature[];
   workspaceTasksEnabled: boolean;
+  workspaceTaskDynamicArgsEnabled: boolean;
   widgets: WidgetMode;
   stateDir: string;
   worktreeRoot: string;
@@ -267,6 +268,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     toolMode: parseToolMode(env),
     experimentalFeatures: parseExperimentalFeatures(env),
     workspaceTasksEnabled: parseBoolean(env.WORKBRIDGE_ENABLE_WORKSPACE_TASKS ?? env.DEVSPACE_ENABLE_WORKSPACE_TASKS),
+    workspaceTaskDynamicArgsEnabled: parseBoolean(env.WORKBRIDGE_ENABLE_WORKSPACE_TASK_DYNAMIC_ARGS),
     widgets: parseWidgetMode(env.DEVSPACE_WIDGETS),
     stateDir,
     worktreeRoot: resolve(expandHomePath(env.DEVSPACE_WORKTREE_ROOT ?? files.config.worktreeRoot ?? defaultWorktreeRoot())),

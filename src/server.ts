@@ -47,7 +47,11 @@ import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
 import { formatAgentsPath, WorkspaceRegistry } from "./workspaces.js";
-import { resolveWorkspaceTask, workspaceTaskCatalog, WORKSPACE_TASK_NAMES } from "./workspace-tasks.js";
+import {
+  resolveWorkspaceTask,
+  WORKSPACE_TASK_NAMES,
+  type WorkspaceTaskName,
+} from "./workspace-tasks.js";
 import { summarizeLocalAgentProfile } from "./local-agent-profiles.js";
 import {
   formatLocalAgentProviderAvailabilitySummary,
@@ -410,6 +414,20 @@ interface ExecCommandInput {
   maxOutputTokens?: number;
   intent?: string;
   retryContext?: string;
+}
+
+interface WorkspaceTaskToolInput {
+  workspaceId: string;
+  task: WorkspaceTaskName;
+  template?: string;
+  args?: string[];
+  dryRun?: boolean;
+  tty?: boolean;
+  columns?: number;
+  rows?: number;
+  workingDirectory?: string;
+  yieldTimeMs?: number;
+  maxOutputTokens?: number;
 }
 
 function textBlock(text: string): ToolContent {
@@ -1727,18 +1745,25 @@ function createMcpServer(
   }
 
   if (config.workspaceTasksEnabled) {
+    const workspaceTaskDescription = config.workspaceTaskDynamicArgsEnabled
+      ? "Launch an allowlisted workspace task. Named templates are preferred; explicit CLI args are enabled by configuration."
+      : "Launch an allowlisted workspace task using a required named template. Explicit CLI args are disabled by default.";
     registerAppTool(
       server,
       "launch_workspace_task",
       {
         title: "Launch workspace task",
         description:
-          `Launch an allowlisted workspace task without accepting a raw shell command. The initial allowlisted task is aegis_runner. Use template for common start patterns or args for dynamic CLI arguments. ${WORKSPACE_REUSE_DESCRIPTION}`,
+          `${workspaceTaskDescription} The initial allowlisted task is aegis_runner. ${WORKSPACE_REUSE_DESCRIPTION}`,
         inputSchema: {
           workspaceId: z.string().describe(WORKSPACE_ID_DESCRIPTION),
           task: z.enum(WORKSPACE_TASK_NAMES).describe("Allowlisted workspace task to launch."),
-          template: z.string().optional().describe("Optional named template for common task arguments, such as status_console_5s."),
-          args: z.array(z.string()).optional().describe("Optional CLI arguments appended after the task template arguments."),
+          template: config.workspaceTaskDynamicArgsEnabled
+            ? z.string().optional().describe("Optional named template for common task arguments, such as status_console_5s.")
+            : z.string().describe("Required named template for the workspace task, such as status_console_5s."),
+          ...(config.workspaceTaskDynamicArgsEnabled
+            ? { args: z.array(z.string()).optional().describe("Optional CLI arguments appended after the task template arguments.") }
+            : {}),
           dryRun: z.boolean().optional().describe("Resolve and return the command without launching it."),
           tty: z.boolean().optional().describe("Allocate a pseudo-terminal when supported. Defaults to false."),
           columns: z.number().int().min(1).max(1_000).optional().describe("Initial PTY width. Defaults to 80."),
@@ -1751,10 +1776,29 @@ function createMcpServer(
         ...toolWidgetDescriptorMeta(config, "shell"),
         annotations: SHELL_TOOL_ANNOTATIONS,
       },
-      async ({ workspaceId, task, template, args, dryRun, tty, columns, rows, workingDirectory, yieldTimeMs, maxOutputTokens }) => {
+      async (rawInput) => {
+        const {
+          workspaceId,
+          task,
+          template,
+          args,
+          dryRun,
+          tty,
+          columns,
+          rows,
+          workingDirectory,
+          yieldTimeMs,
+          maxOutputTokens,
+        } = rawInput as WorkspaceTaskToolInput;
         const startedAt = performance.now();
         const workspace = workspaces.getWorkspace(workspaceId);
-        const resolved = await resolveWorkspaceTask({ workspaceRoot: workspace.root, task, template, args });
+        const resolved = await resolveWorkspaceTask({
+          workspaceRoot: workspace.root,
+          task,
+          template,
+          args,
+          allowDynamicArgs: config.workspaceTaskDynamicArgsEnabled,
+        });
         const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
 
         if (dryRun) {

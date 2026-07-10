@@ -97,6 +97,12 @@ The launcher accepts only allowlisted workspace tasks. The initial task is
 Templates may be defined in `.workbridge/workspace-tasks.json` or in a central
 config file set with `WORKBRIDGE_WORKSPACE_TASKS_CONFIG`.
 
+By default, `launch_workspace_task` requires a named template and does not
+expose or accept arbitrary additional CLI arguments. Set
+`WORKBRIDGE_ENABLE_WORKSPACE_TASK_DYNAMIC_ARGS=1` only when dynamic `args` are
+intentionally required. With that opt-in enabled, template-less task launches
+and additional CLI arguments use the legacy behavior.
+
 ## Widgets
 
 `DEVSPACE_WIDGETS` controls ChatGPT Apps iframe usage.
