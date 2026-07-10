@@ -16,6 +16,11 @@ import {
   type WriteToolInput,
   type AgentToolResult,
 } from "@earendil-works/pi-coding-agent";
+import {
+  redactPathsInText,
+  redactPathsInValue,
+  workspacePathRedactions,
+} from "./path-redaction.js";
 import { resolveAllowedRealPath } from "./roots.js";
 
 type McpContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
@@ -45,9 +50,12 @@ function toMcpContent(result: AgentToolResult<unknown>): McpContent[] {
   });
 }
 
-function formatToolError(error: unknown): McpContent[] {
+function formatToolError(error: unknown, context: ToolContext): McpContent[] {
   const message = error instanceof Error ? error.message : String(error);
-  return [{ type: "text", text: message }];
+  return [{
+    type: "text",
+    text: redactPathsInText(message, workspacePathRedactions(context.root)),
+  }];
 }
 
 async function runTool<TInput, TDetails = unknown>(
@@ -59,10 +67,10 @@ async function runTool<TInput, TDetails = unknown>(
     const result = await execute(input);
     return {
       content: toMcpContent(result),
-      details: result.details,
+      details: redactPathsInValue(result.details, workspacePathRedactions(context.root)),
     };
   } catch (error) {
-    return { content: formatToolError(error), isError: true };
+    return { content: formatToolError(error, context), isError: true };
   }
 }
 

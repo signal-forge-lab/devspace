@@ -36,7 +36,12 @@ import {
   writeFileTool,
 } from "./pi-tools.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
-import { redactPathsInText, workspacePathRedactions, type PathRedaction } from "./path-redaction.js";
+import {
+  redactPathsInText,
+  redactPathsInValue,
+  workspacePathRedactions,
+  type PathRedaction,
+} from "./path-redaction.js";
 import { ProcessSessionManager, type ProcessSnapshot } from "./process-sessions.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { formatPathForPrompt } from "./skills.js";
@@ -424,7 +429,13 @@ function redactToolResponse<T extends { content: ToolContent[] }>(
   redactions: readonly PathRedaction[],
 ): T {
   if (redactions.length === 0) return response;
-  return { ...response, content: redactToolContent(response.content, redactions) };
+  return {
+    ...response,
+    content: redactToolContent(response.content, redactions),
+    ...(Object.prototype.hasOwnProperty.call(response, "details")
+      ? { details: redactPathsInValue((response as T & { details?: unknown }).details, redactions) }
+      : {}),
+  };
 }
 
 function textSummary(content: ToolContent[]): {
@@ -894,6 +905,7 @@ function createMcpServer(
     async ({ path, mode, baseRef }) => {
       const startedAt = performance.now();
       const { workspace, agentsFiles, availableAgentsFiles } = await workspaces.openWorkspace({ path, mode, baseRef });
+      const redactions = workspacePathRedactions(workspace.root);
       if (config.widgets === "changes") {
         void reviewCheckpoints.initializeWorkspace({
           workspaceId: workspace.id,
@@ -905,10 +917,13 @@ function createMcpServer(
         .map((skill) => ({
           name: skill.name,
           description: skill.description,
-          path: formatPathForPrompt(skill.filePath),
+          path: redactPathsInText(formatPathForPrompt(skill.filePath), redactions),
         }));
-      const visibleAgentProviders = config.subagents ? localAgentProviders : [];
-      const visibleAgents = workspace.agentProfiles.map((profile) => {
+      const visibleAgentProviders = redactPathsInValue(
+        config.subagents ? localAgentProviders : [],
+        redactions,
+      );
+      const visibleAgents = redactPathsInValue(workspace.agentProfiles.map((profile) => {
         const summary = summarizeLocalAgentProfile(profile);
         const availability = visibleAgentProviders.find((provider) => provider.name === summary.provider);
         return {
@@ -916,7 +931,8 @@ function createMcpServer(
           providerAvailable: availability?.available,
           providerUnavailableReason: availability?.reason,
         };
-      });
+      }), redactions);
+      const visibleSkillDiagnostics = redactPathsInValue(workspace.skillDiagnostics, redactions);
       const loadedAgentsFiles = agentsFiles.map((file) => ({
         path: formatAgentsPath(file.path, workspace.root),
         content: file.content,
@@ -997,7 +1013,7 @@ function createMcpServer(
           skills: visibleSkills,
           agentProviders: visibleAgentProviders,
           agents: visibleAgents,
-          skillDiagnostics: workspace.skillDiagnostics,
+          skillDiagnostics: visibleSkillDiagnostics,
           instruction,
         },
       };

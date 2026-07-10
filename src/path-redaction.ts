@@ -25,6 +25,23 @@ export function redactPathsInText(text: string, redactions: readonly PathRedacti
   return redacted;
 }
 
+export function redactPathsInValue<T>(value: T, redactions: readonly PathRedaction[] = []): T {
+  if (typeof value === "string") {
+    return redactPathsInText(value, redactions) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactPathsInValue(entry, redactions)) as T;
+  }
+  if (value === null || typeof value !== "object") return value;
+
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return value;
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, redactPathsInValue(entry, redactions)]),
+  ) as T;
+}
+
 function sortedRedactions(redactions: readonly PathRedaction[]): PathRedaction[] {
   return [...redactions].sort((left, right) => right.path.length - left.path.length);
 }

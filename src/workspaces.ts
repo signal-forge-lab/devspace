@@ -9,6 +9,7 @@ import { createManagedWorktree } from "./git-worktrees.js";
 import { assertAllowedPath, isPathInsideRoot, resolveAllowedPath } from "./roots.js";
 import {
   loadWorkspaceSkills,
+  formatPathForPrompt,
   markSkillActivated,
   resolveSkillReadPath,
   type LoadedSkills,
@@ -336,7 +337,7 @@ const SKIPPED_CONTEXT_DIRS = new Set([
 ]);
 
 export function formatAgentsPath(path: string, workspaceRoot: string | undefined): string {
-  if (!workspaceRoot) return path.split(sep).join("/");
+  if (!workspaceRoot) return formatPathForPrompt(path);
 
   const relationship = relative(workspaceRoot, path);
   if (
@@ -345,7 +346,7 @@ export function formatAgentsPath(path: string, workspaceRoot: string | undefined
     relationship === ".." ||
     relationship.includes(`..${sep}`)
   ) {
-    return path.split(sep).join("/");
+    return formatPathForPrompt(path);
   }
 
   return relationship.split(sep).join("/");
