@@ -31,6 +31,11 @@ assert.deepEqual(loadConfig({ ...baseEnv, DEVSPACE_EXPERIMENTAL_FEATURES: "comma
   "command_metadata",
 ]);
 assert.equal(loadConfig(baseEnv).workspaceTasksEnabled, false);
+assert.equal(loadConfig(baseEnv).oauth.maxRegisteredClients, 50);
+assert.equal(loadConfig(baseEnv).oauth.authorizationRateLimit.maxFailures, 5);
+assert.equal(loadConfig(baseEnv).oauth.authorizationRateLimit.failureWindowMs, 300_000);
+assert.equal(loadConfig(baseEnv).oauth.authorizationRateLimit.blockDurationMs, 900_000);
+assert.equal(loadConfig(baseEnv).oauth.authorizationRateLimit.failureDelayMs, 250);
 assert.equal(loadConfig({ ...baseEnv, WORKBRIDGE_ENABLE_WORKSPACE_TASKS: "1" }).workspaceTasksEnabled, true);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_ENABLE_WORKSPACE_TASKS: "1" }).workspaceTasksEnabled, true);
 assert.equal(loadConfig(baseEnv).workspaceTaskDynamicArgsEnabled, false);

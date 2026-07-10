@@ -11,6 +11,12 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { checkResourceAllowed, resourceUrlFromServerUrl } from "@modelcontextprotocol/sdk/shared/auth-utils.js";
 import { SqliteOAuthClientsStore, SqliteOAuthStore } from "./oauth-store.js";
+import {
+  AuthorizationAttemptLimiter,
+  delay,
+  requestAddress,
+  type AuthorizationRateLimitConfig,
+} from "./oauth-security.js";
 
 export interface OAuthConfig {
   ownerToken: string;
@@ -18,6 +24,8 @@ export interface OAuthConfig {
   refreshTokenTtlSeconds: number;
   scopes: string[];
   allowedRedirectHosts: string[];
+  maxRegisteredClients: number;
+  authorizationRateLimit: AuthorizationRateLimitConfig;
 }
 
 interface AuthorizationCodeRecord {
@@ -116,6 +124,7 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
   private readonly codes = new Map<string, AuthorizationCodeRecord>();
   private readonly oauthStore: SqliteOAuthStore;
   private readonly resourceServerUrl: URL;
+  private readonly authorizationAttempts: AuthorizationAttemptLimiter;
 
   constructor(
     private readonly config: OAuthConfig,
@@ -124,7 +133,12 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
   ) {
     this.resourceServerUrl = resourceUrlFromServerUrl(resourceServerUrl);
     this.oauthStore = new SqliteOAuthStore(stateDir);
-    this.clientsStore = new SqliteOAuthClientsStore(this.oauthStore, config.allowedRedirectHosts);
+    this.clientsStore = new SqliteOAuthClientsStore(
+      this.oauthStore,
+      config.allowedRedirectHosts,
+      config.maxRegisteredClients,
+    );
+    this.authorizationAttempts = new AuthorizationAttemptLimiter(config.authorizationRateLimit);
   }
 
   async authorize(
@@ -152,8 +166,22 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
       return;
     }
 
+    const attemptKey = requestAddress(res.req);
+    this.authorizationAttempts.prune();
+    const existingRetryAfterMs = this.authorizationAttempts.retryAfterMs(attemptKey);
+    if (existingRetryAfterMs > 0) {
+      sendRateLimitedAuthorizationForm(res, client, params, existingRetryAfterMs);
+      return;
+    }
+
     const providedToken = String(res.req.body?.owner_token ?? "");
     if (!safeEquals(providedToken, this.config.ownerToken)) {
+      await delay(this.config.authorizationRateLimit.failureDelayMs);
+      const retryAfterMs = this.authorizationAttempts.recordFailure(attemptKey);
+      if (retryAfterMs > 0) {
+        sendRateLimitedAuthorizationForm(res, client, params, retryAfterMs);
+        return;
+      }
       res.status(401).setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(
         formHtml({
@@ -166,6 +194,9 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
       );
       return;
     }
+
+    this.authorizationAttempts.recordSuccess(attemptKey);
+    this.pruneAuthorizationCodes();
 
     const code = `code-${randomUUID()}`;
     this.codes.set(code, {
@@ -264,11 +295,18 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     client: OAuthClientInformationFull,
     authorizationCode: string,
   ): AuthorizationCodeRecord {
+    this.pruneAuthorizationCodes();
     const record = this.codes.get(authorizationCode);
     if (!record || record.clientId !== client.client_id || record.expiresAtMs < Date.now()) {
       throw new InvalidGrantError("Invalid authorization code");
     }
     return record;
+  }
+
+  private pruneAuthorizationCodes(nowMs = Date.now()): void {
+    for (const [code, record] of this.codes) {
+      if (record.expiresAtMs < nowMs) this.codes.delete(code);
+    }
   }
 
   private issueTokens(
@@ -314,6 +352,26 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
       scope: scopes.join(" "),
     };
   }
+}
+
+function sendRateLimitedAuthorizationForm(
+  res: Response,
+  client: OAuthClientInformationFull,
+  params: AuthorizationParams,
+  retryAfterMs: number,
+): void {
+  const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1_000));
+  res.status(429).setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Retry-After", String(retryAfterSeconds));
+  res.send(
+    formHtml({
+      error: `Too many failed attempts. Try again in ${retryAfterSeconds} seconds.`,
+      clientName: client.client_name ?? client.client_id,
+      scopes: params.scopes ?? [],
+      resource: params.resource,
+      fields: authorizationFormFields(client, params),
+    }),
+  );
 }
 
 function authorizationFormFields(

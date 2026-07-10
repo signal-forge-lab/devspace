@@ -10,6 +10,11 @@ export type WidgetMode = "off" | "changes" | "full";
 export type ExperimentalFeature = "command_metadata";
 const DEFAULT_OAUTH_ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+const DEFAULT_OAUTH_MAX_REGISTERED_CLIENTS = 50;
+const DEFAULT_OAUTH_AUTH_FAILURE_LIMIT = 5;
+const DEFAULT_OAUTH_AUTH_FAILURE_WINDOW_SECONDS = 5 * 60;
+const DEFAULT_OAUTH_AUTH_BLOCK_SECONDS = 15 * 60;
+const DEFAULT_OAUTH_AUTH_FAILURE_DELAY_MS = 250;
 const DEFAULT_LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_LOG_FILE_MAX_FILES = 5;
 const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = ["command_metadata"];
@@ -157,6 +162,13 @@ function parsePositiveInteger(value: string | undefined, fallback: number, name:
   return parsed;
 }
 
+function parseNonNegativeInteger(value: string | undefined, fallback: number, name: string): number {
+  if (value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`Invalid ${name}: ${value}`);
+  return parsed;
+}
+
 function parseLogFileMaxBytes(value: string | undefined): number | undefined {
   if (value === undefined || value === "") return DEFAULT_LOG_FILE_MAX_BYTES;
 
@@ -226,6 +238,33 @@ function parseOAuthConfig(env: NodeJS.ProcessEnv, ownerToken: string | undefined
       "localhost",
       "127.0.0.1",
     ]),
+    maxRegisteredClients: parsePositiveInteger(
+      env.DEVSPACE_OAUTH_MAX_REGISTERED_CLIENTS,
+      DEFAULT_OAUTH_MAX_REGISTERED_CLIENTS,
+      "DEVSPACE_OAUTH_MAX_REGISTERED_CLIENTS",
+    ),
+    authorizationRateLimit: {
+      maxFailures: parsePositiveInteger(
+        env.DEVSPACE_OAUTH_AUTH_FAILURE_LIMIT,
+        DEFAULT_OAUTH_AUTH_FAILURE_LIMIT,
+        "DEVSPACE_OAUTH_AUTH_FAILURE_LIMIT",
+      ),
+      failureWindowMs: parsePositiveInteger(
+        env.DEVSPACE_OAUTH_AUTH_FAILURE_WINDOW_SECONDS,
+        DEFAULT_OAUTH_AUTH_FAILURE_WINDOW_SECONDS,
+        "DEVSPACE_OAUTH_AUTH_FAILURE_WINDOW_SECONDS",
+      ) * 1_000,
+      blockDurationMs: parsePositiveInteger(
+        env.DEVSPACE_OAUTH_AUTH_BLOCK_SECONDS,
+        DEFAULT_OAUTH_AUTH_BLOCK_SECONDS,
+        "DEVSPACE_OAUTH_AUTH_BLOCK_SECONDS",
+      ) * 1_000,
+      failureDelayMs: parseNonNegativeInteger(
+        env.DEVSPACE_OAUTH_AUTH_FAILURE_DELAY_MS,
+        DEFAULT_OAUTH_AUTH_FAILURE_DELAY_MS,
+        "DEVSPACE_OAUTH_AUTH_FAILURE_DELAY_MS",
+      ),
+    },
   };
 }
 

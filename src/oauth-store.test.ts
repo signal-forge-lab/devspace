@@ -15,6 +15,13 @@ const oauthConfig = {
   refreshTokenTtlSeconds: 2592000,
   scopes: ["devspace"],
   allowedRedirectHosts: ["chatgpt.com"],
+  maxRegisteredClients: 50,
+  authorizationRateLimit: {
+    maxFailures: 5,
+    failureWindowMs: 300_000,
+    blockDurationMs: 900_000,
+    failureDelayMs: 0,
+  },
 };
 const mcpUrl = new URL("https://agent.example.com/mcp");
 const redirectUri = "https://chatgpt.com/connector_platform_oauth_redirect";
@@ -24,9 +31,30 @@ try {
   testPersistenceAndTokenHashing(join(root, "persistence"));
   testExpiredTokenCleanup(join(root, "expiration"));
   testTransactionalTokenRotation(join(root, "rotation"));
+  testRedirectUriPolicyAndClientLimit(join(root, "registration-security"));
   await testProviderRestartRotationAndRevocation(join(root, "provider"));
 } finally {
   await rm(root, { recursive: true, force: true });
+}
+
+function testRedirectUriPolicyAndClientLimit(stateDir: string): void {
+  const store = new SqliteOAuthStore(stateDir);
+  try {
+    const clients = new SqliteOAuthClientsStore(store, ["chatgpt.com"], 1);
+    clients.registerClient({ redirect_uris: ["https://chatgpt.com/callback"] });
+    assert.throws(
+      () => clients.registerClient({ redirect_uris: ["https://chatgpt.com/second"] }),
+      /registration limit reached/,
+    );
+    assert.throws(
+      () => new SqliteOAuthClientsStore(store, ["chatgpt.com"], 5).registerClient({
+        redirect_uris: ["http://chatgpt.com/insecure"],
+      }),
+      /redirect_uri is not allowed/,
+    );
+  } finally {
+    store.close();
+  }
 }
 
 async function testDatabaseConfiguration(stateDir: string): Promise<void> {
