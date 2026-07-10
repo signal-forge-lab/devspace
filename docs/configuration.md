@@ -177,6 +177,18 @@ DEVSPACE_CHILD_ENV_ALLOWLIST="DISCORD_WEBHOOK_URL,CUSTOM_BUILD_FLAG"
 to child processes, even if named in the allowlist. The allowlist control
 variable itself is also not passed to children.
 
+For the current Aegis Gate integration, Windows discovery variables such as
+`LOCALAPPDATA`, `ProgramFiles`, and `COMPUTERNAME` are included in the safe
+baseline. Discord notifications require the webhook variable to be explicitly
+allowed:
+
+```bash
+DEVSPACE_CHILD_ENV_ALLOWLIST="AEGIS_GATE_DISCORD_WEBHOOK_URL"
+```
+
+Add `AEGIS_GATE_LLM_API_KEY` only when Aegis Gate cycle summaries are configured
+with both `enabled=true` and `use_llm=true`.
+
 ## Logging
 
 | Variable | Default |

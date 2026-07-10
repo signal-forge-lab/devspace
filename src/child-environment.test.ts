@@ -13,6 +13,7 @@ const environment = buildChildProcessEnvironment({
   source: {
     Path: "C:\\tools",
     HOME: "/home/example",
+    COMPUTERNAME: "WORKSTATION",
     DEVSPACE_OAUTH_OWNER_TOKEN: "owner-secret",
     AUTHORIZATION: "Bearer secret",
     GENERAL_API_TOKEN: "hidden-by-default",
@@ -26,6 +27,7 @@ const environment = buildChildProcessEnvironment({
 
 assert.equal(environment.Path, "C:\\tools");
 assert.equal(environment.HOME, "/home/example");
+assert.equal(environment.COMPUTERNAME, "WORKSTATION");
 assert.equal(environment.GENERAL_API_TOKEN, undefined);
 assert.equal(environment.DISCORD_WEBHOOK_URL, "explicitly-needed");
 assert.equal(environment.SAFE_CUSTOM, "allowed-custom");
