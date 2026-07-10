@@ -17,6 +17,9 @@ const DEFAULT_OAUTH_AUTH_BLOCK_SECONDS = 15 * 60;
 const DEFAULT_OAUTH_AUTH_FAILURE_DELAY_MS = 250;
 const DEFAULT_LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_LOG_FILE_MAX_FILES = 5;
+const DEFAULT_MCP_MAX_TRANSPORTS = 32;
+const DEFAULT_MCP_TRANSPORT_IDLE_SECONDS = 60 * 60;
+const DEFAULT_WORKSPACE_SESSION_MAX_AGE_DAYS = 30;
 const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = ["command_metadata"];
 
 export interface ServerConfig {
@@ -39,6 +42,9 @@ export interface ServerConfig {
   devspaceAgentsDir: string;
   subagents: boolean;
   agentDir: string;
+  mcpMaxTransports: number;
+  mcpTransportIdleMs: number;
+  workspaceSessionMaxAgeMs: number;
   logging: LoggingConfig;
 }
 
@@ -320,6 +326,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
         ? files.config.subagents === true
         : parseBoolean(env.DEVSPACE_SUBAGENTS),
     agentDir: resolve(expandHomePath(env.DEVSPACE_AGENT_DIR ?? files.config.agentDir ?? defaultAgentDir())),
+    mcpMaxTransports: parsePositiveInteger(
+      env.DEVSPACE_MCP_MAX_TRANSPORTS,
+      DEFAULT_MCP_MAX_TRANSPORTS,
+      "DEVSPACE_MCP_MAX_TRANSPORTS",
+    ),
+    mcpTransportIdleMs: parsePositiveInteger(
+      env.DEVSPACE_MCP_TRANSPORT_IDLE_SECONDS,
+      DEFAULT_MCP_TRANSPORT_IDLE_SECONDS,
+      "DEVSPACE_MCP_TRANSPORT_IDLE_SECONDS",
+    ) * 1_000,
+    workspaceSessionMaxAgeMs: parsePositiveInteger(
+      env.DEVSPACE_WORKSPACE_SESSION_MAX_AGE_DAYS,
+      DEFAULT_WORKSPACE_SESSION_MAX_AGE_DAYS,
+      "DEVSPACE_WORKSPACE_SESSION_MAX_AGE_DAYS",
+    ) * 24 * 60 * 60 * 1_000,
     logging: parseLoggingConfig(env, stateDir),
   };
 }

@@ -43,6 +43,7 @@ import {
   type PathRedaction,
 } from "./path-redaction.js";
 import { ProcessSessionManager, type ProcessSnapshot } from "./process-sessions.js";
+import { IdleResourceRegistry } from "./idle-resource-registry.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
@@ -1872,7 +1873,10 @@ export function createServer(config = loadConfig()): RunningServer {
     host: config.host,
     ...(allowedHosts ? { allowedHosts } : {}),
   });
-  const transports = new Map<string, Transport>();
+  const transports = new IdleResourceRegistry<Transport>({
+    maxEntries: config.mcpMaxTransports,
+    idleTtlMs: config.mcpTransportIdleMs,
+  });
   const mcpUrl = new URL("/mcp", config.publicBaseUrl);
   const resourceServerUrl = resourceUrlFromServerUrl(mcpUrl);
   const oauthProvider = new SingleUserOAuthProvider(config.oauth, mcpUrl, config.stateDir);
@@ -1881,7 +1885,7 @@ export function createServer(config = loadConfig()): RunningServer {
     requiredScopes: [config.oauth.scopes[0] ?? "devspace"],
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(resourceServerUrl),
   });
-  const workspaceStore = createWorkspaceStore(config.stateDir);
+  const workspaceStore = createWorkspaceStore(config.stateDir, config.workspaceSessionMaxAgeMs);
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
   const reviewCheckpoints = createReviewCheckpointManager();
   const processSessions = new ProcessSessionManager();
@@ -2045,6 +2049,7 @@ export function createServer(config = loadConfig()): RunningServer {
       if (closed) return;
       closed = true;
       processSessions.shutdown();
+      transports.closeAll();
       oauthProvider.close();
       workspaceStore.close?.();
     },
