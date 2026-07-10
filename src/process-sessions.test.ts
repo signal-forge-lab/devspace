@@ -106,6 +106,30 @@ const environment = await manager.start({
 assert.equal(environment.running, false);
 assert.match(environment.output, /1,dumb,cat,cat,cat,1,workspace-a,\/tmp\/devspace-workspace-a/);
 
+const previousOwnerToken = process.env.DEVSPACE_OAUTH_OWNER_TOKEN;
+const previousTestToken = process.env.WORKBRIDGE_TEST_TOKEN;
+const previousAllowedValue = process.env.WORKBRIDGE_TEST_VALUE;
+const previousAllowlist = process.env.DEVSPACE_CHILD_ENV_ALLOWLIST;
+process.env.DEVSPACE_OAUTH_OWNER_TOKEN = "owner-secret";
+process.env.WORKBRIDGE_TEST_TOKEN = "hidden-token";
+process.env.WORKBRIDGE_TEST_VALUE = "visible-value";
+process.env.DEVSPACE_CHILD_ENV_ALLOWLIST = "WORKBRIDGE_TEST_VALUE,DEVSPACE_OAUTH_OWNER_TOKEN";
+try {
+  const filteredEnvironment = await manager.start({
+    workspaceId: "workspace-a",
+    cwd: process.cwd(),
+    command: `${node} -e "console.log([process.env.DEVSPACE_OAUTH_OWNER_TOKEN, process.env.WORKBRIDGE_TEST_TOKEN, process.env.WORKBRIDGE_TEST_VALUE].join(','))"`,
+    yieldTimeMs: 2_000,
+  });
+  assert.equal(filteredEnvironment.running, false);
+  assert.match(filteredEnvironment.output, /^,,visible-value\s*$/);
+} finally {
+  restoreEnvironment("DEVSPACE_OAUTH_OWNER_TOKEN", previousOwnerToken);
+  restoreEnvironment("WORKBRIDGE_TEST_TOKEN", previousTestToken);
+  restoreEnvironment("WORKBRIDGE_TEST_VALUE", previousAllowedValue);
+  restoreEnvironment("DEVSPACE_CHILD_ENV_ALLOWLIST", previousAllowlist);
+}
+
 const background = await manager.start({
   workspaceId: "workspace-a",
   cwd: process.cwd(),
@@ -262,4 +286,9 @@ try {
   }
 } finally {
   manager.shutdown();
+}
+
+function restoreEnvironment(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
 }

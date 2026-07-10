@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { buildChildProcessEnvironment } from "./child-environment.js";
 import { resolveShellCommand, terminateProcessTree } from "./process-platform.js";
 import { redactPathsInText, type PathRedaction } from "./path-redaction.js";
 
@@ -91,27 +92,6 @@ function terminalSize(value: number | undefined, fallback: number): number {
     throw new Error("Terminal dimensions must be integers between 1 and 1000.");
   }
   return value;
-}
-
-function processEnvironment(input?: {
-  workspaceId?: string;
-  workspaceRoot?: string;
-}): Record<string, string> {
-  return {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
-    ),
-    NO_COLOR: "1",
-    TERM: "dumb",
-    PAGER: "cat",
-    GIT_PAGER: "cat",
-    GH_PAGER: "cat",
-    CODEX_CI: "1",
-    LANG: process.env.LANG ?? "C.UTF-8",
-    LC_ALL: process.env.LC_ALL ?? "C.UTF-8",
-    ...(input?.workspaceId ? { DEVSPACE_WORKSPACE_ID: input.workspaceId } : {}),
-    ...(input?.workspaceRoot ? { DEVSPACE_WORKSPACE_ROOT: input.workspaceRoot } : {}),
-  };
 }
 
 function codePointLength(value: string): number {
@@ -335,7 +315,7 @@ export class ProcessSessionManager {
     const detached = process.platform !== "win32";
     const child = spawn(input.command, {
       cwd: input.cwd,
-      env: processEnvironment({
+      env: buildChildProcessEnvironment({
         workspaceId: input.workspaceId,
         workspaceRoot: input.workspaceRoot,
       }),
@@ -369,7 +349,7 @@ export class ProcessSessionManager {
     try {
       pty = nodePty.spawn(shell.executable, shell.args, {
         cwd: input.cwd,
-        env: processEnvironment({
+        env: buildChildProcessEnvironment({
           workspaceId: input.workspaceId,
           workspaceRoot: input.workspaceRoot,
         }),

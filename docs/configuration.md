@@ -154,6 +154,23 @@ DEVSPACE_SKILL_PATHS="$HOME/.claude/skills,$HOME/company/skills" \
 npx @waishnav/devspace serve
 ```
 
+## Child process environment
+
+Commands launched by `exec_command`, `bash`, and workspace tasks receive a
+minimal environment containing the operating-system, shell, locale, temporary
+directory, home-directory, and executable-search variables needed by common
+Node, Python, and Git workflows.
+
+Additional variables must be named explicitly in a comma-separated allowlist:
+
+```bash
+DEVSPACE_CHILD_ENV_ALLOWLIST="DISCORD_WEBHOOK_URL,CUSTOM_BUILD_FLAG"
+```
+
+`DEVSPACE_OAUTH_OWNER_TOKEN` and HTTP authorization variables are never passed
+to child processes, even if named in the allowlist. The allowlist control
+variable itself is also not passed to children.
+
 ## Logging
 
 | Variable | Default |
