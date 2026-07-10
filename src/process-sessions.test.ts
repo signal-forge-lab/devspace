@@ -96,6 +96,24 @@ assert.equal(statusOnlyCompleted.exitCode, 0);
 assert.equal(statusOnlyCompleted.output, "");
 assert.equal(statusOnlyCompleted.outputSuppressed, true);
 
+let statusOnlyBufferedCharacters = 0;
+const statusOnlyBufferProbe = new ProcessSessionManager({
+  onBufferAppend: (output) => {
+    statusOnlyBufferedCharacters += output.length;
+  },
+});
+const statusOnlyUnbuffered = await statusOnlyBufferProbe.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "console.log('x'.repeat(10000))"`,
+  outputMode: "status",
+  yieldTimeMs: 2_000,
+});
+assert.equal(statusOnlyUnbuffered.running, false);
+assert.equal(statusOnlyUnbuffered.outputSuppressed, true);
+assert.equal(statusOnlyBufferedCharacters, 0);
+statusOnlyBufferProbe.shutdown();
+
 const environment = await manager.start({
   workspaceId: "workspace-a",
   workspaceRoot: "/tmp/devspace-workspace-a",

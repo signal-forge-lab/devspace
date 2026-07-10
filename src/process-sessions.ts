@@ -76,6 +76,7 @@ interface ProcessSession {
 interface ProcessSessionManagerOptions {
   maxBufferCharacters?: number;
   completedSessionTtlMs?: number;
+  onBufferAppend?: (output: string) => void;
 }
 
 function boundedInteger(value: number | undefined, fallback: number, maximum: number): number {
@@ -201,11 +202,13 @@ export class ProcessSessionManager {
   private readonly sessions = new Map<number, ProcessSession>();
   private readonly maxBufferCharacters: number;
   private readonly completedSessionTtlMs: number;
+  private readonly onBufferAppend?: (output: string) => void;
   private nextSessionId = 1;
 
   constructor(options: ProcessSessionManagerOptions = {}) {
     this.maxBufferCharacters = options.maxBufferCharacters ?? DEFAULT_BUFFER_CHARACTERS;
     this.completedSessionTtlMs = options.completedSessionTtlMs ?? COMPLETED_SESSION_TTL_MS;
+    this.onBufferAppend = options.onBufferAppend;
   }
 
   async start(input: StartCommandInput): Promise<ProcessSnapshot> {
@@ -386,6 +389,8 @@ export class ProcessSessionManager {
   }
 
   private append(session: ProcessSession, output: string): void {
+    if (session.outputMode === "status") return;
+    this.onBufferAppend?.(output);
     session.buffer.append(output);
   }
 
