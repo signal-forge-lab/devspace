@@ -104,7 +104,7 @@ Implemented result:
 
 ### P0-3: Honor shell-command logging configuration
 
-Status: planned
+Status: completed on 2026-07-11
 
 Problem:
 
@@ -123,6 +123,15 @@ Required behavior:
 - enabling shell-command logging preserves path redaction;
 - compact console and JSONL behavior follow the same policy;
 - tests cover both enabled and disabled configurations.
+
+Implemented result:
+
+- command previews and command lengths are omitted by default for
+  `exec_command`, `bash`, and `launch_workspace_task`;
+- `DEVSPACE_LOG_SHELL_COMMANDS=1` explicitly enables the redacted preview;
+- `write_stdin` never records submitted characters;
+- workspace-task logs retain task, template, and dry-run metadata without
+  requiring the resolved command text.
 
 ## 4. P1 candidates
 

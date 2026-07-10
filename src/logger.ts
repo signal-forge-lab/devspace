@@ -386,6 +386,23 @@ export function commandPreview(command: string): string {
   return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
 }
 
+export function loggedCommandFields(
+  config: Pick<LoggingConfig, "shellCommands">,
+  tool: string,
+  command: string | undefined,
+  commandLength?: number,
+): { commandPreview?: string; commandLength?: number } {
+  if (!config.shellCommands || !command || !isShellCommandTool(tool)) return {};
+  return {
+    commandPreview: commandPreview(command),
+    commandLength: commandLength ?? command.length,
+  };
+}
+
+function isShellCommandTool(tool: string): boolean {
+  return tool === "exec_command" || tool === "bash" || tool === "launch_workspace_task";
+}
+
 function firstHeaderValue(value: string | undefined): string | undefined {
   return value?.split(",")[0]?.trim() || undefined;
 }

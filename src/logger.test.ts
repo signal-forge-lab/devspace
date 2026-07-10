@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { compactClientKind, logEvent, type LoggingConfig } from "./logger.js";
+import {
+  compactClientKind,
+  loggedCommandFields,
+  logEvent,
+  type LoggingConfig,
+} from "./logger.js";
 
 assert.equal(compactClientKind("OpenAI/ChatGPT"), "openai");
 assert.equal(compactClientKind("claude-ai"), "claude");
@@ -29,6 +34,23 @@ const config: LoggingConfig = {
   shellCommands: false,
   trustProxy: false,
 };
+
+assert.deepEqual(
+  loggedCommandFields(config, "exec_command", "echo secret-value", 17),
+  {},
+);
+assert.deepEqual(
+  loggedCommandFields(config, "launch_workspace_task", "python task.py", 14),
+  {},
+);
+assert.deepEqual(
+  loggedCommandFields({ shellCommands: true }, "write_stdin", "secret input", 12),
+  {},
+);
+assert.deepEqual(
+  loggedCommandFields({ shellCommands: true }, "exec_command", "  npm   test  ", 14),
+  { commandPreview: "npm test", commandLength: 14 },
+);
 
 const originalConsoleLog = console.log;
 console.log = () => undefined;

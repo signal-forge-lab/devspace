@@ -23,7 +23,7 @@ import {
   logEvent,
   requestIp,
   requestPath,
-  commandPreview,
+  loggedCommandFields,
   sessionIdPrefix,
 } from "./logger.js";
 import {
@@ -178,6 +178,9 @@ interface ToolLogFields {
   workingDirectory?: string;
   command?: string;
   commandLength?: number;
+  task?: string;
+  template?: string;
+  dryRun?: boolean;
   affectedFiles?: number;
   additions?: number;
   removals?: number;
@@ -318,10 +321,10 @@ function requestLogFields(req: Request, config: ServerConfig): Record<string, un
 function logToolCall(config: ServerConfig, fields: ToolLogFields): void {
   if (!config.logging.toolCalls) return;
 
-  const { command, ...safeFields } = fields;
+  const { command, commandLength, ...safeFields } = fields;
   logEvent(config.logging, fields.success ? "info" : "warn", "tool_call", {
     ...safeFields,
-    commandPreview: command ? commandPreview(command) : undefined,
+    ...loggedCommandFields(config.logging, fields.tool, command, commandLength),
   });
 }
 
@@ -1746,6 +1749,9 @@ function createMcpServer(
             workingDirectory: workingDirectory ?? ".",
             command: resolved.displayCommand,
             commandLength: resolved.displayCommand.length,
+            task,
+            template,
+            dryRun: true,
             success: true,
             durationMs: Math.round(performance.now() - startedAt),
           });
@@ -1775,6 +1781,9 @@ function createMcpServer(
           workingDirectory: workingDirectory ?? ".",
           command: resolved.displayCommand,
           commandLength: resolved.displayCommand.length,
+          task,
+          template,
+          dryRun: false,
           success: true,
           durationMs: Math.round(performance.now() - startedAt),
         });
