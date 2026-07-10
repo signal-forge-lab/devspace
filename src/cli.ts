@@ -38,10 +38,10 @@ import {
   type DevspaceUserConfig,
 } from "./user-config.js";
 import { expandHomePath } from "./roots.js";
+import { PACKAGE_VERSION, SUPPORTED_NODE_RANGE } from "./version.js";
 
 type Command = "serve" | "init" | "doctor" | "config" | "agents" | "help" | "version";
 const require = createRequire(import.meta.url);
-const SUPPORTED_NODE_RANGE = ">=20.12 <27";
 
 async function main(argv: string[]): Promise<void> {
   assertSupportedNode();
@@ -215,7 +215,7 @@ async function serve(): Promise<void> {
   const { app, close, localAgentProviders } = createServer(config);
   const httpServer = app.listen(config.port, config.host, () => {
     console.log(`devspace listening on http://${config.host}:${config.port}/mcp`);
-    console.log(`version: ${String((require("../package.json") as { version?: unknown }).version ?? "unknown")}`);
+    console.log(`version: ${PACKAGE_VERSION}`);
     console.log(`git commit: ${(() => {
       try {
         return require("node:child_process").execFileSync("git", ["rev-parse", "--short", "HEAD"], {
@@ -583,12 +583,7 @@ function printAgentsHelp(): void {
 }
 
 function printVersion(): void {
-  const packageJson = require("../package.json") as { version?: unknown };
-  if (typeof packageJson.version !== "string") {
-    throw new Error("Unable to read DevSpace package version.");
-  }
-
-  console.log(packageJson.version);
+  console.log(PACKAGE_VERSION);
 }
 
 function normalizeOptionalPublicBaseUrl(value: string): string | null {

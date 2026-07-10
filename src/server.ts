@@ -54,6 +54,7 @@ import {
   type WorkspaceTaskName,
 } from "./workspace-tasks.js";
 import { summarizeLocalAgentProfile } from "./local-agent-profiles.js";
+import { PACKAGE_VERSION } from "./version.js";
 import {
   formatLocalAgentProviderAvailabilitySummary,
   getLocalAgentProviderAvailabilitySnapshot,
@@ -831,7 +832,7 @@ function createMcpServer(
     {
       name: "devspace",
       title: "DevSpace",
-      version: "0.1.0",
+      version: PACKAGE_VERSION,
       description:
         "Secure local coding workspace for MCP clients. Provides workspace-scoped file, search, edit, write, and shell tools.",
     },
