@@ -38,7 +38,7 @@ workspace-boundary changes.
 
 ### P0-1: Merge current upstream/main
 
-Status: planned
+Status: completed on 2026-07-11
 
 Purpose:
 
@@ -55,7 +55,7 @@ Acceptance checks:
 
 ### P0-2: Enforce realpath containment for general file tools
 
-Status: planned
+Status: completed on 2026-07-11
 
 Affected tools:
 
@@ -93,6 +93,14 @@ Required regression tests:
 - creation below an escaped parent is rejected;
 - a symlink that resolves inside the workspace remains usable;
 - advertised skill files remain readable only inside their allowed skill root.
+
+Implemented result:
+
+- added `resolveAllowedRealPath()` as the shared realpath-aware resolver;
+- applied it to read, write, edit, grep, glob/find, and ls;
+- retained lexical output paths while validating the real target or nearest
+  existing parent;
+- added cross-platform junction/symlink and missing-target regression tests.
 
 ### P0-3: Honor shell-command logging configuration
 
