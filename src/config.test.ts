@@ -32,6 +32,7 @@ assert.deepEqual(loadConfig({ ...baseEnv, DEVSPACE_EXPERIMENTAL_FEATURES: "comma
 ]);
 assert.equal(loadConfig(baseEnv).workspaceTasksEnabled, false);
 assert.equal(loadConfig(baseEnv).oauth.maxRegisteredClients, 50);
+assert.equal(loadConfig(baseEnv).oauth.inactiveClientMaxAgeSeconds, 90 * 24 * 60 * 60);
 assert.equal(loadConfig(baseEnv).oauth.authorizationRateLimit.maxFailures, 5);
 assert.equal(loadConfig(baseEnv).oauth.authorizationRateLimit.failureWindowMs, 300_000);
 assert.equal(loadConfig(baseEnv).oauth.authorizationRateLimit.blockDurationMs, 900_000);

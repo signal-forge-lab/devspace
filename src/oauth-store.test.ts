@@ -16,6 +16,7 @@ const oauthConfig = {
   scopes: ["devspace"],
   allowedRedirectHosts: ["chatgpt.com"],
   maxRegisteredClients: 50,
+  inactiveClientMaxAgeSeconds: 90 * 24 * 60 * 60,
   authorizationRateLimit: {
     maxFailures: 5,
     failureWindowMs: 300_000,
@@ -32,9 +33,34 @@ try {
   testExpiredTokenCleanup(join(root, "expiration"));
   testTransactionalTokenRotation(join(root, "rotation"));
   testRedirectUriPolicyAndClientLimit(join(root, "registration-security"));
+  testInactiveClientCleanup(join(root, "client-cleanup"));
   await testProviderRestartRotationAndRevocation(join(root, "provider"));
 } finally {
   await rm(root, { recursive: true, force: true });
+}
+
+function testInactiveClientCleanup(stateDir: string): void {
+  const store = new SqliteOAuthStore(stateDir);
+  const clients = new SqliteOAuthClientsStore(store, oauthConfig.allowedRedirectHosts);
+  const stale = clients.registerClient({ redirect_uris: [redirectUri] });
+  const active = clients.registerClient({ redirect_uris: [redirectUri] });
+  const cutoff = Math.floor(Date.now() / 1000) - 60;
+
+  const database = openDatabase(stateDir);
+  database.sqlite
+    .prepare("update oauth_clients set issued_at = ? where client_id in (?, ?)")
+    .run(cutoff - 1, stale.client_id, active.client_id);
+  database.close();
+
+  store.saveRefreshToken("active-client-token", {
+    clientId: active.client_id,
+    scopes: ["devspace"],
+    expiresAt: cutoff + 3_600,
+  });
+  assert.equal(store.deleteInactiveClients(cutoff), 1);
+  assert.equal(store.getClient(stale.client_id), undefined);
+  assert.equal(store.getClient(active.client_id)?.client_id, active.client_id);
+  store.close();
 }
 
 function testRedirectUriPolicyAndClientLimit(stateDir: string): void {

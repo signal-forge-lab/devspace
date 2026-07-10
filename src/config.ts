@@ -11,6 +11,7 @@ export type ExperimentalFeature = "command_metadata";
 const DEFAULT_OAUTH_ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const DEFAULT_OAUTH_MAX_REGISTERED_CLIENTS = 50;
+const DEFAULT_OAUTH_INACTIVE_CLIENT_MAX_AGE_DAYS = 90;
 const DEFAULT_OAUTH_AUTH_FAILURE_LIMIT = 5;
 const DEFAULT_OAUTH_AUTH_FAILURE_WINDOW_SECONDS = 5 * 60;
 const DEFAULT_OAUTH_AUTH_BLOCK_SECONDS = 15 * 60;
@@ -249,6 +250,11 @@ function parseOAuthConfig(env: NodeJS.ProcessEnv, ownerToken: string | undefined
       DEFAULT_OAUTH_MAX_REGISTERED_CLIENTS,
       "DEVSPACE_OAUTH_MAX_REGISTERED_CLIENTS",
     ),
+    inactiveClientMaxAgeSeconds: parsePositiveInteger(
+      env.DEVSPACE_OAUTH_INACTIVE_CLIENT_MAX_AGE_DAYS,
+      DEFAULT_OAUTH_INACTIVE_CLIENT_MAX_AGE_DAYS,
+      "DEVSPACE_OAUTH_INACTIVE_CLIENT_MAX_AGE_DAYS",
+    ) * 24 * 60 * 60,
     authorizationRateLimit: {
       maxFailures: parsePositiveInteger(
         env.DEVSPACE_OAUTH_AUTH_FAILURE_LIMIT,

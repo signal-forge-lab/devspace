@@ -29,9 +29,13 @@ export interface PersistedTokenPair {
 export class SqliteOAuthStore {
   private readonly database: DatabaseHandle;
 
-  constructor(stateDir: string) {
+  constructor(stateDir: string, inactiveClientMaxAgeSeconds?: number) {
     this.database = openDatabase(stateDir);
-    this.deleteExpiredTokens(Math.floor(Date.now() / 1000));
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    this.deleteExpiredTokens(nowSeconds);
+    if (inactiveClientMaxAgeSeconds !== undefined) {
+      this.deleteInactiveClients(nowSeconds - inactiveClientMaxAgeSeconds);
+    }
   }
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
@@ -177,6 +181,23 @@ export class SqliteOAuthStore {
 
   close(): void {
     this.database.close();
+  }
+
+  deleteInactiveClients(beforeSeconds: number): number {
+    return this.database.sqlite
+      .prepare(
+        `delete from oauth_clients
+         where issued_at < ?
+           and not exists (
+             select 1 from oauth_access_tokens
+             where oauth_access_tokens.client_id = oauth_clients.client_id
+           )
+           and not exists (
+             select 1 from oauth_refresh_tokens
+             where oauth_refresh_tokens.client_id = oauth_clients.client_id
+           )`,
+      )
+      .run(beforeSeconds).changes;
   }
 
   private deleteExpiredTokens(nowSeconds: number): void {

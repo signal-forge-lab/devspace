@@ -25,6 +25,7 @@ export interface OAuthConfig {
   scopes: string[];
   allowedRedirectHosts: string[];
   maxRegisteredClients: number;
+  inactiveClientMaxAgeSeconds: number;
   authorizationRateLimit: AuthorizationRateLimitConfig;
 }
 
@@ -132,7 +133,7 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     stateDir: string,
   ) {
     this.resourceServerUrl = resourceUrlFromServerUrl(resourceServerUrl);
-    this.oauthStore = new SqliteOAuthStore(stateDir);
+    this.oauthStore = new SqliteOAuthStore(stateDir, config.inactiveClientMaxAgeSeconds);
     this.clientsStore = new SqliteOAuthClientsStore(
       this.oauthStore,
       config.allowedRedirectHosts,
