@@ -20,6 +20,7 @@ import * as z from "zod/v4";
 import { applyPatch } from "./apply-patch.js";
 import { loadConfig, type ExperimentalFeature, type ServerConfig, type WidgetMode } from "./config.js";
 import {
+  classifyHttpRequest,
   logEvent,
   requestIp,
   requestPath,
@@ -1913,6 +1914,7 @@ export function createServer(config = loadConfig()): RunningServer {
         method: req.method,
         path,
         status: res.statusCode,
+        classification: classifyHttpRequest(path, res.statusCode),
         durationMs: Math.round(performance.now() - startedAt),
         ...requestLogFields(req, config),
       });

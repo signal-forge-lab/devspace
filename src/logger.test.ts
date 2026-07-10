@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  classifyHttpRequest,
   compactClientKind,
   loggedCommandFields,
   logEvent,
@@ -17,6 +18,11 @@ assert.equal(compactClientKind("curl/8.5.0"), "curl");
 assert.equal(compactClientKind("Mozilla/5.0 Chrome/120 Safari/537.36"), "browser");
 assert.equal(compactClientKind("zgrab/0.x"), "scanner");
 assert.equal(compactClientKind(""), "unknown");
+assert.equal(classifyHttpRequest("/mcp", 401), "auth");
+assert.equal(classifyHttpRequest("/mcp", 403), "auth");
+assert.equal(classifyHttpRequest("/.well-known/openid-configuration", 404), "probe");
+assert.equal(classifyHttpRequest("/mcp", 404), "error");
+assert.equal(classifyHttpRequest("/mcp", 200), "request");
 
 const logDir = mkdtempSync(join(tmpdir(), "devspace-logger-test-"));
 const logPath = join(logDir, "devspace.jsonl");

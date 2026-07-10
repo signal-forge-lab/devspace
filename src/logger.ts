@@ -4,6 +4,7 @@ import type { Request } from "express";
 
 export type LogLevel = "silent" | "error" | "warn" | "info" | "debug";
 export type LogFormat = "json" | "pretty";
+export type HttpRequestClassification = "request" | "auth" | "probe" | "error";
 
 export interface LoggingConfig {
   level: LogLevel;
@@ -180,19 +181,44 @@ function compactHttpRequestConsoleLine(event: string, fields: LogFields): string
     || (durationMs !== undefined && durationMs >= 1000);
   if (!shouldShow) return undefined;
 
-  const success = status === undefined || status < 400;
+  const classification = isHttpRequestClassification(fields.classification)
+    ? fields.classification
+    : classifyHttpRequest(path, status);
+  const success = classification !== "error";
+  const label = classification === "auth" ? "AUTH" : classification === "probe" ? "PROBE" : "HTTP";
+  const statusLabel = classification === "auth"
+    ? "auth"
+    : classification === "probe"
+      ? "probe"
+      : success
+        ? "ok"
+        : "failed";
   const duration = formatDurationMs(durationMs);
   const line = [
     compactCell(compactTimestamp(), 14),
     compactCell(httpWorkspaceColumn(fields), 15),
-    compactCell("HTTP", 6),
+    compactCell(label, 6),
     compactCell("http_request", 22),
-    compactCell(success ? "ok" : "failed", 6),
+    compactCell(statusLabel, 6),
     compactDurationCell(duration, success),
     compactHttpDetails(fields, path, status, durationMs),
   ].filter(Boolean).join(" | ");
 
   return success ? colorizeConsoleLine(line, "cyan") : colorizeConsoleLine(line, "red");
+}
+
+export function classifyHttpRequest(
+  path: string,
+  status: number | undefined,
+): HttpRequestClassification {
+  if ((status === 401 || status === 403) && path === "/mcp") return "auth";
+  if (status === 404 && path.startsWith("/.well-known/")) return "probe";
+  if (status !== undefined && status >= 400) return "error";
+  return "request";
+}
+
+function isHttpRequestClassification(value: unknown): value is HttpRequestClassification {
+  return value === "request" || value === "auth" || value === "probe" || value === "error";
 }
 
 function compactHttpDetails(fields: LogFields, path: string, status: number | undefined, durationMs: number | undefined): string {
