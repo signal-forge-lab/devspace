@@ -11,7 +11,7 @@
 - レビュー実施日: 2026-07-11 JST
 - レビュー開始時基準commit: `c4e6a1d`
 - 確認したupstream: `upstream/main` at `6ccefbf`
-- 現在の最新commit: `2bd4658`
+- 現在の最新実装commit: `39e77f0`
 - push方針: ユーザー承認があるまでpushしない
 - commit方針: 完了した変更は作業単位ごとにcommitする
 
@@ -25,18 +25,20 @@
 | P0-1 | 完了 | upstream/mainのWindows・AGENTS symlink安全性修正を取り込み |
 | P0-2 | 完了 | 一般file toolのrealpath/junction境界修正 |
 | P0-3 | 完了 | shell command logging設定の実適用 |
-| P1 | 未着手 | 応答sanitizer、子プロセス環境変数、workspace task固定化 |
+| P1-1 | 完了 | 応答パスsanitizationの一元化 |
+| P1-2 | 完了 | 子プロセス環境変数の最小化と明示allowlist |
+| P1-3 | 完了 | workspace taskのtemplate-only既定化 |
 | P2 | 未着手 | status-only buffer、OAuth、cleanup、version、HTTPログ分類 |
 | P3 | 未着手 | server.ts分割、lint/coverage、UI bundle改善 |
 
 ### 2.2 次に着手する推奨タスク
 
-次は **P1-1: 応答パスsanitizationの一元化** を行う。
+次は **P2-1: status-only processでstdout/stderrをbufferしない** を行う。
 
 理由:
 
-- root系のフルパスは秘匿済みだが、context file、skill diagnostics、tool error、backend detailsなどに残存経路がある。
-- ファイル本文を改変せず、Workbridgeが生成したmetadata・error・detailsだけを安全に処理する共通境界が必要である。
+- `launch_workspace_task`は外部返却を抑制済みだが、status-only modeでも内部bufferへstdout/stderrを一時保持している。
+- 最初からbufferへ保存しないことで、機密情報の内部滞留と不要なメモリ使用を減らせる。
 
 ## 3. レビュー前後に完了した関連改修
 
@@ -236,12 +238,12 @@
 | `npm run build` | 成功 |
 | `git diff --check` | 成功 |
 
-## 6. 未対応P1タスク
+## 6. 対応済みP1タスク
 
 ### P1-1: 応答パスsanitizationの一元化
 
-- 状態: **未着手**
-- 優先順位: P1の先頭
+- 状態: **完了（2026-07-11）**
+- 実装commit: `15c76f0 fix centralize response path sanitization`
 
 #### 残存する可能性がある経路
 
@@ -269,9 +271,28 @@
 - ファイル本文は原文のまま返る
 - full test/buildが成功する
 
+#### 実施内容
+
+- `redactPathsInValue()`を追加し、plain objectとarray内のsystem-generated文字列を再帰的にsanitizationするようにした
+- tool responseの`details`を共通sanitizerへ通した
+- file toolのerror messageをworkspace/home path redaction対象にした
+- global AGENTS/CLAUDE pathはuser home配下を`~/...`表示にした
+- skill diagnostics、agent provider reason、agent profile summaryをsanitizationした
+- `read`成功時のファイル本文はsanitization対象外として原文を維持した
+- `src/pi-tools.test.ts`を追加し、file tool errorにworkspace rootが残らないことを確認した
+
+#### 検証結果
+
+- `npm run typecheck`: 成功
+- 対象テスト: 成功
+- `npm test`: 成功
+- `npm run build`: 成功
+- `git diff --check`: 成功
+
 ### P1-2: 子プロセス環境変数の最小化
 
-- 状態: **未着手**
+- 状態: **完了（2026-07-11）**
+- 実装commit: `af8fdfd fix minimize child process environment`
 
 #### 問題
 
@@ -300,9 +321,37 @@
 - Aegis Gateに必要な変数を安全に明示できる
 - Windows/Linux/macOSテストが通る
 
+#### 実施内容
+
+- `src/child-environment.ts`に子プロセス用の最小環境生成処理を追加した
+- OS、shell、PATH、home、temp、locale、Git/Python実行に必要な変数だけを既定継承するようにした
+- 追加変数は`DEVSPACE_CHILD_ENV_ALLOWLIST`へ名前を明示した場合だけ継承するようにした
+- `DEVSPACE_OAUTH_OWNER_TOKEN`とAuthorization系変数はallowlist指定があっても常に遮断するようにした
+- allowlist制御変数自体は子プロセスへ渡さない
+- workspaceIdとworkspace rootの内部連携変数は従来どおり注入する
+
+#### 運用上の注意
+
+Discord webhook、追加API key、独自build flagなどを親Workbridge processの環境変数からAegis Gateやコマンドへ渡す場合は、必要な変数名だけを明示する。
+
+```text
+DEVSPACE_CHILD_ENV_ALLOWLIST=DISCORD_WEBHOOK_URL,CUSTOM_BUILD_FLAG
+```
+
+値ではなく変数名だけを設定する。WorkbridgeのOAuth owner tokenは指定しても渡らない。
+
+#### 検証結果
+
+- `npm run typecheck`: 成功
+- environment unit/integration test: 成功
+- `npm test`: 成功
+- `npm run build`: 成功
+- `git diff --check`: 成功
+
 ### P1-3: workspace taskをtemplate-only既定へ変更
 
-- 状態: **未着手**
+- 状態: **完了（2026-07-11）**
+- 実装commit: `39e77f0 fix require workspace task templates`
 
 #### 問題
 
@@ -323,6 +372,23 @@ workspace taskはraw shellより安全だが、OSレベルの完全なsecurity b
 - 既存のAegis Gate固定templateが動作する
 - opt-inなしでtask定義外CLIへ拡張できない
 - regression testがある
+
+#### 実施内容
+
+- 既定状態では`launch_workspace_task`の`template`を必須にした
+- 既定状態のmodel-facing schemaから`args`を除外した
+- resolver側でもtemplateなし起動と任意`args[]`を拒否する二重防御にした
+- `WORKBRIDGE_ENABLE_WORKSPACE_TASK_DYNAMIC_ARGS=1`を明示した場合だけ従来のdynamic args動作を許可する
+- workspace task catalogの例から任意args起動を除き、template名を使う例だけを残した
+- 既存のworkspace-local templateはそのまま利用可能
+
+#### 検証結果
+
+- `npm run typecheck`: 成功
+- config/workspace-task対象テスト: 成功
+- `npm test`: 成功
+- `npm run build`: 成功
+- `git diff --check`: 成功
 
 ## 7. 未対応P2タスク
 
@@ -462,36 +528,34 @@ npm pack --dry-run
 | `b73ce47` | 完了 | upstream/mainセキュリティ修正取り込み |
 | `6c3aa0c` | 完了 | 一般file tool realpath境界修正 |
 | `2bd4658` | 完了 | shell command logging policy修正 |
+| `6d2ab33` | 完了 | レビュータスク台帳の詳細化 |
+| `1699c90` | 完了 | `.codex/`、`.devspace/`、`logs/`、`reports/`をignore |
+| `15c76f0` | 完了 | 応答パスsanitization一元化 |
+| `af8fdfd` | 完了 | 子プロセス環境変数最小化 |
+| `39e77f0` | 完了 | workspace task template-only既定化 |
 
 ## 12. 現在のGit状態
 
-2026-07-11の本書更新前確認時点:
+2026-07-11のP1実装完了時点:
 
 ```text
 branch: feature/workbridge-stable-surface
 remote tracking: origin/feature/workbridge-stable-surface
-ahead: 16 commits
+ahead: 21 commits
 tracked changes: none
-untracked and intentionally untouched:
-  .codex/
-  .devspace/
-  logs/
-  reports/
+untracked: none
 ```
 
-本書更新commit後はahead数が1増える。pushはまだ実施しない。
+`.codex/`、`.devspace/`、`logs/`、`reports/`は`.gitignore`登録済み。本書更新commit後はahead数が1増える。pushはまだ実施しない。
 
 ## 13. 今後の実行順
 
-1. P1-1 応答パスsanitizationの一元化
-2. P1-2 子プロセス環境変数の最小化
-3. P1-3 workspace task template-only既定化
-4. P2-1 status-only process buffer抑制
-5. P2-2 / P2-3 OAuth強化
-6. P2-4 / P2-5 lifecycle cleanup
-7. P2-6 version統一
-8. P2-7 HTTPログ分類
-9. P3保守性改善
+1. P2-1 status-only process buffer抑制
+2. P2-2 / P2-3 OAuth強化
+3. P2-4 / P2-5 lifecycle cleanup
+4. P2-6 version統一
+5. P2-7 HTTPログ分類
+6. P3保守性改善
 
 各タスク着手時は、本書の状態を「作業中」へ変更し、完了後に以下を追記する。
 
