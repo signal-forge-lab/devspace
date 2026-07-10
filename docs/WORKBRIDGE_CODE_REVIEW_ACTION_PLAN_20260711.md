@@ -11,7 +11,7 @@
 - レビュー実施日: 2026-07-11 JST
 - レビュー開始時基準commit: `c4e6a1d`
 - 確認したupstream: `upstream/main` at `6ccefbf`
-- 現在の最新実装commit: `6f9c4b7`
+- 現在の最新実装commit: `e6be3b7`
 - push方針: ユーザー承認があるまでpushしない
 - commit方針: 完了した変更は作業単位ごとにcommitする
 
@@ -29,18 +29,18 @@
 | P1-2 | 完了 | 子プロセス環境変数の最小化と明示allowlist |
 | P1-3 | 完了 | workspace taskのtemplate-only既定化 |
 | P2-1〜P2-7 | 完了 | buffer抑制、OAuth強化、lifecycle cleanup、version統一、HTTPログ分類 |
-| P2-8 | 保留 | ユーザー指定により表示名統一は今回の優先対応から除外 |
+| P2-8 | 完了 | 互換識別子を維持したままユーザー向け表示名をWorkbridgeへ統一 |
 | P3-1〜P3-3 | 未着手 | server.ts分割、lint、coverage/test分類 |
 | P3-4 | 完了 | 遅延読込chunkの実態に合わせてbuild警告閾値を調整 |
 
 ### 2.2 次に着手する推奨タスク
 
-P2-1〜P2-7とP3-4は完了した。次の候補は **P3-1: `src/server.ts`分割** である。
+P2-1〜P2-8とP3-4は完了した。次は **Workbridge再起動・アプリ再接続後のlive smoke test** を行う。
 
 理由:
 
-- P2-8はユーザー指定により保留している。
-- P3-1は機能変更を避けながら約2,000行の`server.ts`を分割し、今後の保守・レビュー範囲を小さくできる。
+- 再起動前のコード・build準備は完了している。
+- 再接続後に表示名、OAuth画面、tool surface、Aegis Gate task実行を実機確認する。
 
 ## 3. レビュー前後に完了した関連改修
 
@@ -483,7 +483,8 @@ workspace taskはraw shellより安全だが、OSレベルの完全なsecurity b
 
 ### P2-8: ユーザー向け表示名をWorkbridgeへ統一
 
-- 状態: **保留（ユーザー指定）**
+- 状態: **完了（2026-07-11）**
+- commit: `590e99f feat unify Workbridge display branding`
 - 目的: 互換識別子を壊さず、ユーザーから見える旧名称`DevSpace`を`Workbridge`へ整理する
 - 変更候補:
   - MCP server title・instructions・tool/card description
@@ -507,6 +508,57 @@ workspace taskはraw shellより安全だが、OSレベルの完全なsecurity b
   - 通常利用時に表示される製品名がWorkbridgeへ統一される
   - 既存CLI、設定、OAuth、DB、保存済みstateとの互換性が維持される
   - 互換識別子を意図せずrenameしていないことを回帰テストで確認する
+  - README、AGENTS.md、既存履歴資料のupstream由来表記は今回の対象外とする
+
+#### 実施内容
+
+- `src/branding.ts`を追加し、表示名`Workbridge`と互換識別子を明示的に分離した
+- MCP server title、instructions、resource名、Diff Card名をWorkbridgeへ変更した
+- OAuth認証画面のtitle、heading、button、resource表示をWorkbridgeへ変更した
+- CLI setup、help、agents、Node version error、起動表示をWorkbridgeへ変更した
+- workspace UIのHTML titleをWorkbridgeへ変更した
+- local agent client表示名、review snapshot author、logger prefixをWorkbridgeへ変更した
+- 次の互換識別子は変更していない:
+  - package `@waishnav/devspace`
+  - CLI command `devspace`
+  - `DEVSPACE_*`環境変数
+  - `.devspace/`と既存state path
+  - OAuth scope `devspace`
+  - MCP内部service name `devspace`
+  - DB、migration、Git ref prefix
+- `src/branding.test.ts`を追加し、表示名と主要互換識別子を回帰テストで固定した
+- アイコン素材のリポジトリ配置・アプリ設定への反映はユーザー指定により保留した
+
+#### 検証結果
+
+- `npm run typecheck`: 成功
+- `npm test`: 成功
+- `npm run build`: 成功
+- `git diff --check`: 成功
+
+### P2-9: Aegis Gate子プロセス環境の再起動前確認
+
+- 状態: **完了（2026-07-11）**
+- commit: `e6be3b7 fix preserve Aegis Gate child environment`
+- 調査結果:
+  - Aegis GateのCodex Sandbox ACL確認は`COMPUTERNAME`を参照する
+  - Discord通知は`AEGIS_GATE_DISCORD_WEBHOOK_URL`を参照する
+  - `AEGIS_GATE_LLM_API_KEY`はcycle summaryで`enabled=true`かつ`use_llm=true`の場合のみ必要
+- 実施内容:
+  - secretではないWindows標準変数`COMPUTERNAME`を安全な既定継承へ追加した
+  - Discord webhookは引き続き明示allowlistを必須とした
+  - `.env.example`と`docs/configuration.md`へAegis Gate向け設定例を追加した
+- 再起動時の推奨設定:
+
+```text
+DEVSPACE_CHILD_ENV_ALLOWLIST=AEGIS_GATE_DISCORD_WEBHOOK_URL
+```
+
+- cycle summary LLMを将来有効化する場合のみ次へ拡張する:
+
+```text
+DEVSPACE_CHILD_ENV_ALLOWLIST=AEGIS_GATE_DISCORD_WEBHOOK_URL,AEGIS_GATE_LLM_API_KEY
+```
 
 ## 8. P3タスク
 
@@ -608,27 +660,31 @@ npm pack --dry-run
 | `8e26e7f` | 完了 | HTTP auth/probe分類 |
 | `c312541` | 完了 | lazy chunk警告閾値調整 |
 | `6f9c4b7` | 完了 | inactive OAuth client cleanup |
+| `590e99f` | 完了 | ユーザー向け表示名をWorkbridgeへ統一 |
+| `e6be3b7` | 完了 | Aegis Gate子プロセス環境の互換維持 |
 
 ## 12. 現在のGit状態
 
-2026-07-11のP2-1〜P2-7・P3-4実装完了時点:
+2026-07-11のP2-8・環境変数確認完了時点:
 
 ```text
 branch: feature/workbridge-stable-surface
 remote tracking: origin/feature/workbridge-stable-surface
-ahead: 8 commits（本書更新commit前）
+ahead: 11 commits（本書更新commit前）
 tracked changes: none
 untracked: none
 ```
 
-`.codex/`、`.devspace/`、`logs/`、`reports/`は`.gitignore`登録済み。本書更新commit後はahead数が1増える。今回のP2/P3変更はまだpushしていない。
+`.codex/`、`.devspace/`、`logs/`、`reports/`は`.gitignore`登録済み。P2-1〜P2-8、P3-4、環境変数確認の11commitはまだpushしていない。
 
 ## 13. 今後の実行順
 
-1. P3-1 `src/server.ts`分割
-2. P3-2 lint導入
-3. P3-3 coverage・security/integration test分類
-4. P2-8 ユーザー向け表示名のWorkbridge統一（ユーザーが再開を指示した場合のみ）
+1. Workbridge再起動・ChatGPTアプリ再接続
+2. live smoke test
+3. アイコン正式配置（ユーザー保留解除後）
+4. P3-2 lint導入
+5. P3-3 coverage・security/integration test分類
+6. P3-1 `src/server.ts`分割
 
 各タスク着手時は、本書の状態を「作業中」へ変更し、完了後に以下を追記する。
 
