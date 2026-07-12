@@ -203,7 +203,6 @@ with both `enabled=true` and `use_llm=true`.
 | `DEVSPACE_LOG_REQUESTS` | `1` |
 | `DEVSPACE_LOG_ASSETS` | `0` |
 | `DEVSPACE_LOG_TOOL_CALLS` | `1` |
-| `DEVSPACE_LOG_SHELL_COMMANDS` | `0` |
 | `DEVSPACE_TRUST_PROXY` | `0` |
 | `WORKBRIDGE_EXPERIMENTAL_FEATURES` | unset |
 
@@ -231,6 +230,18 @@ logs when the model supplies them. These fields are not shown in the compact
 console and should be treated as model self-reporting, not observed host-side
 safety-check counts. `DEVSPACE_EXPERIMENTAL_FEATURES` is accepted as a legacy
 alias.
+
+Add `shell_command_logging` to `WORKBRIDGE_EXPERIMENTAL_FEATURES` to include
+redacted command previews and command lengths for `exec_command`, `bash`, and
+`launch_workspace_task` in compact console and JSONL tool-call logs.
+`write_stdin` input is never logged. The former
+`DEVSPACE_LOG_SHELL_COMMANDS` variable is no longer read.
+
+Multiple experiments can be comma-separated, for example:
+
+```text
+WORKBRIDGE_EXPERIMENTAL_FEATURES=command_metadata,shell_command_logging
+```
 
 Normal HTTP request lines are highlighted cyan when the terminal supports ANSI
 colors. Second-level durations are highlighted yellow, while failed tool lines

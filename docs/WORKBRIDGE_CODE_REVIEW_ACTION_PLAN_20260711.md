@@ -202,7 +202,7 @@ P2-1〜P2-8とP3-4は完了した。次は **Workbridge再起動・アプリ再�
 
 #### 問題
 
-`DEVSPACE_LOG_SHELL_COMMANDS`は既定OFFであり、security documentationも「明示有効化しない限りcommand previewを記録しない」としていた。
+当初は`DEVSPACE_LOG_SHELL_COMMANDS`を専用フラグとして使用していたが、設定体系を統一するため後続改修で廃止した。
 
 しかし実装上は`logToolCall()`が設定を参照せず、commandを受け取ると常に`commandPreview`をJSONLへ記録していた。
 
@@ -212,7 +212,7 @@ P2-1〜P2-8とP3-4は完了した。次は **Workbridge再起動・アプリ再�
   - `exec_command`
   - `bash`
   - `launch_workspace_task`
-- `DEVSPACE_LOG_SHELL_COMMANDS=1`の場合だけredaction済みpreviewを記録
+- `WORKBRIDGE_EXPERIMENTAL_FEATURES`に`shell_command_logging`を含めた場合だけredaction済みpreviewを記録
 - `write_stdin`の入力文字列は設定ONでも記録しない
 - `launch_workspace_task`はcommand本文なしでも以下を記録
   - task

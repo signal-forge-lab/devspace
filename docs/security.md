@@ -95,6 +95,7 @@ sessions.
 ## Logs
 
 By default, DevSpace logs requests and tool calls. Shell command previews are
-disabled unless `DEVSPACE_LOG_SHELL_COMMANDS=1`.
+disabled unless `WORKBRIDGE_EXPERIMENTAL_FEATURES` includes
+`shell_command_logging`.
 
 Do not enable shell command logging if commands may contain secrets.

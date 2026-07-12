@@ -27,6 +27,13 @@ assert.deepEqual(loadConfig(baseEnv).experimentalFeatures, []);
 assert.deepEqual(loadConfig({ ...baseEnv, WORKBRIDGE_EXPERIMENTAL_FEATURES: "command_metadata" }).experimentalFeatures, [
   "command_metadata",
 ]);
+assert.deepEqual(
+  loadConfig({
+    ...baseEnv,
+    WORKBRIDGE_EXPERIMENTAL_FEATURES: "command_metadata,shell_command_logging",
+  }).experimentalFeatures,
+  ["command_metadata", "shell_command_logging"],
+);
 assert.deepEqual(loadConfig({ ...baseEnv, DEVSPACE_EXPERIMENTAL_FEATURES: "command_metadata" }).experimentalFeatures, [
   "command_metadata",
 ]);
@@ -125,7 +132,17 @@ assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_CONSOLE_JSON: "1" }).logging.
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_REQUESTS: "0" }).logging.requests, false);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_ASSETS: "1" }).logging.assets, true);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_TOOL_CALLS: "0" }).logging.toolCalls, false);
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_SHELL_COMMANDS: "1" }).logging.shellCommands, true);
+assert.equal(
+  loadConfig({
+    ...baseEnv,
+    WORKBRIDGE_EXPERIMENTAL_FEATURES: "shell_command_logging",
+  }).logging.shellCommands,
+  true,
+);
+assert.equal(
+  loadConfig({ ...baseEnv, DEVSPACE_LOG_SHELL_COMMANDS: "1" }).logging.shellCommands,
+  false,
+);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TRUST_PROXY: "1" }).logging.trustProxy, true);
 
 assert.throws(

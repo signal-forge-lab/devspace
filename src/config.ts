@@ -8,7 +8,7 @@ import { devspaceAgentsDir, devspaceSkillsDir, loadDevspaceFiles } from "./user-
 
 export type ToolMode = "minimal" | "main" | "full" | "codex";
 export type WidgetMode = "off" | "changes" | "full";
-export type ExperimentalFeature = "command_metadata";
+export type ExperimentalFeature = "command_metadata" | "shell_command_logging";
 const DEFAULT_OAUTH_ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const DEFAULT_OAUTH_MAX_REGISTERED_CLIENTS = 50;
@@ -22,7 +22,10 @@ const DEFAULT_LOG_FILE_MAX_FILES = 5;
 const DEFAULT_MCP_MAX_TRANSPORTS = 32;
 const DEFAULT_MCP_TRANSPORT_IDLE_SECONDS = 60 * 60;
 const DEFAULT_WORKSPACE_SESSION_MAX_AGE_DAYS = 30;
-const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = ["command_metadata"];
+const EXPERIMENTAL_FEATURES: ExperimentalFeature[] = [
+  "command_metadata",
+  "shell_command_logging",
+];
 
 export interface ServerConfig {
   host: string;
@@ -188,7 +191,11 @@ function parseLogFileMaxBytes(value: string | undefined): number | undefined {
   return parsed === 0 ? undefined : parsed;
 }
 
-function parseLoggingConfig(env: NodeJS.ProcessEnv, stateDir: string): LoggingConfig {
+function parseLoggingConfig(
+  env: NodeJS.ProcessEnv,
+  stateDir: string,
+  experimentalFeatures: readonly ExperimentalFeature[],
+): LoggingConfig {
   return {
     level: parseLogLevel(env.DEVSPACE_LOG_LEVEL),
     format: parseLogFormat(env.DEVSPACE_LOG_FORMAT),
@@ -204,7 +211,7 @@ function parseLoggingConfig(env: NodeJS.ProcessEnv, stateDir: string): LoggingCo
     requests: env.DEVSPACE_LOG_REQUESTS === undefined ? true : parseBoolean(env.DEVSPACE_LOG_REQUESTS),
     assets: parseBoolean(env.DEVSPACE_LOG_ASSETS),
     toolCalls: env.DEVSPACE_LOG_TOOL_CALLS === undefined ? true : parseBoolean(env.DEVSPACE_LOG_TOOL_CALLS),
-    shellCommands: parseBoolean(env.DEVSPACE_LOG_SHELL_COMMANDS),
+    shellCommands: experimentalFeatures.includes("shell_command_logging"),
     trustProxy: parseBoolean(env.DEVSPACE_TRUST_PROXY),
   };
 }
@@ -295,6 +302,7 @@ function defaultAgentDir(): string {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const files = loadDevspaceFiles(env);
+  const experimentalFeatures = parseExperimentalFeatures(env);
   const host = env.HOST ?? files.config.host ?? "127.0.0.1";
   const port = parsePort(env.PORT ?? files.config.port);
   const publicBaseUrl = parsePublicBaseUrl(
@@ -318,7 +326,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     allowedHosts: parseAllowedHosts(env.DEVSPACE_ALLOWED_HOSTS, derivedAllowedHosts),
     publicBaseUrl,
     toolMode: parseToolMode(env),
-    experimentalFeatures: parseExperimentalFeatures(env),
+    experimentalFeatures,
     workspaceTasksEnabled: parseBoolean(env.WORKBRIDGE_ENABLE_WORKSPACE_TASKS ?? env.DEVSPACE_ENABLE_WORKSPACE_TASKS),
     workspaceTaskDynamicArgsEnabled: parseBoolean(env.WORKBRIDGE_ENABLE_WORKSPACE_TASK_DYNAMIC_ARGS),
     widgets: parseWidgetMode(env.DEVSPACE_WIDGETS),
@@ -348,7 +356,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       DEFAULT_WORKSPACE_SESSION_MAX_AGE_DAYS,
       "DEVSPACE_WORKSPACE_SESSION_MAX_AGE_DAYS",
     ) * 24 * 60 * 60 * 1_000,
-    logging: parseLoggingConfig(env, stateDir),
+    logging: parseLoggingConfig(env, stateDir, experimentalFeatures),
   };
 }
 
