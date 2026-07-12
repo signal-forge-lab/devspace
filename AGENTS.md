@@ -18,10 +18,10 @@ The model-facing workflow is workspace based. MCP clients should call
 returned `workspaceId` for subsequent tool calls in that same folder. Do not
 call `open_workspace` again for the same folder unless the `workspaceId` is
 rejected as unknown, the client switches folders/worktrees or checkout/worktree
-mode, or the user explicitly asks to reopen. `AGENTS.md` files are returned
-automatically by `open_workspace` and by later tool calls when the requested path
-enters a directory with instructions that have not been loaded for that
-workspace.
+mode, or the user explicitly asks to reopen. Root-level `AGENTS.md` and
+`CLAUDE.md` instructions are returned by `open_workspace`. Nested instruction
+files are listed in `availableAgentsFiles`; the MCP client must read the relevant
+file before working in that directory.
 
 Core constraints:
 

@@ -159,21 +159,28 @@ For a normal ChatGPT coding session:
 
 ## Platform Support
 
-DevSpace supports Linux, macOS, and Windows environments with a Bash-compatible
-shell.
+DevSpace supports Linux, macOS, and Windows. The `minimal`, `main`, and `full`
+tool modes expose the `bash` tool and therefore require a Bash-compatible
+shell. The experimental `codex` mode uses `exec_command`; on Windows it currently
+uses the native command processor from `ComSpec`, normally `cmd.exe`.
 
-| Platform                                          | Status            | Notes                                          |
-| ------------------------------------------------- | ----------------- | ---------------------------------------------- |
-| Linux                                             | Supported         | Requires Node, npm, Git, and Bash.             |
-| macOS                                             | Supported         | Requires Node, npm, Git, and Bash.             |
-| Windows with Git Bash, WSL, MSYS2, or Cygwin Bash | Supported         | Git Bash is the simplest native Windows setup. |
-| Windows PowerShell or `cmd.exe` only              | Not supported yet | Install Git Bash or use WSL.                   |
+| Platform                                          | Status    | Notes |
+| ------------------------------------------------- | --------- | ----- |
+| Linux                                             | Supported | Bash is required for `minimal`, `main`, and `full` modes. |
+| macOS                                             | Supported | Bash is required for `minimal`, `main`, and `full` modes. |
+| Windows with Git Bash, WSL, MSYS2, or Cygwin Bash | Supported | Supports the `bash` tool surfaces. Git Bash is the simplest native Windows setup. |
+| Windows with native `cmd.exe`                     | Supported in `codex` mode | `exec_command` currently uses `ComSpec`, normally `cmd.exe`. The `bash` tool surfaces still require Bash. |
+| Windows PowerShell only                           | Not selected automatically | PowerShell is not currently the default `exec_command` shell. |
 
 Run this to inspect your local setup:
 
 ```bash
 devspace doctor
 ```
+
+The doctor output still reports Bash availability because Bash is required by
+the `bash` tool surfaces. A missing Bash result does not by itself prevent
+native Windows `exec_command` use in experimental `codex` mode.
 
 ## Documentation
 

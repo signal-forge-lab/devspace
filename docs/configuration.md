@@ -73,10 +73,19 @@ MCP clients discover metadata from:
 The `codex` mode must be selected through `DEVSPACE_TOOL_MODE` and always uses
 its fixed short tool names regardless of `DEVSPACE_TOOL_NAMING`.
 
+The `codex` label describes the tool surface only. It does not imply that the
+local Codex CLI is launched or that a Codex-provided shell is used.
+
 Codex-mode commands run without a PTY by default. Set `tty: true` on
 `exec_command` for interactive terminal programs. PTY support uses the optional
 `node-pty` dependency; `write_stdin` can send input, poll output, and resize PTY
 sessions.
+
+On Windows, `exec_command` currently selects the command processor from
+`ComSpec`/`COMSPEC`, falling back to `cmd.exe`. On macOS and Linux it selects a
+supported shell from `SHELL`, with `/bin/sh` as the fallback. This selection is
+specific to `exec_command`; the `bash` tool exposed by other tool modes still
+requires a Bash-compatible environment.
 
 ### Patch consolidation guidance
 

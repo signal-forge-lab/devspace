@@ -132,6 +132,9 @@ By default, DevSpace also runs in `DEVSPACE_TOOL_MODE=minimal`, so dedicated
 `grep`, `glob`, and `ls` tools are hidden. Use `bash` with command-line tools
 such as `rg`, `find`, and `ls` for search and directory inspection.
 
+The `bash` tool surfaces require a Bash-compatible environment. On Windows,
+Git Bash or WSL are common choices.
+
 Use `DEVSPACE_TOOL_MODE=full` to restore dedicated search and directory tools.
 
 The experimental Codex-style surface is enabled with
@@ -147,6 +150,8 @@ In this mode, `write`, `edit`, `bash`, `grep`, `glob`, and `ls` are not
 registered. `exec_command` returns a process session ID when a command is still
 running after its yield window. Use `write_stdin` to poll it, send input, resize
 a PTY, or send Ctrl-C. Set `tty: true` only for commands that need a terminal.
+On Windows, `exec_command` currently uses `ComSpec`, normally `cmd.exe`; it does
+not select PowerShell automatically.
 
 ## Show Changes
 

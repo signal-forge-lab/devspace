@@ -82,6 +82,11 @@ endpoint, but the tunnel URL should not be treated as a secret.
 The shell tool is powerful by design. It is meant for tests, builds, git, and
 package scripts.
 
+The active shell depends on the tool mode and platform. The `bash` tool surfaces
+require a Bash-compatible environment. Experimental `codex` mode uses
+`exec_command`; on Windows it currently runs through `ComSpec`, normally
+`cmd.exe`.
+
 Filesystem path containment applies to DevSpace file tools. Shell commands run
 as local commands and can do what your user account can do. This is why the MCP
 client must be trusted and the Owner password must stay private.

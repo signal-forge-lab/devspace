@@ -172,10 +172,20 @@ needed.
 
 ## Windows Shell Commands Fail
 
-DevSpace shell execution requires Bash. Native PowerShell and `cmd.exe` command
-execution are not supported yet.
+The shell requirement depends on the selected tool mode:
 
-Install Git for Windows and use Git Bash, or use WSL, MSYS2, or Cygwin Bash.
+- `minimal`, `main`, and `full` expose the `bash` tool and require Git Bash,
+  WSL, MSYS2, Cygwin Bash, or another compatible Bash environment;
+- experimental `codex` mode exposes `exec_command` and currently uses the
+  Windows command processor from `ComSpec`, normally `cmd.exe`;
+- PowerShell is not currently selected automatically for `exec_command`.
+
+Install Git for Windows or use WSL when using a `bash` tool surface. In `codex`
+mode, write commands for the active `cmd.exe` syntax unless the implementation
+is later configured to use another shell.
+
+The `codex` tool-mode name does not mean that Workbridge launches the local
+Codex CLI or inherits a shell choice from Codex.
 
 Run:
 
@@ -183,7 +193,8 @@ Run:
 npx @waishnav/devspace doctor
 ```
 
-Confirm Bash is detected.
+Confirm Bash is detected when using a `bash` tool surface. A missing Bash result
+does not by itself prevent native Windows `exec_command` use in `codex` mode.
 
 ## Skills Do Not Appear
 

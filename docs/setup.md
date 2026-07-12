@@ -8,11 +8,17 @@ projects through DevSpace.
 - Node `>=22.19 <27`
 - npm
 - Git
-- Bash, including Git Bash or WSL on Windows
+- Bash for `minimal`, `main`, or `full` tool mode, including Git Bash or WSL on
+  Windows
+- for experimental `codex` mode on Windows, the native command processor from
+  `ComSpec` is used instead (normally `cmd.exe`)
 - a public HTTPS URL that forwards to the local DevSpace server
 
 DevSpace does not create the public tunnel for you. Use Cloudflare Tunnel,
 ngrok, Pinggy, Tailscale Funnel, or your own HTTPS reverse proxy.
+
+`DEVSPACE_TOOL_MODE=codex` changes the exposed tool surface; it does not launch
+the local Codex CLI.
 
 ## Install And Configure
 
@@ -118,7 +124,9 @@ npx @waishnav/devspace doctor
 ```
 
 The doctor command reports the resolved config, Node version, Node ABI, platform,
-Git, Bash, public URL, allowed hosts, and SQLite native dependency status.
+Git, Bash availability, public URL, allowed hosts, and SQLite native dependency
+status. Bash availability matters for the `bash` tool surfaces; Windows
+`codex` mode currently runs `exec_command` through `ComSpec` instead.
 
 ## Running From A Local Checkout
 
