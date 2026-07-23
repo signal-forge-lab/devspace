@@ -155,6 +155,103 @@ try {
     },
   );
 
+  const pythonUvRoot = join(root, "python-uv");
+  await mkdir(join(pythonUvRoot, "tests"), { recursive: true });
+  await writeFile(
+    join(pythonUvRoot, "pyproject.toml"),
+    [
+      "[project]",
+      "name = \"example-python\"",
+      "version = \"0.1.0\"",
+      "",
+      "[tool.ruff]",
+      "line-length = 100",
+      "",
+      "[tool.mypy]",
+      "python_version = \"3.12\"",
+      "",
+      "[tool.pytest.ini_options]",
+      "testpaths = [\"tests\"]",
+    ].join("\n"),
+  );
+  await writeFile(join(pythonUvRoot, "uv.lock"), "version = 1\n");
+  const pythonUv = await resolveProjectVerifyProfile({ workspaceRoot: pythonUvRoot });
+  assert.equal(pythonUv.profile, "python");
+  assert.equal(
+    pythonUv.command,
+    "uv run python -m compileall -q . && uv run ruff check . && uv run mypy . && uv run pytest",
+  );
+  assert.match(pythonUv.evidence.join("\n"), /python runner: uv/);
+
+  const pythonUvQuick = await resolveProjectVerifyProfile({
+    workspaceRoot: pythonUvRoot,
+    preset: "quick",
+  });
+  assert.equal(
+    pythonUvQuick.command,
+    "uv run python -m compileall -q . && uv run ruff check .",
+  );
+
+  const pythonPoetryRoot = join(root, "python-poetry");
+  await mkdir(pythonPoetryRoot, { recursive: true });
+  await writeFile(
+    join(pythonPoetryRoot, "pyproject.toml"),
+    "[tool.poetry]\nname = \"poetry-project\"\nversion = \"0.1.0\"\n",
+  );
+  await writeFile(join(pythonPoetryRoot, "poetry.lock"), "# poetry lock\n");
+  const pythonPoetry = await resolveProjectVerifyProfile({ workspaceRoot: pythonPoetryRoot });
+  assert.equal(pythonPoetry.profile, "python");
+  assert.equal(pythonPoetry.command, "poetry run python -m compileall -q .");
+
+  const pythonSystemRoot = join(root, "python-system");
+  await mkdir(pythonSystemRoot, { recursive: true });
+  await writeFile(join(pythonSystemRoot, "requirements.txt"), "requests\n");
+  const pythonSystem = await resolveProjectVerifyProfile({ workspaceRoot: pythonSystemRoot });
+  assert.equal(pythonSystem.profile, "python");
+  assert.match(pythonSystem.command, /^(py|python3) -m compileall -q \.$/);
+
+  const ambiguousPythonRoot = join(root, "python-ambiguous-runner");
+  await mkdir(ambiguousPythonRoot, { recursive: true });
+  await writeFile(
+    join(ambiguousPythonRoot, "pyproject.toml"),
+    "[tool.poetry]\nname = \"ambiguous\"\nversion = \"0.1.0\"\n",
+  );
+  await writeFile(join(ambiguousPythonRoot, "uv.lock"), "version = 1\n");
+  await assert.rejects(
+    () => resolveProjectVerifyProfile({ workspaceRoot: ambiguousPythonRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "ambiguous_python_runner");
+      return true;
+    },
+  );
+
+  const mixedRoot = join(root, "mixed-node-python");
+  await mkdir(mixedRoot, { recursive: true });
+  await writeFile(join(mixedRoot, "pyproject.toml"), "[project]\nname = \"mixed\"\n");
+  await writeFile(
+    join(mixedRoot, "package.json"),
+    JSON.stringify({ scripts: { test: "node test.js" } }),
+  );
+  await assert.rejects(
+    () => resolveProjectVerifyProfile({ workspaceRoot: mixedRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "ambiguous_project_profile");
+      return true;
+    },
+  );
+  const mixedNode = await resolveProjectVerifyProfile({
+    workspaceRoot: mixedRoot,
+    requestedProfile: "node",
+  });
+  assert.equal(mixedNode.profile, "node");
+  const mixedPython = await resolveProjectVerifyProfile({
+    workspaceRoot: mixedRoot,
+    requestedProfile: "python",
+  });
+  assert.equal(mixedPython.profile, "python");
+
   const pnpmRoot = join(root, "pnpm");
   await mkdir(pnpmRoot, { recursive: true });
   await writeFile(

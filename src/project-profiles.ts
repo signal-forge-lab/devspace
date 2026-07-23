@@ -9,7 +9,7 @@ import {
   type WorkspaceActionStep,
 } from "./workspace-action-plans.js";
 
-export const PROJECT_PROFILE_NAMES = ["workbridge", "chrome_extension", "node"] as const;
+export const PROJECT_PROFILE_NAMES = ["workbridge", "chrome_extension", "python", "node"] as const;
 export type ProjectProfileName = (typeof PROJECT_PROFILE_NAMES)[number];
 
 export type ProjectProfileResolutionErrorKind =
@@ -18,6 +18,8 @@ export type ProjectProfileResolutionErrorKind =
   | "invalid_project_manifest"
   | "invalid_extension_manifest"
   | "missing_extension_resource"
+  | "ambiguous_project_profile"
+  | "ambiguous_python_runner"
   | "unsupported_package_manager"
   | "ambiguous_package_manager";
 
@@ -67,6 +69,13 @@ const NODE_VERIFY_SCRIPT_ORDER = ["typecheck", "lint", "test", "build"] as const
 const execFileAsync = promisify(execFile);
 
 type NodePackageManager = "npm" | "pnpm" | "yarn" | "bun";
+type PythonRunner = "uv" | "poetry" | "system";
+
+interface PythonProjectDetection {
+  markers: string[];
+  pyproject?: string;
+  setupConfig?: string;
+}
 
 const PACKAGE_MANAGER_LOCKFILES: Record<NodePackageManager, readonly string[]> = {
   npm: ["package-lock.json", "npm-shrinkwrap.json"],
@@ -83,6 +92,7 @@ export async function resolveProjectVerifyProfile(input: {
   const preset = input.preset ?? "standard";
   const manifest = await readPackageManifest(input.workspaceRoot);
   const extensionManifest = await readChromeExtensionManifest(input.workspaceRoot);
+  const pythonDetection = await detectPythonProject(input.workspaceRoot);
   const requestedProfile = normalizeRequestedProfile(input.requestedProfile);
   const workbridgeMatch = await matchesWorkbridgeProfile(input.workspaceRoot, manifest);
 
@@ -116,15 +126,32 @@ export async function resolveProjectVerifyProfile(input: {
     return chromeExtensionProfile(input.workspaceRoot, extensionManifest, manifest, preset);
   }
 
+  if (requestedProfile === "python") {
+    if (!pythonDetection) {
+      throw new ProjectProfileResolutionError(
+        "unsupported_project_profile",
+        "The python project profile requires pyproject.toml, pytest.ini, setup.cfg, or requirements.txt in the workspace root.",
+      );
+    }
+    return pythonProfile(input.workspaceRoot, pythonDetection, preset);
+  }
+
   if (workbridgeMatch) return workbridgeProfile(preset);
   if (extensionManifest) {
     return chromeExtensionProfile(input.workspaceRoot, extensionManifest, manifest, preset);
   }
+  if (pythonDetection && manifest) {
+    throw new ProjectProfileResolutionError(
+      "ambiguous_project_profile",
+      "Both Python and Node project markers were detected. Select parameters.profile as python or node explicitly.",
+    );
+  }
+  if (pythonDetection) return pythonProfile(input.workspaceRoot, pythonDetection, preset);
   if (manifest) return nodeProfile(input.workspaceRoot, manifest, preset);
 
   throw new ProjectProfileResolutionError(
     "unsupported_project_profile",
-    "No supported project profile matched this workspace. Supported profiles: workbridge, chrome_extension, node.",
+    "No supported project profile matched this workspace. Supported profiles: workbridge, chrome_extension, python, node.",
   );
 }
 
@@ -294,6 +321,55 @@ async function chromeExtensionProfile(
   };
 }
 
+async function pythonProfile(
+  workspaceRoot: string,
+  detection: PythonProjectDetection,
+  preset: "quick" | "standard",
+): Promise<ProjectVerifyProfileResolution> {
+  const runner = await resolvePythonRunner(workspaceRoot, detection.pyproject);
+  const tools = await configuredPythonTools(workspaceRoot, detection);
+  const steps: WorkspaceActionStep[] = [
+    {
+      id: "compileall",
+      label: "Python bytecode compilation",
+      command: pythonToolCommand(runner, "compileall"),
+    },
+  ];
+
+  if (tools.has("ruff")) {
+    steps.push({ id: "ruff", label: "Ruff lint", command: pythonToolCommand(runner, "ruff") });
+  }
+  if (preset === "standard" && tools.has("mypy")) {
+    steps.push({ id: "mypy", label: "Mypy typecheck", command: pythonToolCommand(runner, "mypy") });
+  }
+  if (preset === "standard" && tools.has("pytest")) {
+    steps.push({ id: "pytest", label: "Pytest suite", command: pythonToolCommand(runner, "pytest") });
+  }
+  if (await isGitWorkTree(workspaceRoot)) {
+    steps.push(
+      { id: "diff-check", label: "Git diff validation", command: "git diff --check" },
+      { id: "status", label: "Git status", command: "git status --short" },
+    );
+  }
+
+  const plan = shellSteps(steps);
+  const command = compileWorkspaceActionPlan(plan);
+  return {
+    profile: "python",
+    confidence: "strong",
+    evidence: [
+      `project markers: ${detection.markers.join(", ")}`,
+      `python runner: ${runner === "system" ? systemPythonCommand() : runner}`,
+      `configured tools: ${[...tools].join(", ") || "compileall only"}`,
+    ],
+    plan,
+    command,
+    displayCommand: command,
+    description: `Run the Python ${preset} verification sequence with ${runner === "system" ? systemPythonCommand() : runner}.`,
+    policy: ["workspace_modify", "long_running"],
+  };
+}
+
 async function nodeProfile(
   workspaceRoot: string,
   manifest: PackageManifest,
@@ -410,6 +486,110 @@ function packageScripts(manifest: PackageManifest): Set<string> {
       .filter(([, command]) => typeof command === "string" && command.trim() !== "")
       .map(([name]) => name),
   );
+}
+
+async function detectPythonProject(
+  workspaceRoot: string,
+): Promise<PythonProjectDetection | undefined> {
+  const markerNames = ["pyproject.toml", "pytest.ini", "setup.cfg", "requirements.txt"] as const;
+  const markers: string[] = [];
+  for (const marker of markerNames) {
+    if (await pathExists(join(workspaceRoot, marker))) markers.push(marker);
+  }
+  if (markers.length === 0) return undefined;
+  return {
+    markers,
+    pyproject: markers.includes("pyproject.toml")
+      ? await readFile(join(workspaceRoot, "pyproject.toml"), "utf8")
+      : undefined,
+    setupConfig: markers.includes("setup.cfg")
+      ? await readFile(join(workspaceRoot, "setup.cfg"), "utf8")
+      : undefined,
+  };
+}
+
+async function resolvePythonRunner(
+  workspaceRoot: string,
+  pyproject: string | undefined,
+): Promise<PythonRunner> {
+  const uv = await pathExists(join(workspaceRoot, "uv.lock"));
+  const poetry = await pathExists(join(workspaceRoot, "poetry.lock"))
+    || Boolean(pyproject && /^\s*\[tool\.poetry\]\s*$/m.test(pyproject));
+  if (uv && poetry) {
+    throw new ProjectProfileResolutionError(
+      "ambiguous_python_runner",
+      "Both uv and Poetry project markers were detected. Remove the stale marker or select a single environment before verification.",
+    );
+  }
+  if (uv) return "uv";
+  if (poetry) return "poetry";
+  return "system";
+}
+
+async function configuredPythonTools(
+  workspaceRoot: string,
+  detection: PythonProjectDetection,
+): Promise<Set<"ruff" | "mypy" | "pytest">> {
+  const tools = new Set<"ruff" | "mypy" | "pytest">();
+  const pyproject = detection.pyproject ?? "";
+  const setupConfig = detection.setupConfig ?? "";
+
+  if (
+    await anyPathExists([
+      join(workspaceRoot, "ruff.toml"),
+      join(workspaceRoot, ".ruff.toml"),
+    ])
+    || /^\s*\[tool\.ruff(?:\.|\])/m.test(pyproject)
+  ) {
+    tools.add("ruff");
+  }
+  if (
+    await anyPathExists([
+      join(workspaceRoot, "mypy.ini"),
+      join(workspaceRoot, ".mypy.ini"),
+    ])
+    || /^\s*\[tool\.mypy\]\s*$/m.test(pyproject)
+    || /^\s*\[mypy\]\s*$/m.test(setupConfig)
+  ) {
+    tools.add("mypy");
+  }
+  if (
+    detection.markers.includes("pytest.ini")
+    || /^\s*\[tool\.pytest(?:\.|\])/m.test(pyproject)
+    || /^\s*\[tool:pytest\]\s*$/m.test(setupConfig)
+    || await pathExists(join(workspaceRoot, "tests"))
+  ) {
+    tools.add("pytest");
+  }
+  return tools;
+}
+
+function pythonToolCommand(
+  runner: PythonRunner,
+  tool: "compileall" | "ruff" | "mypy" | "pytest",
+): string {
+  if (runner === "uv") {
+    if (tool === "compileall") return "uv run python -m compileall -q .";
+    if (tool === "ruff") return "uv run ruff check .";
+    if (tool === "mypy") return "uv run mypy .";
+    return "uv run pytest";
+  }
+  if (runner === "poetry") {
+    if (tool === "compileall") return "poetry run python -m compileall -q .";
+    if (tool === "ruff") return "poetry run ruff check .";
+    if (tool === "mypy") return "poetry run mypy .";
+    return "poetry run pytest";
+  }
+
+  const python = systemPythonCommand();
+  if (tool === "compileall") return `${python} -m compileall -q .`;
+  if (tool === "ruff") return `${python} -m ruff check .`;
+  if (tool === "mypy") return `${python} -m mypy .`;
+  return `${python} -m pytest`;
+}
+
+function systemPythonCommand(): "py" | "python3" {
+  return process.platform === "win32" ? "py" : "python3";
 }
 
 function extensionResourcePaths(manifest: ChromeExtensionManifest): string[] {

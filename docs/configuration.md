@@ -104,18 +104,25 @@ chrome_extension
   strong match: valid manifest.json in the workspace root
   command: manifest/resource validation plus supported package scripts
 
+python
+  strong match: pyproject.toml, pytest.ini, setup.cfg, or requirements.txt
+  command: configured Python checks through uv, Poetry, or system Python
+
 node
   strong match: package.json in the workspace root
   command: available typecheck, lint, test, and build scripts in that order
 ```
 
 Automatic detection prefers the exact `workbridge` profile, then
-`chrome_extension`, then the generic `node` profile. The Chrome extension
+`chrome_extension`. A workspace with both Python and Node markers is rejected
+as ambiguous until `parameters.profile` selects one; otherwise Python is chosen
+before the generic `node` profile. The Chrome extension
 profile validates manifest version 2 or 3 and verifies directly referenced
 background, content-script, popup, options, icon, side-panel, DevTools, and
 URL-override files before executing package scripts. To select a profile explicitly, pass
 `parameters: { "profile": "workbridge" }`,
 `parameters: { "profile": "chrome_extension" }`, or
+`parameters: { "profile": "python" }`, or
 `parameters: { "profile": "node" }`.
 No external profile or action configuration files are loaded.
 
@@ -130,6 +137,13 @@ first, then from a single recognized lockfile, and finally falls back to npm.
 Supported managers are npm, pnpm, yarn, and bun. Multiple manager lockfiles are
 rejected unless `packageManager` explicitly selects one. Git validation uses
 `git rev-parse`, so normal checkouts and Git worktrees are handled consistently.
+
+The Python profile selects `uv` from `uv.lock`, Poetry from `poetry.lock` or a
+`[tool.poetry]` table, and otherwise uses `py` on Windows or `python3` on other
+platforms. Conflicting uv and Poetry markers are rejected. `quick` runs
+`compileall` and configured Ruff checks; `standard` additionally runs configured
+Mypy and Pytest checks. Tool execution is enabled only by explicit configuration
+files or a `tests` directory.
 
 Use `dryRun: true` to inspect the resolved command and policy without executing
 it. Unknown actions and presets return the available registry entries.

@@ -41,6 +41,8 @@ export type WorkspaceActionResolutionErrorKind =
   | "invalid_project_manifest"
   | "invalid_extension_manifest"
   | "missing_extension_resource"
+  | "ambiguous_project_profile"
+  | "ambiguous_python_runner"
   | "unsupported_package_manager"
   | "ambiguous_package_manager";
 
