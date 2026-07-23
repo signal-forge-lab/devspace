@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   ProjectProfileResolutionError,
+  resolveChangedTestsProfile,
   resolveProjectVerifyProfile,
 } from "./project-profiles.js";
 
@@ -252,6 +253,74 @@ try {
   });
   assert.equal(mixedPython.profile, "python");
 
+  const changedWorkbridgeRoot = join(root, "changed-workbridge");
+  await mkdir(join(changedWorkbridgeRoot, "src"), { recursive: true });
+  await writeFile(
+    join(changedWorkbridgeRoot, "package.json"),
+    JSON.stringify({ name: "@waishnav/devspace", scripts: { test: "node test.js" } }),
+  );
+  await writeFile(join(changedWorkbridgeRoot, "src", "workspace-actions.ts"), "export {};\n");
+  await writeFile(join(changedWorkbridgeRoot, "src", "sample.ts"), "export const value = 1;\n");
+  await writeFile(join(changedWorkbridgeRoot, "src", "sample.test.ts"), "export {};\n");
+  await initializeGitRepository(changedWorkbridgeRoot);
+  await writeFile(join(changedWorkbridgeRoot, "src", "sample.ts"), "export const value = 2;\n");
+  const changedWorkbridge = await resolveChangedTestsProfile({ workspaceRoot: changedWorkbridgeRoot });
+  assert.equal(changedWorkbridge.profile, "workbridge");
+  assert.equal(changedWorkbridge.command, "node --import tsx \"src/sample.test.ts\"");
+
+  const changedPythonRoot = join(root, "changed-python");
+  await mkdir(join(changedPythonRoot, "tests"), { recursive: true });
+  await writeFile(
+    join(changedPythonRoot, "pyproject.toml"),
+    "[project]\nname = \"changed-python\"\n[tool.pytest.ini_options]\ntestpaths = [\"tests\"]\n",
+  );
+  await writeFile(join(changedPythonRoot, "uv.lock"), "version = 1\n");
+  await writeFile(join(changedPythonRoot, "alpha.py"), "VALUE = 1\n");
+  await writeFile(join(changedPythonRoot, "tests", "test_alpha.py"), "def test_alpha(): assert True\n");
+  await initializeGitRepository(changedPythonRoot);
+  await writeFile(join(changedPythonRoot, "alpha.py"), "VALUE = 2\n");
+  const changedPython = await resolveChangedTestsProfile({ workspaceRoot: changedPythonRoot });
+  assert.equal(changedPython.profile, "python");
+  assert.equal(changedPython.command, "uv run pytest \"tests/test_alpha.py\"");
+
+  const changedNodeRoot = join(root, "changed-node");
+  await mkdir(join(changedNodeRoot, "src"), { recursive: true });
+  await writeFile(
+    join(changedNodeRoot, "package.json"),
+    JSON.stringify({ scripts: { test: "vitest run" } }),
+  );
+  await writeFile(join(changedNodeRoot, "src", "sample.ts"), "export const value = 1;\n");
+  await writeFile(join(changedNodeRoot, "src", "sample.test.ts"), "export {};\n");
+  await initializeGitRepository(changedNodeRoot);
+  await writeFile(join(changedNodeRoot, "src", "sample.ts"), "export const value = 2;\n");
+  await assert.rejects(
+    () => resolveChangedTestsProfile({ workspaceRoot: changedNodeRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "unsupported_action_for_profile");
+      return true;
+    },
+  );
+
+  const unmappedWorkbridgeRoot = join(root, "unmapped-workbridge");
+  await mkdir(join(unmappedWorkbridgeRoot, "src"), { recursive: true });
+  await writeFile(
+    join(unmappedWorkbridgeRoot, "package.json"),
+    JSON.stringify({ name: "@waishnav/devspace" }),
+  );
+  await writeFile(join(unmappedWorkbridgeRoot, "src", "workspace-actions.ts"), "export {};\n");
+  await writeFile(join(unmappedWorkbridgeRoot, "src", "unmapped.ts"), "export const value = 1;\n");
+  await initializeGitRepository(unmappedWorkbridgeRoot);
+  await writeFile(join(unmappedWorkbridgeRoot, "src", "unmapped.ts"), "export const value = 2;\n");
+  await assert.rejects(
+    () => resolveChangedTestsProfile({ workspaceRoot: unmappedWorkbridgeRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "no_exact_test_mapping");
+      return true;
+    },
+  );
+
   const pnpmRoot = join(root, "pnpm");
   await mkdir(pnpmRoot, { recursive: true });
   await writeFile(
@@ -369,4 +438,12 @@ try {
   );
 } finally {
   await rm(root, { recursive: true, force: true });
+}
+
+async function initializeGitRepository(path: string): Promise<void> {
+  await execFileAsync("git", ["init", path], { windowsHide: true });
+  await execFileAsync("git", ["-C", path, "config", "user.email", "workbridge-tests@example.invalid"], { windowsHide: true });
+  await execFileAsync("git", ["-C", path, "config", "user.name", "Workbridge Tests"], { windowsHide: true });
+  await execFileAsync("git", ["-C", path, "add", "."], { windowsHide: true });
+  await execFileAsync("git", ["-C", path, "commit", "-m", "initial"], { windowsHide: true });
 }

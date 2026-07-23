@@ -75,6 +75,9 @@ preset: summary | integrity
 
 action: project_verify
 preset: quick | standard
+
+action: test_changed
+preset: exact
 ```
 
 It runs this fixed fail-fast sequence:
@@ -144,6 +147,13 @@ platforms. Conflicting uv and Poetry markers are rejected. `quick` runs
 `compileall` and configured Ruff checks; `standard` additionally runs configured
 Mypy and Pytest checks. Tool execution is enabled only by explicit configuration
 files or a `tests` directory.
+
+`test_changed/exact` reads staged, unstaged, and untracked Git paths and runs
+only test files with an exact mapping. Workbridge maps `src/name.ts` to an
+existing `src/name.test.ts` or `src/name.spec.ts`. Python maps modules to
+existing `test_name.py` or `name_test.py` files and requires configured Pytest.
+Generic Node and Chrome extension profiles are rejected until a runner-specific
+exact mapping is available. When no mapping exists, use `project_verify/quick`.
 
 Use `dryRun: true` to inspect the resolved command and policy without executing
 it. Unknown actions and presets return the available registry entries.

@@ -10,6 +10,7 @@ assert.deepEqual(catalog.map((entry) => entry.action), [
   "workspace_verify",
   "workspace_review",
   "project_verify",
+  "test_changed",
 ]);
 assert.equal(catalog[0]?.defaultPreset, "standard");
 assert.deepEqual(catalog[0]?.policy, ["workspace_modify", "long_running"]);
@@ -17,6 +18,7 @@ assert.equal(catalog[1]?.defaultPreset, "summary");
 assert.deepEqual(catalog[1]?.policy, ["read_only"]);
 assert.deepEqual(catalog[1]?.presets.map((preset) => preset.name), ["summary", "integrity"]);
 assert.deepEqual(catalog[2]?.presets.map((preset) => preset.name), ["quick", "standard"]);
+assert.deepEqual(catalog[3]?.presets.map((preset) => preset.name), ["exact"]);
 
 const resolved = await resolveWorkspaceAction({
   workspaceRoot: process.cwd(),
@@ -94,6 +96,7 @@ await assert.rejects(
       "workspace_verify",
       "workspace_review",
       "project_verify",
+      "test_changed",
     ]);
     return true;
   },

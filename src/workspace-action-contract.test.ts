@@ -110,7 +110,7 @@ try {
   assert.equal(record(rejected.error).code, "unsupported_action");
   assert.deepEqual(
     (rejected.catalog as Array<Record<string, unknown>>).map((entry) => entry.action),
-    ["workspace_verify", "workspace_review", "project_verify"],
+    ["workspace_verify", "workspace_review", "project_verify", "test_changed"],
   );
 
   const invalidWorkingDirectory = structured(await client.callTool({

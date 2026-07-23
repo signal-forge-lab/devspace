@@ -1,5 +1,6 @@
 import {
   ProjectProfileResolutionError,
+  resolveChangedTestsProfile,
   resolveProjectVerifyProfile,
   type ProjectProfileName,
 } from "./project-profiles.js";
@@ -13,6 +14,7 @@ export const WORKSPACE_ACTION_NAMES = [
   "workspace_verify",
   "workspace_review",
   "project_verify",
+  "test_changed",
 ] as const;
 export type WorkspaceActionName = (typeof WORKSPACE_ACTION_NAMES)[number];
 
@@ -43,6 +45,10 @@ export type WorkspaceActionResolutionErrorKind =
   | "missing_extension_resource"
   | "ambiguous_project_profile"
   | "ambiguous_python_runner"
+  | "not_git_workspace"
+  | "no_changed_files"
+  | "no_exact_test_mapping"
+  | "unsafe_changed_path"
   | "unsupported_package_manager"
   | "ambiguous_package_manager";
 
@@ -155,6 +161,17 @@ const WORKSPACE_ACTIONS: Record<WorkspaceActionName, WorkspaceActionDefinition> 
       },
     },
   },
+  test_changed: {
+    description: "Run only tests with exact mappings from the current Git changes.",
+    defaultPreset: "exact",
+    policy: ["workspace_modify", "long_running"],
+    presets: {
+      exact: {
+        description: "Run exact changed-file test mappings without heuristic runner selection.",
+        validateParameters: validateProjectVerifyParameters,
+      },
+    },
+  },
 };
 
 export function isWorkspaceActionName(action: string): action is WorkspaceActionName {
@@ -225,6 +242,37 @@ export async function resolveWorkspaceAction(
         workspaceRoot: input.workspaceRoot,
         requestedProfile: projectVerifyProfileParameter(parameters),
         preset: presetName as "quick" | "standard",
+      });
+      const command = compileWorkspaceActionPlan(profileResolution.plan);
+      return {
+        action: input.action,
+        preset: presetName,
+        parameters: { ...parameters },
+        executable: "shell",
+        args: [],
+        command,
+        displayCommand: command,
+        description: profileResolution.description,
+        policy: [...profileResolution.policy],
+        profile: profileResolution.profile,
+        plan: profileResolution.plan,
+      };
+    } catch (error) {
+      if (!(error instanceof ProjectProfileResolutionError)) throw error;
+      throw new WorkspaceActionResolutionError({
+        kind: error.kind,
+        message: error.message,
+        requestedAction: input.action,
+        requestedPreset: presetName,
+      });
+    }
+  }
+
+  if (input.action === "test_changed") {
+    try {
+      const profileResolution = await resolveChangedTestsProfile({
+        workspaceRoot: input.workspaceRoot,
+        requestedProfile: projectVerifyProfileParameter(parameters),
       });
       const command = compileWorkspaceActionPlan(profileResolution.plan);
       return {

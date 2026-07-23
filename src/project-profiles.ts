@@ -20,6 +20,10 @@ export type ProjectProfileResolutionErrorKind =
   | "missing_extension_resource"
   | "ambiguous_project_profile"
   | "ambiguous_python_runner"
+  | "not_git_workspace"
+  | "no_changed_files"
+  | "no_exact_test_mapping"
+  | "unsafe_changed_path"
   | "unsupported_package_manager"
   | "ambiguous_package_manager";
 
@@ -43,6 +47,8 @@ export interface ProjectVerifyProfileResolution {
   description: string;
   policy: Array<"workspace_modify" | "long_running">;
 }
+
+export interface ChangedTestsProfileResolution extends ProjectVerifyProfileResolution {}
 
 interface PackageManifest {
   name?: unknown;
@@ -153,6 +159,103 @@ export async function resolveProjectVerifyProfile(input: {
     "unsupported_project_profile",
     "No supported project profile matched this workspace. Supported profiles: workbridge, chrome_extension, python, node.",
   );
+}
+
+export async function resolveChangedTestsProfile(input: {
+  workspaceRoot: string;
+  requestedProfile?: string;
+}): Promise<ChangedTestsProfileResolution> {
+  const manifest = await readPackageManifest(input.workspaceRoot);
+  const extensionManifest = await readChromeExtensionManifest(input.workspaceRoot);
+  const pythonDetection = await detectPythonProject(input.workspaceRoot);
+  const requestedProfile = normalizeRequestedProfile(input.requestedProfile);
+  const workbridgeMatch = await matchesWorkbridgeProfile(input.workspaceRoot, manifest);
+
+  let profile: ProjectProfileName;
+  if (requestedProfile) {
+    if (requestedProfile === "workbridge" && !workbridgeMatch) {
+      throw new ProjectProfileResolutionError(
+        "unsupported_project_profile",
+        "The workbridge project profile does not match this workspace.",
+      );
+    }
+    if (requestedProfile === "python" && !pythonDetection) {
+      throw new ProjectProfileResolutionError(
+        "unsupported_project_profile",
+        "The python project profile does not match this workspace.",
+      );
+    }
+    if (requestedProfile === "node" && !manifest) {
+      throw new ProjectProfileResolutionError(
+        "unsupported_project_profile",
+        "The node project profile requires package.json in the workspace root.",
+      );
+    }
+    if (requestedProfile === "chrome_extension" && !extensionManifest) {
+      throw new ProjectProfileResolutionError(
+        "unsupported_project_profile",
+        "The chrome_extension project profile requires manifest.json in the workspace root.",
+      );
+    }
+    profile = requestedProfile;
+  } else if (workbridgeMatch) {
+    profile = "workbridge";
+  } else if (extensionManifest) {
+    profile = "chrome_extension";
+  } else if (pythonDetection && manifest) {
+    throw new ProjectProfileResolutionError(
+      "ambiguous_project_profile",
+      "Both Python and Node project markers were detected. Select parameters.profile as python or node explicitly.",
+    );
+  } else if (pythonDetection) {
+    profile = "python";
+  } else if (manifest) {
+    profile = "node";
+  } else {
+    throw new ProjectProfileResolutionError(
+      "unsupported_project_profile",
+      "No supported project profile matched this workspace.",
+    );
+  }
+
+  if (profile !== "workbridge" && profile !== "python") {
+    throw new ProjectProfileResolutionError(
+      "unsupported_action_for_profile",
+      `The test_changed action is not available for the ${profile} profile because no exact test-runner mapping is defined.`,
+    );
+  }
+  if (!(await isGitWorkTree(input.workspaceRoot))) {
+    throw new ProjectProfileResolutionError(
+      "not_git_workspace",
+      "The test_changed action requires a Git working tree.",
+    );
+  }
+
+  const changedFiles = await gitChangedFiles(input.workspaceRoot);
+  if (changedFiles.length === 0) {
+    throw new ProjectProfileResolutionError(
+      "no_changed_files",
+      "No staged, unstaged, or untracked files were found.",
+    );
+  }
+  for (const path of changedFiles) assertSafeActionPath(path);
+
+  if (profile === "workbridge") {
+    const tests = await mapWorkbridgeChangedTests(input.workspaceRoot, changedFiles);
+    return changedTestsResolution(profile, changedFiles, tests, (path) => `node --import tsx \"${path}\"`);
+  }
+
+  const detection = pythonDetection!;
+  const configuredTools = await configuredPythonTools(input.workspaceRoot, detection);
+  if (!configuredTools.has("pytest")) {
+    throw new ProjectProfileResolutionError(
+      "unsupported_action_for_profile",
+      "The Python profile requires explicit Pytest configuration or a tests directory for test_changed.",
+    );
+  }
+  const runner = await resolvePythonRunner(input.workspaceRoot, detection.pyproject);
+  const tests = await mapPythonChangedTests(input.workspaceRoot, changedFiles);
+  return changedTestsResolution(profile, changedFiles, tests, (path) => pythonPytestPathCommand(runner, path));
 }
 
 function normalizeRequestedProfile(value: string | undefined): ProjectProfileName | undefined {
@@ -590,6 +693,127 @@ function pythonToolCommand(
 
 function systemPythonCommand(): "py" | "python3" {
   return process.platform === "win32" ? "py" : "python3";
+}
+
+async function gitChangedFiles(workspaceRoot: string): Promise<string[]> {
+  const commands = [
+    ["diff", "--name-only", "--diff-filter=ACMR"],
+    ["diff", "--cached", "--name-only", "--diff-filter=ACMR"],
+    ["ls-files", "--others", "--exclude-standard"],
+  ] as const;
+  const changed = new Set<string>();
+  for (const args of commands) {
+    const { stdout } = await execFileAsync("git", ["-C", workspaceRoot, ...args], { windowsHide: true });
+    for (const line of stdout.split(/\r?\n/)) {
+      const path = line.trim().replaceAll("\\", "/");
+      if (path) changed.add(path);
+    }
+  }
+  return [...changed].sort();
+}
+
+async function mapWorkbridgeChangedTests(
+  workspaceRoot: string,
+  changedFiles: readonly string[],
+): Promise<string[]> {
+  const tests = new Set<string>();
+  for (const path of changedFiles) {
+    if (/\.(?:test|spec)\.[jt]sx?$/.test(path) && await pathExists(join(workspaceRoot, path))) {
+      tests.add(path);
+      continue;
+    }
+    const match = /^(.*)\.([jt]sx?)$/.exec(path);
+    if (!match || !path.startsWith("src/")) continue;
+    const base = match[1];
+    const extension = match[2];
+    for (const candidate of [`${base}.test.${extension}`, `${base}.spec.${extension}`]) {
+      if (await pathExists(join(workspaceRoot, candidate))) tests.add(candidate);
+    }
+  }
+  return requireExactTestMappings(tests);
+}
+
+async function mapPythonChangedTests(
+  workspaceRoot: string,
+  changedFiles: readonly string[],
+): Promise<string[]> {
+  const tests = new Set<string>();
+  for (const path of changedFiles) {
+    if (!path.endsWith(".py")) continue;
+    const parts = path.split("/");
+    const file = parts.at(-1)!;
+    if ((file.startsWith("test_") || file.endsWith("_test.py")) && await pathExists(join(workspaceRoot, path))) {
+      tests.add(path);
+      continue;
+    }
+    if (file === "__init__.py") continue;
+    const stem = file.slice(0, -3);
+    const directory = parts.slice(0, -1).join("/");
+    const candidates = [
+      directory ? `${directory}/test_${stem}.py` : `test_${stem}.py`,
+      directory ? `${directory}/${stem}_test.py` : `${stem}_test.py`,
+      `tests/test_${stem}.py`,
+      directory ? `tests/${directory}/test_${stem}.py` : `tests/test_${stem}.py`,
+    ];
+    for (const candidate of candidates) {
+      if (await pathExists(join(workspaceRoot, candidate))) tests.add(candidate);
+    }
+  }
+  return requireExactTestMappings(tests);
+}
+
+function requireExactTestMappings(tests: Set<string>): string[] {
+  const result = [...tests].sort();
+  if (result.length === 0) {
+    throw new ProjectProfileResolutionError(
+      "no_exact_test_mapping",
+      "No exact changed-file to test-file mapping was found. Run project_verify/quick instead.",
+    );
+  }
+  return result;
+}
+
+function changedTestsResolution(
+  profile: "workbridge" | "python",
+  changedFiles: readonly string[],
+  tests: readonly string[],
+  commandForPath: (path: string) => string,
+): ChangedTestsProfileResolution {
+  const steps = tests.map((path, index) => ({
+    id: `test-${index + 1}`,
+    label: `Changed-file test: ${path}`,
+    command: commandForPath(path),
+  }));
+  const plan = shellSteps(steps);
+  const command = compileWorkspaceActionPlan(plan);
+  return {
+    profile,
+    confidence: "exact",
+    evidence: [
+      `changed files: ${changedFiles.join(", ")}`,
+      `mapped tests: ${tests.join(", ")}`,
+    ],
+    plan,
+    command,
+    displayCommand: command,
+    description: "Run tests with exact mappings from the current Git changes.",
+    policy: ["workspace_modify", "long_running"],
+  };
+}
+
+function pythonPytestPathCommand(runner: PythonRunner, path: string): string {
+  if (runner === "uv") return `uv run pytest \"${path}\"`;
+  if (runner === "poetry") return `poetry run pytest \"${path}\"`;
+  return `${systemPythonCommand()} -m pytest \"${path}\"`;
+}
+
+function assertSafeActionPath(path: string): void {
+  if (!/^[A-Za-z0-9_./-]+$/.test(path) || path.startsWith("/") || path.includes("../")) {
+    throw new ProjectProfileResolutionError(
+      "unsafe_changed_path",
+      `Changed path cannot be represented safely in a fixed action command: ${path}`,
+    );
+  }
 }
 
 function extensionResourcePaths(manifest: ChromeExtensionManifest): string[] {
