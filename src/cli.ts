@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import * as prompts from "@clack/prompts";
 import { getShellConfig } from "@earendil-works/pi-coding-agent";
 import { satisfies } from "semver";
+import { PRODUCT_DISPLAY_NAME } from "./branding.js";
 import { loadConfig } from "./config.js";
 import { runLocalAgentProvider } from "./local-agent-adapters.js";
 import {
@@ -17,10 +18,7 @@ import {
   loadLocalAgentProfiles,
   type LocalAgentProfile,
 } from "./local-agent-profiles.js";
-import {
-  assertLocalAgentProviderAvailable,
-  formatLocalAgentProviderAvailabilitySummary,
-} from "./local-agent-availability.js";
+import { assertLocalAgentProviderAvailable } from "./local-agent-availability.js";
 import {
   formatAvailableLocalAgentTargets,
   parseLocalAgentRunArgs,
@@ -29,20 +27,19 @@ import {
 import { createLocalAgentStore, type LocalAgentRecord } from "./local-agent-store.js";
 import type { LocalAgentRunResult } from "./local-agent-runtime.js";
 import {
-  ensureDevspaceDefaultSkills,
   generateOwnerToken,
   loadDevspaceFiles,
-  resolveSubagentsFlag,
   writeDevspaceAuth,
   writeDevspaceConfig,
   type DevspaceUserConfig,
 } from "./user-config.js";
 import { expandHomePath } from "./roots.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
+import { SoftPauseController } from "./soft-pause.js";
+import { PACKAGE_VERSION, SUPPORTED_NODE_RANGE } from "./version.js";
 
-type Command = "serve" | "init" | "doctor" | "config" | "agents" | "help" | "version";
+type Command = "serve" | "init" | "doctor" | "config" | "control" | "agents" | "help" | "version";
 const require = createRequire(import.meta.url);
-const SUPPORTED_NODE_RANGE = ">=20.12 <27";
 
 async function main(argv: string[]): Promise<void> {
   assertSupportedNode();
@@ -64,6 +61,10 @@ async function main(argv: string[]): Promise<void> {
     case "config":
       runConfigCommand(args);
       return;
+    case "control":
+      await ensureConfigured();
+      runControlCommand(args);
+      return;
     case "agents":
       await runAgentsCommand(args);
       return;
@@ -78,7 +79,7 @@ async function main(argv: string[]): Promise<void> {
 
 function normalizeCommand(command: string | undefined): Command {
   if (!command || command === "serve" || command === "start") return "serve";
-  if (command === "init" || command === "doctor" || command === "config" || command === "agents") return command;
+  if (command === "init" || command === "doctor" || command === "config" || command === "control" || command === "agents") return command;
   if (command === "help" || command === "--help" || command === "-h") return "help";
   if (command === "version" || command === "--version" || command === "-v") return "version";
   throw new Error(`Unknown command: ${command}`);
@@ -92,7 +93,7 @@ async function ensureConfigured(): Promise<void> {
   if (!input.isTTY || !output.isTTY) {
     throw new Error(
       [
-        "DevSpace is not configured and this terminal is non-interactive.",
+        `${PRODUCT_DISPLAY_NAME} is not configured and this terminal is non-interactive.`,
         "",
         "Run:",
         "  devspace init",
@@ -108,13 +109,13 @@ async function ensureConfigured(): Promise<void> {
 async function runInit({ force }: { force: boolean }): Promise<void> {
   const files = loadDevspaceFiles();
   if (!force && files.configExists && files.authExists) {
-    prompts.log.info(`DevSpace is already configured at ${files.dir}`);
+    prompts.log.info(`${PRODUCT_DISPLAY_NAME} is already configured at ${files.dir}`);
     prompts.log.info("Run `devspace init --force` to update it.");
     return;
   }
 
   try {
-    prompts.intro("DevSpace setup");
+    prompts.intro(`${PRODUCT_DISPLAY_NAME} setup`);
 
     const defaultRoots = files.config.allowedRoots?.join(", ") || process.cwd();
     const rootsAnswer = await textPrompt({
@@ -130,7 +131,7 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
 
     const defaultPort = String(files.config.port ?? 7676);
     const portAnswer = await textPrompt({
-      message: `Which local port should DevSpace use? Press Enter to use ${defaultPort}`,
+      message: `Which local port should ${PRODUCT_DISPLAY_NAME} use? Press Enter to use ${defaultPort}`,
       placeholder: defaultPort,
       defaultValue: defaultPort,
       validate: validatePort,
@@ -139,7 +140,7 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
 
     prompts.note(
       [
-        "DevSpace needs a public base URL so ChatGPT or Claude can reach this MCP server.",
+        `${PRODUCT_DISPLAY_NAME} needs a public base URL so ChatGPT or Claude can reach this MCP server.`,
         "Create a tunnel or reverse proxy with Cloudflare Tunnel, ngrok, Pinggy, Tailscale Funnel, or your own HTTPS proxy.",
         "Paste the public origin here, without /mcp.",
         "",
@@ -161,7 +162,6 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
       port,
       allowedRoots,
       publicBaseUrl,
-      subagents: resolveSubagentsFlag(files.config),
     };
     const auth = {
       ownerToken: files.auth.ownerToken ?? generateOwnerToken(),
@@ -169,20 +169,18 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
 
     const configPath = writeDevspaceConfig(config);
     const authPath = writeDevspaceAuth(auth);
-    const seededSkillPaths = config.subagents ? ensureDevspaceDefaultSkills() : [];
 
     const lines = [
       `Config: ${configPath}`,
       `Auth: ${authPath}`,
-      ...seededSkillPaths.map((path) => `Default skill: ${path}`),
       `Local MCP URL: http://${config.host}:${config.port}/mcp`,
       ...(publicBaseUrl ? [`Public MCP URL: ${publicBaseUrl}/mcp`] : []),
     ];
-    prompts.note(lines.join("\n"), "DevSpace configured");
+    prompts.note(lines.join("\n"), `${PRODUCT_DISPLAY_NAME} configured`);
     prompts.note(
       [
         `Owner password: ${auth.ownerToken}`,
-        "Use this when ChatGPT or Claude asks you to approve DevSpace access.",
+        `Use this when ChatGPT or Claude asks you to approve ${PRODUCT_DISPLAY_NAME} access.`,
         `Stored at: ${authPath}`,
       ].join("\n"),
       "Owner password",
@@ -213,9 +211,24 @@ async function serve(): Promise<void> {
 
   const { createServer } = await import("./server.js");
   const config = loadConfig();
-  const { app, close, localAgentProviders } = createServer(config);
+  const { app, close } = createServer(config);
   const httpServer = app.listen(config.port, config.host, () => {
-    console.log(`devspace listening on http://${config.host}:${config.port}/mcp`);
+    console.log(`${PRODUCT_DISPLAY_NAME} listening on http://${config.host}:${config.port}/mcp`);
+    console.log(`version: ${PACKAGE_VERSION}`);
+    console.log(`git commit: ${(() => {
+      try {
+        return require("node:child_process").execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim() || "unknown";
+      } catch {
+        return "unknown";
+      }
+    })()}`);
+    console.log("tool surface: fixed");
+    console.log("tools: open_workspace, read, apply_patch, exec_command, write_stdin, run_workspace_action");
+    console.log("workspace actions: registry enabled");
+    console.log(`trust proxy: ${config.logging.trustProxy ? "one-hop" : "off"}`);
     console.log(`public base url: ${config.publicBaseUrl}`);
     console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log(`allowed hosts: ${config.allowedHosts.join(", ")}`);
@@ -224,9 +237,6 @@ async function serve(): Promise<void> {
     }
     console.log("auth: Owner password approval required");
     console.log(`logging: ${config.logging.level} ${config.logging.format}`);
-    if (config.subagents) {
-      console.log(`subagent providers: ${formatLocalAgentProviderAvailabilitySummary(localAgentProviders)}`);
-    }
   });
 
   let shuttingDown = false;
@@ -297,10 +307,52 @@ function runConfigCommand(args: string[]): void {
   console.log(`Updated ${files.configPath}`);
 }
 
+function runControlCommand(args: string[]): void {
+  const [subcommand, ...rest] = args;
+  const controller = new SoftPauseController(loadConfig().stateDir);
+
+  switch (subcommand) {
+    case "pause":
+    case "request": {
+      const state = controller.request(parseReason(rest));
+      console.log("Workbridge soft pause requested.");
+      console.log(`Requested at: ${state.requestedAt}`);
+      if (state.reason) console.log(`Reason: ${state.reason}`);
+      console.log("Tools remain available; hosts are asked to stop at a convenient safe point.");
+      return;
+    }
+    case "resume":
+    case "clear":
+      console.log(controller.clear() ? "Workbridge soft pause cleared." : "Workbridge soft pause was not active.");
+      return;
+    case "status": {
+      const state = controller.status();
+      if (!state) {
+        console.log("Workbridge soft pause: inactive");
+        return;
+      }
+      console.log("Workbridge soft pause: requested");
+      console.log(`Requested at: ${state.requestedAt}`);
+      if (state.reason) console.log(`Reason: ${state.reason}`);
+      return;
+    }
+    default:
+      throw new Error("Usage: devspace control <pause|resume|status> [--reason <text>]");
+  }
+}
+
+function parseReason(args: string[]): string | undefined {
+  const reasonIndex = args.indexOf("--reason");
+  if (reasonIndex === -1) return args.join(" ").trim() || undefined;
+  const reason = args.slice(reasonIndex + 1).join(" ").trim();
+  if (!reason) throw new Error("Missing value after --reason.");
+  return reason;
+}
+
 function printHelp(): void {
   console.log(
     [
-      "DevSpace",
+      PRODUCT_DISPLAY_NAME,
       "",
       "Usage:",
       "  devspace                 Run first-time setup if needed, then start the server",
@@ -309,6 +361,9 @@ function printHelp(): void {
       "  devspace doctor          Show config, runtime, and native dependency status",
       "  devspace config get      Print persisted config",
       "  devspace config set publicBaseUrl <url|null>",
+      "  devspace control pause [--reason <text>]  Request a non-blocking pause",
+      "  devspace control resume                  Clear the soft-pause request",
+      "  devspace control status                  Show soft-pause state",
       "  devspace agents ls       List subagent sessions",
       "  devspace agents run <profile-or-provider-or-id> [--model <model>] <prompt>",
       "  devspace agents show <id>",
@@ -564,7 +619,7 @@ function sleep(ms: number): Promise<void> {
 function printAgentsHelp(): void {
   console.log(
     [
-      "DevSpace agents",
+      `${PRODUCT_DISPLAY_NAME} agents`,
       "",
       "Usage:",
       "  devspace agents ls",
@@ -575,12 +630,7 @@ function printAgentsHelp(): void {
 }
 
 function printVersion(): void {
-  const packageJson = require("../package.json") as { version?: unknown };
-  if (typeof packageJson.version !== "string") {
-    throw new Error("Unable to read DevSpace package version.");
-  }
-
-  console.log(packageJson.version);
+  console.log(PACKAGE_VERSION);
 }
 
 function normalizeOptionalPublicBaseUrl(value: string): string | null {
@@ -644,7 +694,7 @@ function assertSupportedNode(): void {
 
   throw new Error(
     [
-      `DevSpace requires Node ${SUPPORTED_NODE_RANGE}.`,
+      `${PRODUCT_DISPLAY_NAME} requires Node ${SUPPORTED_NODE_RANGE}.`,
       `Current Node: ${process.version}`,
       "",
       "Install Node 22 LTS or use a version manager such as nvm, fnm, or mise.",

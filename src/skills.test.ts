@@ -160,7 +160,7 @@ try {
     ].join("\n"),
   );
 
-  const disabledConfig = loadConfig({
+  const legacyDisableFlagConfig = loadConfig({
     DEVSPACE_ALLOWED_ROOTS: projectRoot,
     DEVSPACE_AGENT_DIR: agentDir,
     DEVSPACE_SKILL_PATHS: explicitSkills,
@@ -168,7 +168,8 @@ try {
     DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
-  assert.deepEqual(loadWorkspaceSkills(disabledConfig, projectRoot).skills, []);
+  assert.equal(legacyDisableFlagConfig.skillsEnabled, true);
+  assert.equal(loadWorkspaceSkills(legacyDisableFlagConfig, projectRoot).skills.length > 0, true);
 
   const config = loadConfig({
     DEVSPACE_ALLOWED_ROOTS: projectRoot,
@@ -202,11 +203,12 @@ try {
     DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
+  assert.equal(experimentalConfig.subagents, false);
   assert.equal(
     loadWorkspaceSkills(experimentalConfig, projectRoot).skills.some(
       (skill) => skill.name === "subagent-delegation",
     ),
-    true,
+    false,
   );
 
   const duplicateConfig = loadConfig({

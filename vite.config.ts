@@ -10,6 +10,10 @@ export default defineConfig({
     outDir: resolve(__dirname, "dist/ui"),
     emptyOutDir: true,
     manifest: true,
+    // Pierre diff language grammars and WASM are lazy-loaded chunks. The
+    // largest current chunk is below 800 kB, so keep a warning boundary that
+    // catches future growth without warning on the known deferred assets.
+    chunkSizeWarningLimit: 800,
     rollupOptions: {
       input: resolve(__dirname, "src/ui/workspace-app.html"),
       output: {

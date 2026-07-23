@@ -82,6 +82,10 @@ endpoint, but the tunnel URL should not be treated as a secret.
 The shell tool is powerful by design. It is meant for tests, builds, git, and
 package scripts.
 
+Workbridge exposes `exec_command` on its fixed tool surface. On Windows it
+currently runs through `ComSpec`, normally `cmd.exe`; on macOS and Linux it uses
+a supported shell from `SHELL`, with `/bin/sh` as fallback.
+
 Filesystem path containment applies to DevSpace file tools. Shell commands run
 as local commands and can do what your user account can do. This is why the MCP
 client must be trusted and the Owner password must stay private.
@@ -111,8 +115,8 @@ execute transferred content.
 
 ## Logs
 
-By default, DevSpace logs requests and tool calls. Shell command previews are
-disabled unless `DEVSPACE_LOG_SHELL_COMMANDS=1`.
+By default, Workbridge logs requests and tool calls. Shell command previews are
+disabled unless `WORKBRIDGE_LOG_SHELL_COMMANDS=1`.
 
 Do not enable shell command logging if commands may contain secrets.
 

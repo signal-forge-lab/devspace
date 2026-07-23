@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import { join } from "node:path";
+import {
+  redactPathsInText,
+  redactPathsInValue,
+  workspacePathRedactions,
+} from "./path-redaction.js";
+
+const workspaceRoot = join("C:", "Users", "example", "project");
+const redactions = [{ path: workspaceRoot, replacement: "<workspace>" }];
+
+assert.equal(
+  redactPathsInText(`trace at ${workspaceRoot}`, redactions),
+  "trace at <workspace>",
+);
+
+assert.equal(
+  redactPathsInText("trace at C:/Users/example/project/file.py", redactions),
+  "trace at <workspace>/file.py",
+);
+
+const currentWorkspaceRedactions = workspacePathRedactions(process.cwd());
+assert.equal(
+  redactPathsInText(`cwd=${process.cwd()}`, currentWorkspaceRedactions),
+  "cwd=<workspace>",
+);
+
+assert.deepEqual(
+  redactPathsInValue(
+    {
+      path: `${workspaceRoot}\\file.txt`,
+      nested: [{ message: `failed under ${workspaceRoot}` }],
+      count: 1,
+    },
+    redactions,
+  ),
+  {
+    path: "<workspace>\\file.txt",
+    nested: [{ message: "failed under <workspace>" }],
+    count: 1,
+  },
+);

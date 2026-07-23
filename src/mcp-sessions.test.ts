@@ -25,7 +25,7 @@ registry.register("stale", staleTransport);
 now = 1_000;
 registry.register("active", activeTransport);
 now = 1_500;
-assert.equal(registry.get("active"), activeTransport);
+assert.equal(registry.get("active", ["tools/call"]), activeTransport);
 now = 2_000;
 
 const idleResults = await registry.closeIdle(1_500);
@@ -84,3 +84,77 @@ finishDelayedClose?.();
 await delayedClose;
 assert.equal(delayedCloseResolved, true);
 assert.equal(registry.size, 0);
+
+now = 20_000;
+const retained = new McpSessionRegistry<FakeTransport>({ now: () => now });
+const retainedTransports = Array.from({ length: 64 }, () => createTransport());
+for (const [index, transport] of retainedTransports.entries()) {
+  retained.register(`retained-${index}`, transport);
+  now += 1;
+}
+assert.equal(retained.size, 64);
+assert.equal(retainedTransports.every((transport) => transport.closeCalls === 0), true);
+
+const retainedResults = await retained.closeAll();
+assert.equal(retainedResults.length, 64);
+assert.equal(retainedTransports.every((transport) => transport.closeCalls === 1), true);
+
+now = 30_000;
+const observed = new McpSessionRegistry<FakeTransport>({ now: () => now });
+const initializedOnlyTransport = createTransport();
+const handshakeTransport = createTransport();
+const discoveryTransport = createTransport();
+const operationalTransport = createTransport();
+observed.register("initialized-only", initializedOnlyTransport, {
+  clientName: "chatgpt",
+  protocolVersion: "2025-06-18",
+});
+observed.register("handshake", handshakeTransport, {
+  clientName: "chatgpt",
+  protocolVersion: "2025-06-18",
+});
+observed.register("discovery", discoveryTransport, {
+  clientName: "chatgpt",
+  protocolVersion: "2025-06-18",
+});
+observed.register("operational", operationalTransport, {
+  clientName: "codex",
+  protocolVersion: "2025-06-18",
+});
+observed.get("handshake", ["notifications/initialized"]);
+observed.get("discovery", ["notifications/initialized", "tools/list"]);
+observed.get("operational", ["http/get", "tools/list", "tools/call", "tools/call"]);
+
+assert.deepEqual(observed.stats(), {
+  active: 4,
+  initializedOnly: 1,
+  handshakeOnly: 1,
+  discoveryOnly: 1,
+  operational: 1,
+  toolCallSessions: 1,
+  reusedToolCallSessions: 1,
+  maxToolCallsPerSession: 2,
+  totalCreated: 4,
+  totalClosed: 0,
+  totalSubsequentRequests: 3,
+  oldestAgeMs: 0,
+  longestIdleMs: 0,
+  requestMethods: {
+    "notifications/initialized": 2,
+    "tools/list": 2,
+    "tools/call": 2,
+    "http/get": 1,
+  },
+  clientNames: { chatgpt: 3, codex: 1 },
+  protocolVersions: { "2025-06-18": 4 },
+});
+
+now += 15 * 60 * 1_000;
+const preUseResults = await observed.closePreUse(15 * 60 * 1_000);
+assert.deepEqual(preUseResults.map((result) => result.sessionId).sort(), ["handshake", "initialized-only"]);
+assert.equal(initializedOnlyTransport.closeCalls, 1);
+assert.equal(handshakeTransport.closeCalls, 1);
+assert.equal(discoveryTransport.closeCalls, 0);
+assert.equal(operationalTransport.closeCalls, 0);
+assert.equal(observed.stats().active, 2);
+assert.equal(observed.stats().totalClosed, 2);

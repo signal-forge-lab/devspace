@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, lt } from "drizzle-orm";
 import { openDatabase, type DatabaseHandle } from "./db/client.js";
 import {
   workspaceSessions,
@@ -32,14 +32,18 @@ export interface WorkspaceStore {
   }): WorkspaceSession;
   getSession(id: string): WorkspaceSession | undefined;
   touchSession(id: string): void;
+  cleanupStaleSessions(before: Date): number;
   close?(): void;
 }
 
 export class SqliteWorkspaceStore implements WorkspaceStore {
   private readonly database: DatabaseHandle;
 
-  constructor(stateDir: string) {
+  constructor(stateDir: string, maxSessionAgeMs?: number) {
     this.database = openDatabase(stateDir);
+    if (maxSessionAgeMs !== undefined) {
+      this.cleanupStaleSessions(new Date(Date.now() - maxSessionAgeMs));
+    }
   }
 
   createSession(input: {
@@ -102,14 +106,21 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       .run();
   }
 
+  cleanupStaleSessions(before: Date): number {
+    return this.database.db
+      .delete(workspaceSessions)
+      .where(lt(workspaceSessions.lastUsedAt, before.toISOString()))
+      .run().changes;
+  }
+
   close(): void {
     this.database.close();
   }
 
 }
 
-export function createWorkspaceStore(stateDir: string): WorkspaceStore {
-  return new SqliteWorkspaceStore(stateDir);
+export function createWorkspaceStore(stateDir: string, maxSessionAgeMs?: number): WorkspaceStore {
+  return new SqliteWorkspaceStore(stateDir, maxSessionAgeMs);
 }
 
 function rowToWorkspaceSession(row: WorkspaceSessionRow): WorkspaceSession {

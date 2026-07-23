@@ -172,10 +172,20 @@ needed.
 
 ## Windows Shell Commands Fail
 
-DevSpace shell execution requires Bash. Native PowerShell and `cmd.exe` command
-execution are not supported yet.
+The shell requirement depends on the selected tool mode:
 
-Install Git for Windows and use Git Bash, or use WSL, MSYS2, or Cygwin Bash.
+- `minimal` and `full` expose the `bash` tool and require Git Bash,
+  WSL, MSYS2, Cygwin Bash, or another compatible Bash environment;
+- experimental `codex` mode exposes `exec_command` and currently uses the
+  Windows command processor from `ComSpec`, normally `cmd.exe`;
+- PowerShell is not currently selected automatically for `exec_command`.
+
+Install Git for Windows or use WSL when using a `bash` tool surface. In `codex`
+mode, write commands for the active `cmd.exe` syntax unless the implementation
+is later configured to use another shell.
+
+The `codex` tool-mode name does not mean that Workbridge launches the local
+Codex CLI or inherits a shell choice from Codex.
 
 Run:
 
@@ -183,52 +193,15 @@ Run:
 npx @waishnav/devspace doctor
 ```
 
-Confirm Bash is detected.
+Confirm Bash is detected when using a `bash` tool surface. A missing Bash result
+does not by itself prevent native Windows `exec_command` use in `codex` mode.
 
 ## Skills Do Not Appear
 
-Skills are enabled by default. Check:
+Skills are always enabled. Confirm that the skill has a valid `SKILL.md` and is
+in a standard Agent Skills location or a path listed in
+`DEVSPACE_SKILL_PATHS`. Legacy project locations such as `.pi/skills` must be
+added explicitly.
 
-```bash
-DEVSPACE_SKILLS=1 npx @waishnav/devspace serve
-```
-
-DevSpace looks in standard Agent Skills locations:
-
-- `~/.agents/skills`
-- project `.agents/skills`
-- `~/.devspace/skills`
-
-It also checks compatibility and custom paths:
-
-- the bundled `subagent-delegation` skill when `DEVSPACE_SUBAGENTS=1`, unless `~/.devspace/skills/subagent-delegation/SKILL.md` exists
-- `DEVSPACE_AGENT_DIR/skills`, defaulting to `~/.codex/skills`
-- additional paths from `DEVSPACE_SKILL_PATHS`
-
-When `DEVSPACE_SUBAGENTS=1`, DevSpace loads agent profiles from
-`~/.devspace/agents/*.md` and project `.devspace/agents/*.md`, then exposes a
-compact profile catalog through `open_workspace`. The bundled
-`subagent-delegation` skill keeps the model-facing workflow to
-`devspace agents ls`, `devspace agents run`, and `devspace agents show`.
-`devspace agents ls` lists existing subagent sessions, not profile
-definitions.
-
-Packaged agent profile examples under `examples/agents/` are starter templates.
-Copy or adapt them into one of the active profile directories before use.
-
-Legacy project paths such as `.pi/skills` can be added through `DEVSPACE_SKILL_PATHS` when needed.
-
-If a skill appears in `open_workspace`, the model must read that skill's
-`SKILL.md` before reading other files inside the skill directory.
-
-## Review Card Does Not Appear
-
-Per-tool widget cards are enabled by default with:
-
-```bash
-DEVSPACE_WIDGETS=full
-```
-
-The aggregate `show_changes` tool is only exposed with
-`DEVSPACE_WIDGETS=changes`. Plain MCP clients may ignore ChatGPT Apps widget
-metadata and only show text results.
+When `open_workspace` advertises a skill, read its `SKILL.md` before other files
+inside that skill directory.

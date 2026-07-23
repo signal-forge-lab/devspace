@@ -10,7 +10,14 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { checkResourceAllowed, resourceUrlFromServerUrl } from "@modelcontextprotocol/sdk/shared/auth-utils.js";
+import { PRODUCT_DISPLAY_NAME } from "./branding.js";
 import { SqliteOAuthClientsStore, SqliteOAuthStore } from "./oauth-store.js";
+import {
+  AuthorizationAttemptLimiter,
+  delay,
+  requestAddress,
+  type AuthorizationRateLimitConfig,
+} from "./oauth-security.js";
 
 export interface OAuthConfig {
   ownerToken: string;
@@ -18,6 +25,9 @@ export interface OAuthConfig {
   refreshTokenTtlSeconds: number;
   scopes: string[];
   allowedRedirectHosts: string[];
+  maxRegisteredClients: number;
+  inactiveClientMaxAgeSeconds: number;
+  authorizationRateLimit: AuthorizationRateLimitConfig;
 }
 
 interface AuthorizationCodeRecord {
@@ -56,7 +66,7 @@ function formHtml(params: {
   fields: Record<string, string | undefined>;
 }): string {
   const scopeText = params.scopes.length > 0 ? params.scopes.join(" ") : "devspace";
-  const resourceText = params.resource?.href ?? "DevSpace MCP endpoint";
+  const resourceText = params.resource?.href ?? `${PRODUCT_DISPLAY_NAME} MCP endpoint`;
   const error = params.error
     ? `<p class="error">${htmlEscape(params.error)}</p>`
     : "";
@@ -70,7 +80,7 @@ function formHtml(params: {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Connect DevSpace</title>
+    <title>Connect ${PRODUCT_DISPLAY_NAME}</title>
     <style>
       body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
       main { max-width: 440px; margin: 12vh auto; padding: 32px; background: #111827; border: 1px solid #334155; border-radius: 18px; box-shadow: 0 24px 80px rgba(0,0,0,.35); }
@@ -88,7 +98,7 @@ function formHtml(params: {
   </head>
   <body>
     <main>
-      <h1>Connect DevSpace</h1>
+      <h1>Connect ${PRODUCT_DISPLAY_NAME}</h1>
       <p class="warning">Only approve this if you are intentionally connecting your own ChatGPT or MCP client to this local machine.</p>
       ${error}
       <dl>
@@ -100,7 +110,7 @@ function formHtml(params: {
 ${hiddenFields}
         <label for="owner_token">Owner password</label>
         <input id="owner_token" name="owner_token" type="password" autocomplete="current-password" autofocus required />
-        <button type="submit">Authorize DevSpace</button>
+        <button type="submit">Authorize ${PRODUCT_DISPLAY_NAME}</button>
       </form>
     </main>
   </body>
@@ -116,6 +126,7 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
   private readonly codes = new Map<string, AuthorizationCodeRecord>();
   private readonly oauthStore: SqliteOAuthStore;
   private readonly resourceServerUrl: URL;
+  private readonly authorizationAttempts: AuthorizationAttemptLimiter;
 
   constructor(
     private readonly config: OAuthConfig,
@@ -123,8 +134,13 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     stateDir: string,
   ) {
     this.resourceServerUrl = resourceUrlFromServerUrl(resourceServerUrl);
-    this.oauthStore = new SqliteOAuthStore(stateDir);
-    this.clientsStore = new SqliteOAuthClientsStore(this.oauthStore, config.allowedRedirectHosts);
+    this.oauthStore = new SqliteOAuthStore(stateDir, config.inactiveClientMaxAgeSeconds);
+    this.clientsStore = new SqliteOAuthClientsStore(
+      this.oauthStore,
+      config.allowedRedirectHosts,
+      config.maxRegisteredClients,
+    );
+    this.authorizationAttempts = new AuthorizationAttemptLimiter(config.authorizationRateLimit);
   }
 
   async authorize(
@@ -152,8 +168,22 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
       return;
     }
 
+    const attemptKey = requestAddress(res.req);
+    this.authorizationAttempts.prune();
+    const existingRetryAfterMs = this.authorizationAttempts.retryAfterMs(attemptKey);
+    if (existingRetryAfterMs > 0) {
+      sendRateLimitedAuthorizationForm(res, client, params, existingRetryAfterMs);
+      return;
+    }
+
     const providedToken = String(res.req.body?.owner_token ?? "");
     if (!safeEquals(providedToken, this.config.ownerToken)) {
+      await delay(this.config.authorizationRateLimit.failureDelayMs);
+      const retryAfterMs = this.authorizationAttempts.recordFailure(attemptKey);
+      if (retryAfterMs > 0) {
+        sendRateLimitedAuthorizationForm(res, client, params, retryAfterMs);
+        return;
+      }
       res.status(401).setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(
         formHtml({
@@ -166,6 +196,9 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
       );
       return;
     }
+
+    this.authorizationAttempts.recordSuccess(attemptKey);
+    this.pruneAuthorizationCodes();
 
     const code = `code-${randomUUID()}`;
     this.codes.set(code, {
@@ -264,11 +297,18 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     client: OAuthClientInformationFull,
     authorizationCode: string,
   ): AuthorizationCodeRecord {
+    this.pruneAuthorizationCodes();
     const record = this.codes.get(authorizationCode);
     if (!record || record.clientId !== client.client_id || record.expiresAtMs < Date.now()) {
       throw new InvalidGrantError("Invalid authorization code");
     }
     return record;
+  }
+
+  private pruneAuthorizationCodes(nowMs = Date.now()): void {
+    for (const [code, record] of this.codes) {
+      if (record.expiresAtMs < nowMs) this.codes.delete(code);
+    }
   }
 
   private issueTokens(
@@ -314,6 +354,26 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
       scope: scopes.join(" "),
     };
   }
+}
+
+function sendRateLimitedAuthorizationForm(
+  res: Response,
+  client: OAuthClientInformationFull,
+  params: AuthorizationParams,
+  retryAfterMs: number,
+): void {
+  const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1_000));
+  res.status(429).setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Retry-After", String(retryAfterSeconds));
+  res.send(
+    formHtml({
+      error: `Too many failed attempts. Try again in ${retryAfterSeconds} seconds.`,
+      clientName: client.client_name ?? client.client_id,
+      scopes: params.scopes ?? [],
+      resource: params.resource,
+      fields: authorizationFormFields(client, params),
+    }),
+  );
 }
 
 function authorizationFormFields(

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
-import { createReviewCheckpointManager } from "./review-checkpoints.js";
+import { cleanupStaleReviewRefs, createReviewCheckpointManager } from "./review-checkpoints.js";
 
 const execFileAsync = promisify(execFile);
 const root = await mkdtemp(join(tmpdir(), "devspace-review-checkpoints-test-"));
@@ -49,10 +49,22 @@ try {
 
   const afterReviewed = await manager.reviewChanges({ workspaceId: "ws_review", root });
   assert.equal(afterReviewed.summary.files, 0);
+
+  const refsBeforeCleanup = await gitOutput(root, ["for-each-ref", "--format=%(refname)", "refs/devspace/review/ws_review"]);
+  assert.match(refsBeforeCleanup, /refs\/devspace\/review\/ws_review\/open/);
+  assert.match(refsBeforeCleanup, /refs\/devspace\/review\/ws_review\/baseline/);
+  const deleted = await cleanupStaleReviewRefs(root, 1, Date.now() + 60_000);
+  assert.equal(deleted, 2);
+  const refsAfterCleanup = await gitOutput(root, ["for-each-ref", "--format=%(refname)", "refs/devspace/review/ws_review"]);
+  assert.equal(refsAfterCleanup.trim(), "");
 } finally {
   await rm(root, { recursive: true, force: true });
 }
 
 async function git(cwd: string, args: string[]): Promise<void> {
   await execFileAsync("git", args, { cwd });
+}
+
+async function gitOutput(cwd: string, args: string[]): Promise<string> {
+  return (await execFileAsync("git", args, { cwd })).stdout;
 }

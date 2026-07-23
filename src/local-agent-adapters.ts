@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:chil
 import { resolve } from "node:path";
 import { Readable, Writable } from "node:stream";
 import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
+import { PRODUCT_DISPLAY_NAME } from "./branding.js";
 import type { LocalAgentProvider } from "./local-agent-profiles.js";
 import { removeDevspaceNodeModulesBinFromPath } from "./local-agent-path.js";
 import {
@@ -194,7 +195,7 @@ class AcpLocalAgentAdapter implements LocalAgentAdapter {
     );
     try {
       let providerSessionId = input.providerSessionId ?? null;
-      const finalResponse = await client({ name: "DevSpace" })
+      const finalResponse = await client({ name: PRODUCT_DISPLAY_NAME })
         .onRequest(methods.client.session.requestPermission, (context) => {
           const selected = selectAcpAllowPermissionOption(context.params.options);
           return selected

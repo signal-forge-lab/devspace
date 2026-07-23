@@ -7,9 +7,41 @@ export interface McpSessionCloseResult {
   error?: unknown;
 }
 
+export interface McpSessionMetadata {
+  clientName?: string;
+  clientVersion?: string;
+  protocolVersion?: string;
+  userAgent?: string;
+}
+
+export interface McpSessionStats {
+  active: number;
+  initializedOnly: number;
+  handshakeOnly: number;
+  discoveryOnly: number;
+  operational: number;
+  toolCallSessions: number;
+  reusedToolCallSessions: number;
+  maxToolCallsPerSession: number;
+  totalCreated: number;
+  totalClosed: number;
+  totalSubsequentRequests: number;
+  oldestAgeMs: number;
+  longestIdleMs: number;
+  requestMethods: Record<string, number>;
+  clientNames: Record<string, number>;
+  protocolVersions: Record<string, number>;
+}
+
 interface McpSessionEntry<TTransport> {
   transport: TTransport;
+  createdAt: number;
   lastActivityAt: number;
+  subsequentRequestCount: number;
+  handshakeRequestCount: number;
+  discoveryRequestCount: number;
+  operationalRequestCount: number;
+  toolCallCount: number;
 }
 
 export interface McpSessionRegistryOptions {
@@ -19,6 +51,12 @@ export interface McpSessionRegistryOptions {
 export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
   private readonly sessions = new Map<string, McpSessionEntry<TTransport>>();
   private readonly now: () => number;
+  private readonly requestMethods = new Map<string, number>();
+  private readonly clientNames = new Map<string, number>();
+  private readonly protocolVersions = new Map<string, number>();
+  private totalCreated = 0;
+  private totalClosed = 0;
+  private totalSubsequentRequests = 0;
 
   constructor(options: McpSessionRegistryOptions = {}) {
     this.now = options.now ?? Date.now;
@@ -28,23 +66,112 @@ export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
     return this.sessions.size;
   }
 
-  register(sessionId: string, transport: TTransport): void {
+  register(sessionId: string, transport: TTransport, metadata: McpSessionMetadata = {}): void {
+    const timestamp = this.now();
     this.sessions.set(sessionId, {
       transport,
-      lastActivityAt: this.now(),
+      createdAt: timestamp,
+      lastActivityAt: timestamp,
+      subsequentRequestCount: 0,
+      handshakeRequestCount: 0,
+      discoveryRequestCount: 0,
+      operationalRequestCount: 0,
+      toolCallCount: 0,
     });
+    this.totalCreated += 1;
+    incrementCounter(this.clientNames, metadata.clientName ?? "unknown", 32);
+    incrementCounter(this.protocolVersions, metadata.protocolVersion ?? "unknown", 16);
   }
 
-  get(sessionId: string): TTransport | undefined {
+  get(sessionId: string, methods: readonly string[] = []): TTransport | undefined {
     const entry = this.sessions.get(sessionId);
     if (!entry) return undefined;
 
     entry.lastActivityAt = this.now();
+    entry.subsequentRequestCount += 1;
+    this.totalSubsequentRequests += 1;
+
+    const classifiedMethods = methods.length > 0 ? methods : ["unknown"];
+    for (const method of classifiedMethods) {
+      incrementCounter(this.requestMethods, method, 64);
+      const classification = classifyRequestMethod(method);
+      if (classification === "handshake") entry.handshakeRequestCount += 1;
+      else if (classification === "discovery") entry.discoveryRequestCount += 1;
+      else entry.operationalRequestCount += 1;
+      if (method === "tools/call") entry.toolCallCount += 1;
+    }
     return entry.transport;
   }
 
   remove(sessionId: string): boolean {
-    return this.sessions.delete(sessionId);
+    const removed = this.sessions.delete(sessionId);
+    if (removed) this.totalClosed += 1;
+    return removed;
+  }
+
+  stats(): McpSessionStats {
+    const now = this.now();
+    let initializedOnly = 0;
+    let handshakeOnly = 0;
+    let discoveryOnly = 0;
+    let operational = 0;
+    let toolCallSessions = 0;
+    let reusedToolCallSessions = 0;
+    let maxToolCallsPerSession = 0;
+    let oldestAgeMs = 0;
+    let longestIdleMs = 0;
+
+    for (const entry of this.sessions.values()) {
+      oldestAgeMs = Math.max(oldestAgeMs, now - entry.createdAt);
+      longestIdleMs = Math.max(longestIdleMs, now - entry.lastActivityAt);
+      if (entry.subsequentRequestCount === 0) initializedOnly += 1;
+      else if (entry.operationalRequestCount > 0) operational += 1;
+      else if (entry.discoveryRequestCount > 0) discoveryOnly += 1;
+      else handshakeOnly += 1;
+      if (entry.toolCallCount > 0) toolCallSessions += 1;
+      if (entry.toolCallCount > 1) reusedToolCallSessions += 1;
+      maxToolCallsPerSession = Math.max(maxToolCallsPerSession, entry.toolCallCount);
+    }
+
+    return {
+      active: this.sessions.size,
+      initializedOnly,
+      handshakeOnly,
+      discoveryOnly,
+      operational,
+      toolCallSessions,
+      reusedToolCallSessions,
+      maxToolCallsPerSession,
+      totalCreated: this.totalCreated,
+      totalClosed: this.totalClosed,
+      totalSubsequentRequests: this.totalSubsequentRequests,
+      oldestAgeMs,
+      longestIdleMs,
+      requestMethods: sortedCounter(this.requestMethods),
+      clientNames: sortedCounter(this.clientNames),
+      protocolVersions: sortedCounter(this.protocolVersions),
+    };
+  }
+
+  async closePreUse(idleTimeoutMs: number): Promise<McpSessionCloseResult[]> {
+    const cutoff = this.now() - idleTimeoutMs;
+    const unusedSessions: Array<{ sessionId: string; transport: TTransport }> = [];
+
+    for (const [sessionId, entry] of this.sessions) {
+      if (
+        entry.discoveryRequestCount > 0
+        || entry.operationalRequestCount > 0
+        || entry.lastActivityAt > cutoff
+      ) {
+        continue;
+      }
+
+      this.sessions.delete(sessionId);
+      unusedSessions.push({ sessionId, transport: entry.transport });
+    }
+
+    this.totalClosed += unusedSessions.length;
+    return closeSessions(unusedSessions);
   }
 
   async closeIdle(idleTimeoutMs: number): Promise<McpSessionCloseResult[]> {
@@ -58,6 +185,7 @@ export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
       idleSessions.push({ sessionId, transport: entry.transport });
     }
 
+    this.totalClosed += idleSessions.length;
     return closeSessions(idleSessions);
   }
 
@@ -67,8 +195,42 @@ export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
       transport: entry.transport,
     }));
     this.sessions.clear();
+    this.totalClosed += sessions.length;
     return closeSessions(sessions);
   }
+}
+
+function classifyRequestMethod(method: string): "handshake" | "discovery" | "operational" {
+  if (
+    method === "notifications/initialized"
+    || method === "ping"
+    || method === "http/get"
+    || method === "http/head"
+    || method === "http/options"
+  ) {
+    return "handshake";
+  }
+  if (
+    method === "tools/list"
+    || method === "resources/list"
+    || method === "resources/templates/list"
+    || method === "prompts/list"
+  ) {
+    return "discovery";
+  }
+  return "operational";
+}
+
+function incrementCounter(counter: Map<string, number>, rawKey: string, maxKeys: number): void {
+  const normalized = rawKey.trim().slice(0, 160) || "unknown";
+  const key = counter.has(normalized) || counter.size < maxKeys ? normalized : "other";
+  counter.set(key, (counter.get(key) ?? 0) + 1);
+}
+
+function sortedCounter(counter: ReadonlyMap<string, number>): Record<string, number> {
+  return Object.fromEntries(
+    Array.from(counter.entries()).sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0])),
+  );
 }
 
 async function closeSessions<TTransport extends ClosableMcpTransport>(

@@ -9,6 +9,7 @@ import { createManagedWorktree } from "./git-worktrees.js";
 import { assertAllowedPath, isPathInsideRoot, resolveAllowedPath } from "./roots.js";
 import {
   loadWorkspaceSkills,
+  formatPathForPrompt,
   markSkillActivated,
   resolveSkillReadPath,
   type LoadedSkills,
@@ -101,7 +102,9 @@ export class WorkspaceRegistry {
 
     const session = this.store?.getSession(workspaceId);
     if (!session) {
-      throw new Error(`Unknown workspaceId: ${workspaceId}. Call open_workspace first.`);
+      throw new Error(
+        `Unknown workspaceId: ${workspaceId}. Reuse an existing workspaceId when available; call open_workspace only when no valid workspaceId is available, switching folders/worktrees, changing checkout/worktree mode, or explicitly reopening.`,
+      );
     }
 
     const root = this.assertWorkspaceRootAllowed(session.root, session.mode, session.sourceRoot);
@@ -141,25 +144,23 @@ export class WorkspaceRegistry {
   }
 
   resolveReadPath(workspace: Workspace, inputPath: string): WorkspaceReadPath {
-    try {
-      return {
-        absolutePath: this.resolvePath(workspace, inputPath),
-        readRoots: [workspace.root],
-      };
-    } catch (workspaceError) {
-      const skillRead = resolveSkillReadPath(
-        workspace.skills,
-        workspace.activatedSkillDirs,
-        inputPath,
-      );
-      if (!skillRead) throw workspaceError;
-
+    const skillRead = resolveSkillReadPath(
+      workspace.skills,
+      workspace.activatedSkillDirs,
+      inputPath,
+    );
+    if (skillRead) {
       return {
         absolutePath: skillRead.absolutePath,
         readRoots: [workspace.root, skillRead.skill.baseDir],
         skillRead,
       };
     }
+
+    return {
+      absolutePath: this.resolvePath(workspace, inputPath),
+      readRoots: [workspace.root],
+    };
   }
 
   markReadPathLoaded(workspace: Workspace, readPath: WorkspaceReadPath): void {
@@ -334,7 +335,7 @@ const SKIPPED_CONTEXT_DIRS = new Set([
 ]);
 
 export function formatAgentsPath(path: string, workspaceRoot: string | undefined): string {
-  if (!workspaceRoot) return path.split(sep).join("/");
+  if (!workspaceRoot) return formatPathForPrompt(path);
 
   const relationship = relative(workspaceRoot, path);
   if (
@@ -343,7 +344,7 @@ export function formatAgentsPath(path: string, workspaceRoot: string | undefined
     relationship === ".." ||
     relationship.includes(`..${sep}`)
   ) {
-    return path.split(sep).join("/");
+    return formatPathForPrompt(path);
   }
 
   return relationship.split(sep).join("/");

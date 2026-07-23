@@ -1,132 +1,63 @@
 # Setup Guide
 
-This guide is for users who want ChatGPT or another MCP host to work in local
-projects through DevSpace.
-
 ## Requirements
 
 - Node `>=22.19 <27`
 - npm
 - Git
-- Bash, including Git Bash or WSL on Windows
-- a public HTTPS URL that forwards to the local DevSpace server
+- a public HTTPS URL forwarding to the local Workbridge server
 
-DevSpace does not create the public tunnel for you. Use Cloudflare Tunnel,
-ngrok, Pinggy, Tailscale Funnel, or your own HTTPS reverse proxy.
+Workbridge does not create the tunnel. Tailscale Funnel, Cloudflare Tunnel,
+ngrok, Pinggy, or another HTTPS reverse proxy may be used.
 
-## Install And Configure
-
-Run:
+## Initialize
 
 ```bash
 npx @waishnav/devspace init
 ```
 
-The setup flow asks one question at a time.
+Choose narrow allowed project roots, keep the default local port `7676` unless
+needed otherwise, and enter the public origin without `/mcp`.
 
-### Project Roots
-
-Choose the folders ChatGPT is allowed to open through DevSpace. Keep this
-narrow.
-
-Examples:
-
-```text
-~/personal,~/work
-```
-
-```text
-/Users/alice/dev,/Users/alice/work
-```
-
-```text
-C:\Users\alice\dev,C:\Users\alice\work
-```
-
-### Local Port
-
-The default is `7676`.
-
-The local MCP URL is:
+Local endpoint:
 
 ```text
 http://127.0.0.1:7676/mcp
 ```
 
-### Public Base URL
-
-Start your tunnel or reverse proxy before entering this value. Point the tunnel
-at:
+Public client endpoint:
 
 ```text
-http://127.0.0.1:7676
+https://your-public-host.example.com/mcp
 ```
 
-Enter the public origin without `/mcp`:
-
-```text
-https://your-tunnel-host.example.com
-```
-
-Configure the MCP client with the full MCP endpoint:
-
-```text
-https://your-tunnel-host.example.com/mcp
-```
-
-## Start The Server
-
-Run:
+## Start
 
 ```bash
 npx @waishnav/devspace serve
 ```
 
-If your tunnel URL changes for one run, override it without rewriting config:
+For a one-run public URL override:
 
 ```bash
-DEVSPACE_PUBLIC_BASE_URL="https://new-tunnel.example.com" npx @waishnav/devspace serve
+DEVSPACE_PUBLIC_BASE_URL="https://new-host.example.com" npx @waishnav/devspace serve
 ```
 
-For a stable public URL, persist it:
+The tool surface is fixed; no tool-mode or widget-mode environment variables are
+required.
 
-```bash
-npx @waishnav/devspace config set publicBaseUrl https://devspace.example.com
-npx @waishnav/devspace serve
-```
+## Approve and Diagnose
 
-## Approve The Client
-
-When ChatGPT, Claude, or another MCP client connects, DevSpace shows an Owner
-password approval page. Enter the Owner password printed during setup.
-
-The default config files are:
-
-```text
-~/.devspace/config.json
-~/.devspace/auth.json
-```
-
-Keep `auth.json` private.
-
-## Check Your Setup
-
-Run:
+Approve the client with the Owner password generated during initialization.
+Keep `~/.devspace/auth.json` private.
 
 ```bash
 npx @waishnav/devspace doctor
 ```
 
-The doctor command reports the resolved config, Node version, Node ABI, platform,
-Git, Bash, public URL, allowed hosts, and SQLite native dependency status.
-
-## Running From A Local Checkout
-
-If you are developing DevSpace itself instead of using the published package:
+For a local source checkout:
 
 ```bash
 npm install --include=dev
 npm run dev
 ```
-
-The same setup rules apply.

@@ -20,6 +20,12 @@
 
 DevSpace is a self-hosted MCP server that lets ChatGPT read, edit, search, and run code in your real local projects — your files, your tools, your terminal — without uploading anything to a third party. You run it on your machine, expose it through a tunnel you control, and approve the connection with a password only you have.
 
+This Workbridge branch exposes a fixed seven-tool MCP surface:
+`open_workspace`, `read`, `apply_patch`, `exec_command`, `write_stdin`,
+`run_workspace_action`, and `download_artifact`. Native artifact download
+executes on Linux; other host platforms keep the same schema and return an
+unsupported-platform result.
+
 ## Sponsors and Special Thanks
 
 <table>
@@ -131,15 +137,16 @@ Once connected, ChatGPT can open one of your approved project folders as a
 workspace. From there, it can inspect the repo, make scoped edits, run commands,
 and show you what changed.
 
-DevSpace gives ChatGPT tools to:
+Workbridge gives ChatGPT a fixed seven-tool surface to:
 
-- read, write, and edit files inside the opened workspace
-- search code and inspect directories
-- run shell commands for tests, builds, git, and package scripts
-- use isolated Git worktrees for parallel coding sessions
-- follow project instructions from `AGENTS.md` and `CLAUDE.md`
-- discover local agent skills from your skill folders
-- show tool cards and optional change summaries in ChatGPT Apps-compatible hosts
+- open and reuse workspace-scoped sessions
+- read files and project instructions
+- apply consolidated multi-file patches
+- run commands for inspection, tests, builds, and Git
+- poll or interact with long-running processes
+- run registered, policy-controlled workspace actions
+- download MCP-host native files into Linux workspaces without changing the tool schema on other platforms
+- use isolated Git worktrees and discover local Agent Skills
 
 ## Mental Model
 
@@ -159,21 +166,12 @@ For a normal ChatGPT coding session:
 
 ## Platform Support
 
-DevSpace supports Linux, macOS, and Windows environments with a Bash-compatible
-shell.
+Workbridge supports Linux, macOS, and Windows. The fixed `exec_command` tool
+uses `ComSpec` on Windows, normally `cmd.exe`. On macOS and Linux it uses a
+supported shell from `SHELL`, with `/bin/sh` as fallback. PowerShell is not
+selected automatically.
 
-| Platform                                          | Status            | Notes                                          |
-| ------------------------------------------------- | ----------------- | ---------------------------------------------- |
-| Linux                                             | Supported         | Requires Node, npm, Git, and Bash.             |
-| macOS                                             | Supported         | Requires Node, npm, Git, and Bash.             |
-| Windows with Git Bash, WSL, MSYS2, or Cygwin Bash | Supported         | Git Bash is the simplest native Windows setup. |
-| Windows PowerShell or `cmd.exe` only              | Not supported yet | Install Git Bash or use WSL.                   |
-
-Run this to inspect your local setup:
-
-```bash
-devspace doctor
-```
+Run `devspace doctor` to inspect the resolved environment.
 
 ## Documentation
 

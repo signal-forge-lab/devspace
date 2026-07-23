@@ -1,0 +1,212 @@
+{
+  "formatVersion": 2,
+  "packageVersion": "1.0.5",
+  "source": "in-memory MCP tools/list contract summary",
+  "configuration": {
+    "toolSurface": "fixed",
+    "widgets": "off",
+    "commandMetadata": "always",
+    "skills": "always",
+    "subagents": "hidden",
+    "workspaceActions": "registry"
+  },
+  "tools": [
+      {
+        "name": "apply_patch",
+        "inputProperties": [
+          "patch",
+          "workspaceId"
+        ],
+        "requiredInputProperties": [
+          "patch",
+          "workspaceId"
+        ],
+        "outputProperties": [
+          "additions",
+          "files",
+          "removals",
+          "result"
+        ],
+        "requiredOutputProperties": [
+          "additions",
+          "files",
+          "removals",
+          "result"
+        ]
+      },
+      {
+        "name": "download_artifact",
+        "inputProperties": [
+          "file",
+          "path",
+          "workspaceId"
+        ],
+        "requiredInputProperties": [
+          "file",
+          "path",
+          "workspaceId"
+        ],
+        "outputProperties": [
+          "path"
+        ],
+        "requiredOutputProperties": [
+          "path"
+        ]
+      },
+      {
+        "name": "exec_command",
+        "inputProperties": [
+          "cmd",
+          "columns",
+          "intent",
+          "maxOutputTokens",
+          "retryContext",
+          "rows",
+          "tty",
+          "workingDirectory",
+          "workspaceId",
+          "yieldTimeMs"
+        ],
+        "requiredInputProperties": [
+          "cmd",
+          "workspaceId"
+        ],
+        "outputProperties": [
+          "exitCode",
+          "outputSuppressed",
+          "outputTruncated",
+          "result",
+          "running",
+          "sessionId",
+          "signal",
+          "wallTimeMs"
+        ],
+        "requiredOutputProperties": [
+          "outputTruncated",
+          "result",
+          "running",
+          "wallTimeMs"
+        ]
+      },
+      {
+        "name": "open_workspace",
+        "inputProperties": [
+          "baseRef",
+          "mode",
+          "path"
+        ],
+        "requiredInputProperties": [
+          "path"
+        ],
+        "outputProperties": [
+          "agentsFiles",
+          "availableAgentsFiles",
+          "instruction",
+          "mode",
+          "root",
+          "skillDiagnostics",
+          "skills",
+          "sourceRoot",
+          "workspaceId",
+          "worktree"
+        ],
+        "requiredOutputProperties": [
+          "agentsFiles",
+          "availableAgentsFiles",
+          "instruction",
+          "mode",
+          "root",
+          "skillDiagnostics",
+          "skills",
+          "workspaceId"
+        ]
+      },
+      {
+        "name": "read",
+        "inputProperties": [
+          "limit",
+          "offset",
+          "path",
+          "workspaceId"
+        ],
+        "requiredInputProperties": [
+          "path",
+          "workspaceId"
+        ],
+        "outputProperties": [
+          "result"
+        ],
+        "requiredOutputProperties": [
+          "result"
+        ]
+      },
+      {
+        "name": "run_workspace_action",
+        "inputProperties": [
+          "action",
+          "columns",
+          "dryRun",
+          "maxOutputTokens",
+          "parameters",
+          "preset",
+          "rows",
+          "tty",
+          "workingDirectory",
+          "workspaceId",
+          "yieldTimeMs"
+        ],
+        "requiredInputProperties": [
+          "action",
+          "workspaceId"
+        ],
+        "outputProperties": [
+          "exitCode",
+          "outputSuppressed",
+          "outputTruncated",
+          "result",
+          "running",
+          "sessionId",
+          "signal",
+          "wallTimeMs"
+        ],
+        "requiredOutputProperties": [
+          "outputTruncated",
+          "result",
+          "running",
+          "wallTimeMs"
+        ]
+      },
+      {
+        "name": "write_stdin",
+        "inputProperties": [
+          "chars",
+          "columns",
+          "maxOutputTokens",
+          "rows",
+          "sessionId",
+          "workspaceId",
+          "yieldTimeMs"
+        ],
+        "requiredInputProperties": [
+          "sessionId",
+          "workspaceId"
+        ],
+        "outputProperties": [
+          "exitCode",
+          "outputSuppressed",
+          "outputTruncated",
+          "result",
+          "running",
+          "sessionId",
+          "signal",
+          "wallTimeMs"
+        ],
+        "requiredOutputProperties": [
+          "outputTruncated",
+          "result",
+          "running",
+          "wallTimeMs"
+        ]
+      }
+  ]
+}

@@ -75,7 +75,6 @@ try {
       DEVSPACE_STATE_DIR: stateDir,
       DEVSPACE_WORKSPACE_ID: "ws_current",
       DEVSPACE_WORKSPACE_ROOT: projectRoot,
-      DEVSPACE_SUBAGENTS: "1",
       DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     },
   });
@@ -88,9 +87,8 @@ try {
     DEVSPACE_CONFIG_DIR: configDir,
     DEVSPACE_ALLOWED_ROOTS: projectRoot,
     DEVSPACE_STATE_DIR: stateDir,
-    DEVSPACE_SUBAGENTS: "1",
     DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
-  }).subagents, true);
+  }).subagents, false);
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

@@ -1,13 +1,17 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { platform, tmpdir } from "node:os";
+import { homedir, platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
 import { loadConfig } from "./config.js";
 import { GitWorktreeError } from "./git-worktrees.js";
 import { SqliteWorkspaceStore } from "./workspace-store.js";
-import { ensureCheckoutWorkspaceRoot, WorkspaceRegistry } from "./workspaces.js";
+import {
+  ensureCheckoutWorkspaceRoot,
+  formatAgentsPath,
+  WorkspaceRegistry,
+} from "./workspaces.js";
 
 const execFileAsync = promisify(execFile);
 const root = await mkdtemp(join(tmpdir(), "devspace-workspace-test-"));
@@ -47,7 +51,6 @@ try {
     DEVSPACE_ALLOWED_ROOTS: root,
     DEVSPACE_WORKTREE_ROOT: join(root, ".devspace", "worktrees"),
     DEVSPACE_AGENT_DIR: agentDir,
-    DEVSPACE_SUBAGENTS: "1",
     DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
@@ -63,22 +66,12 @@ try {
     availableAgentsFiles.map((file) => file.path),
     [join(root, "nested", "AGENTS.md")],
   );
-  assert.deepEqual(
-    workspace.agentProfiles.map((profile) => ({
-      name: profile.name,
-      description: profile.description,
-      provider: profile.provider,
-      body: profile.body,
-    })),
-    [
-      {
-        name: "reviewer",
-        description: "Read-only project reviewer.",
-        provider: "codex",
-        body: "Review only.",
-      },
-    ],
+  assert.equal(formatAgentsPath(join(root, "nested", "AGENTS.md"), root), "nested/AGENTS.md");
+  assert.equal(
+    formatAgentsPath(join(homedir(), ".codex", "AGENTS.md"), root),
+    "~/.codex/AGENTS.md",
   );
+  assert.deepEqual(workspace.agentProfiles, []);
 
   if (platform() !== "win32") {
     const unsafeAgentDir = join(root, ".pi", "unsafe-agent");

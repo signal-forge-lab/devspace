@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PRODUCT_DISPLAY_NAME } from "./branding.js";
 import { git, getGitEligibility, safeWorkspaceRefSegment } from "./git.js";
 
 export type ReviewSince = "last_shown" | "last_review" | "workspace_open";
@@ -45,9 +46,19 @@ export interface ReviewCheckpointManager {
 }
 
 const REVIEW_REF_PREFIX = "refs/devspace/review";
+const DEFAULT_REVIEW_REF_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 
-export function createReviewCheckpointManager(): ReviewCheckpointManager {
+export interface ReviewCheckpointManagerOptions {
+  refMaxAgeMs?: number;
+  now?: () => number;
+}
+
+export function createReviewCheckpointManager(
+  options: ReviewCheckpointManagerOptions = {},
+): ReviewCheckpointManager {
   const states = new Map<string, WorkspaceReviewState>();
+  const refMaxAgeMs = options.refMaxAgeMs ?? DEFAULT_REVIEW_REF_MAX_AGE_MS;
+  const now = options.now ?? Date.now;
 
   return {
     async initializeWorkspace({ workspaceId, root }) {
@@ -63,6 +74,7 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
         }
 
         state.gitRoot = eligibility.gitRoot;
+        await cleanupStaleReviewRefs(eligibility.gitRoot, refMaxAgeMs, now());
         const commit = await createWorkingTreeSnapshot(eligibility.gitRoot);
         await git(eligibility.gitRoot, ["update-ref", state.openRef, commit]);
         await git(eligibility.gitRoot, ["update-ref", state.baselineRef, commit]);
@@ -111,6 +123,32 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
   };
 }
 
+export async function cleanupStaleReviewRefs(
+  gitRoot: string,
+  maxAgeMs = DEFAULT_REVIEW_REF_MAX_AGE_MS,
+  nowMs = Date.now(),
+): Promise<number> {
+  const output = (await git(gitRoot, [
+    "for-each-ref",
+    "--format=%(refname)%00%(creatordate:unix)",
+    REVIEW_REF_PREFIX,
+  ])).stdout;
+  const cutoffSeconds = Math.floor((nowMs - maxAgeMs) / 1_000);
+  let deleted = 0;
+
+  for (const line of output.split(/\r?\n/)) {
+    if (!line) continue;
+    const [refName, createdAtText] = line.split("\0");
+    const createdAt = Number(createdAtText);
+    if (!refName?.startsWith(`${REVIEW_REF_PREFIX}/`) || !Number.isFinite(createdAt)) continue;
+    if (createdAt >= cutoffSeconds) continue;
+    await git(gitRoot, ["update-ref", "-d", refName]);
+    deleted += 1;
+  }
+
+  return deleted;
+}
+
 function reviewRefs(workspaceId: string): Pick<WorkspaceReviewState, "openRef" | "baselineRef"> {
   const segment = safeWorkspaceRefSegment(workspaceId);
   return {
@@ -129,7 +167,7 @@ async function createWorkingTreeSnapshot(gitRoot: string): Promise<string> {
     await git(gitRoot, ["add", "-A", "--", "."], { env });
     const tree = (await git(gitRoot, ["write-tree"], { env })).stdout.trim();
     const parent = (await git(gitRoot, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout.trim();
-    return (await git(gitRoot, ["commit-tree", tree, "-p", parent, "-m", "DevSpace review snapshot"], { env })).stdout.trim();
+    return (await git(gitRoot, ["commit-tree", tree, "-p", parent, "-m", `${PRODUCT_DISPLAY_NAME} review snapshot`], { env })).stdout.trim();
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -138,9 +176,9 @@ async function createWorkingTreeSnapshot(gitRoot: string): Promise<string> {
 function checkpointEnv(indexPath: string): NodeJS.ProcessEnv {
   return {
     GIT_INDEX_FILE: indexPath,
-    GIT_AUTHOR_NAME: "DevSpace",
+    GIT_AUTHOR_NAME: PRODUCT_DISPLAY_NAME,
     GIT_AUTHOR_EMAIL: "devspace@users.noreply.local",
-    GIT_COMMITTER_NAME: "DevSpace",
+    GIT_COMMITTER_NAME: PRODUCT_DISPLAY_NAME,
     GIT_COMMITTER_EMAIL: "devspace@users.noreply.local",
   };
 }
