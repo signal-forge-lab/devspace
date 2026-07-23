@@ -57,6 +57,16 @@ try {
   );
   assert.match(node.evidence.join("\n"), /package manager: npm/);
 
+  const nodeQuick = await resolveProjectVerifyProfile({
+    workspaceRoot: nodeRoot,
+    preset: "quick",
+  });
+  assert.equal(
+    nodeQuick.command,
+    "npm run typecheck && npm run test && git diff --check && git status --short",
+  );
+  assert.doesNotMatch(nodeQuick.command, /npm run build/);
+
   const pnpmRoot = join(root, "pnpm");
   await mkdir(pnpmRoot, { recursive: true });
   await writeFile(

@@ -2,6 +2,12 @@ import { execFile } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import {
+  compileWorkspaceActionPlan,
+  shellSteps,
+  type WorkspaceActionExecutionPlan,
+  type WorkspaceActionStep,
+} from "./workspace-action-plans.js";
 
 export const PROJECT_PROFILE_NAMES = ["workbridge", "node"] as const;
 export type ProjectProfileName = (typeof PROJECT_PROFILE_NAMES)[number];
@@ -27,6 +33,7 @@ export interface ProjectVerifyProfileResolution {
   profile: ProjectProfileName;
   confidence: "exact" | "strong";
   evidence: string[];
+  plan: WorkspaceActionExecutionPlan;
   command: string;
   displayCommand: string;
   description: string;
@@ -54,7 +61,9 @@ const PACKAGE_MANAGER_LOCKFILES: Record<NodePackageManager, readonly string[]> =
 export async function resolveProjectVerifyProfile(input: {
   workspaceRoot: string;
   requestedProfile?: string;
+  preset?: "quick" | "standard";
 }): Promise<ProjectVerifyProfileResolution> {
+  const preset = input.preset ?? "standard";
   const manifest = await readPackageManifest(input.workspaceRoot);
   const requestedProfile = normalizeRequestedProfile(input.requestedProfile);
   const workbridgeMatch = await matchesWorkbridgeProfile(input.workspaceRoot, manifest);
@@ -66,7 +75,7 @@ export async function resolveProjectVerifyProfile(input: {
         "The workbridge project profile does not match this workspace.",
       );
     }
-    return workbridgeProfile();
+    return workbridgeProfile(preset);
   }
 
   if (requestedProfile === "node") {
@@ -76,11 +85,11 @@ export async function resolveProjectVerifyProfile(input: {
         "The node project profile requires package.json in the workspace root.",
       );
     }
-    return nodeProfile(input.workspaceRoot, manifest);
+    return nodeProfile(input.workspaceRoot, manifest, preset);
   }
 
-  if (workbridgeMatch) return workbridgeProfile();
-  if (manifest) return nodeProfile(input.workspaceRoot, manifest);
+  if (workbridgeMatch) return workbridgeProfile(preset);
+  if (manifest) return nodeProfile(input.workspaceRoot, manifest, preset);
 
   throw new ProjectProfileResolutionError(
     "unsupported_project_profile",
@@ -132,16 +141,21 @@ async function matchesWorkbridgeProfile(
   return pathExists(join(workspaceRoot, "src", "workspace-actions.ts"));
 }
 
-function workbridgeProfile(): ProjectVerifyProfileResolution {
-  const commands = [
-    "npm run typecheck",
-    "npm run baseline:tools:check",
-    "npm test",
-    "npm run build",
-    "git diff --check",
-    "git status --short",
+function workbridgeProfile(preset: "quick" | "standard"): ProjectVerifyProfileResolution {
+  const steps = [
+    { id: "typecheck", label: "TypeScript typecheck", command: "npm run typecheck" },
+    { id: "tool-contract", label: "Tool contract baseline", command: "npm run baseline:tools:check" },
+    ...(preset === "standard"
+      ? [
+          { id: "tests", label: "Test suite", command: "npm test" },
+          { id: "build", label: "Production build", command: "npm run build" },
+        ]
+      : []),
+    { id: "diff-check", label: "Git diff validation", command: "git diff --check" },
+    { id: "status", label: "Git status", command: "git status --short" },
   ];
-  const command = commands.join(" && ");
+  const plan = shellSteps(steps);
+  const command = compileWorkspaceActionPlan(plan);
   return {
     profile: "workbridge",
     confidence: "exact",
@@ -149,9 +163,10 @@ function workbridgeProfile(): ProjectVerifyProfileResolution {
       "package.json name is @waishnav/devspace",
       "src/workspace-actions.ts exists",
     ],
+    plan,
     command,
     displayCommand: command,
-    description: "Run the Workbridge-specific verification sequence.",
+    description: `Run the Workbridge-specific ${preset} verification sequence.`,
     policy: ["workspace_modify", "long_running"],
   };
 }
@@ -159,22 +174,34 @@ function workbridgeProfile(): ProjectVerifyProfileResolution {
 async function nodeProfile(
   workspaceRoot: string,
   manifest: PackageManifest,
+  preset: "quick" | "standard",
 ): Promise<ProjectVerifyProfileResolution> {
   const scripts = packageScripts(manifest);
-  const selectedScripts = NODE_VERIFY_SCRIPT_ORDER.filter((name) => scripts.has(name));
+  const allowedScripts = preset === "quick"
+    ? NODE_VERIFY_SCRIPT_ORDER.filter((name) => name !== "build")
+    : NODE_VERIFY_SCRIPT_ORDER;
+  const selectedScripts = allowedScripts.filter((name) => scripts.has(name));
   if (selectedScripts.length === 0) {
     throw new ProjectProfileResolutionError(
       "unsupported_action_for_profile",
-      "The node profile found no supported verification scripts. Expected one or more of: typecheck, lint, test, build.",
+      `The node profile found no supported ${preset} verification scripts. Expected one or more of: ${allowedScripts.join(", ")}.`,
     );
   }
 
   const packageManager = await resolveNodePackageManager(workspaceRoot, manifest);
-  const commands = selectedScripts.map((name) => packageManagerRunCommand(packageManager, name));
+  const steps: WorkspaceActionStep[] = selectedScripts.map((name) => ({
+    id: name,
+    label: `Package script: ${name}`,
+    command: packageManagerRunCommand(packageManager, name),
+  }));
   if (await isGitWorkTree(workspaceRoot)) {
-    commands.push("git diff --check", "git status --short");
+    steps.push(
+      { id: "diff-check", label: "Git diff validation", command: "git diff --check" },
+      { id: "status", label: "Git status", command: "git status --short" },
+    );
   }
-  const command = commands.join(" && ");
+  const plan = shellSteps(steps);
+  const command = compileWorkspaceActionPlan(plan);
   return {
     profile: "node",
     confidence: "strong",
@@ -183,9 +210,10 @@ async function nodeProfile(
       `package manager: ${packageManager}`,
       `supported scripts: ${selectedScripts.join(", ")}`,
     ],
+    plan,
     command,
     displayCommand: command,
-    description: "Run supported package.json verification scripts in a fixed order.",
+    description: `Run supported package.json ${preset} verification scripts in a fixed order.`,
     policy: ["workspace_modify", "long_running"],
   };
 }

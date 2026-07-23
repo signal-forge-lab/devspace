@@ -3,6 +3,11 @@ import {
   resolveProjectVerifyProfile,
   type ProjectProfileName,
 } from "./project-profiles.js";
+import {
+  compileWorkspaceActionPlan,
+  shellSteps,
+  type WorkspaceActionExecutionPlan,
+} from "./workspace-action-plans.js";
 
 export const WORKSPACE_ACTION_NAMES = [
   "workspace_verify",
@@ -69,11 +74,12 @@ export interface ResolvedWorkspaceAction {
   description: string;
   policy: WorkspaceActionPolicy[];
   profile?: ProjectProfileName;
+  plan: WorkspaceActionExecutionPlan;
 }
 
 interface WorkspaceActionPresetDefinition {
   description: string;
-  command?: string;
+  plan?: WorkspaceActionExecutionPlan;
   validateParameters(parameters: Record<string, unknown>): void;
 }
 
@@ -94,14 +100,14 @@ const WORKSPACE_ACTIONS: Record<WorkspaceActionName, WorkspaceActionDefinition> 
     presets: {
       standard: {
         description: "Run typecheck, tool-schema baseline validation, tests, build, diff validation, and status.",
-        command: [
-          "npm run typecheck",
-          "npm run baseline:tools:check",
-          "npm test",
-          "npm run build",
-          "git diff --check",
-          "git status --short",
-        ].join(" && "),
+        plan: shellSteps([
+          { id: "typecheck", label: "TypeScript typecheck", command: "npm run typecheck" },
+          { id: "tool-contract", label: "Tool contract baseline", command: "npm run baseline:tools:check" },
+          { id: "tests", label: "Test suite", command: "npm test" },
+          { id: "build", label: "Production build", command: "npm run build" },
+          { id: "diff-check", label: "Git diff validation", command: "git diff --check" },
+          { id: "status", label: "Git status", command: "git status --short" },
+        ]),
         validateParameters: requireNoParameters,
       },
     },
@@ -113,19 +119,19 @@ const WORKSPACE_ACTIONS: Record<WorkspaceActionName, WorkspaceActionDefinition> 
     presets: {
       summary: {
         description: "Show concise working-tree status plus unstaged and staged diff statistics.",
-        command: [
-          "git status --short",
-          "git diff --stat",
-          "git diff --cached --stat",
-        ].join(" && "),
+        plan: shellSteps([
+          { id: "status", label: "Git status", command: "git status --short" },
+          { id: "unstaged-stat", label: "Unstaged diff statistics", command: "git diff --stat" },
+          { id: "staged-stat", label: "Staged diff statistics", command: "git diff --cached --stat" },
+        ]),
         validateParameters: requireNoParameters,
       },
       integrity: {
         description: "Validate diff whitespace and show concise working-tree status.",
-        command: [
-          "git diff --check",
-          "git status --short",
-        ].join(" && "),
+        plan: shellSteps([
+          { id: "diff-check", label: "Git diff validation", command: "git diff --check" },
+          { id: "status", label: "Git status", command: "git status --short" },
+        ]),
         validateParameters: requireNoParameters,
       },
     },
@@ -135,6 +141,10 @@ const WORKSPACE_ACTIONS: Record<WorkspaceActionName, WorkspaceActionDefinition> 
     defaultPreset: "standard",
     policy: ["workspace_modify", "long_running"],
     presets: {
+      quick: {
+        description: "Run the quick verification sequence selected by the matched project profile.",
+        validateParameters: validateProjectVerifyParameters,
+      },
       standard: {
         description: "Run the standard verification sequence selected by the matched project profile.",
         validateParameters: validateProjectVerifyParameters,
@@ -210,18 +220,21 @@ export async function resolveWorkspaceAction(
       const profileResolution = await resolveProjectVerifyProfile({
         workspaceRoot: input.workspaceRoot,
         requestedProfile: projectVerifyProfileParameter(parameters),
+        preset: presetName as "quick" | "standard",
       });
+      const command = compileWorkspaceActionPlan(profileResolution.plan);
       return {
         action: input.action,
         preset: presetName,
         parameters: { ...parameters },
         executable: "shell",
         args: [],
-        command: profileResolution.command,
-        displayCommand: profileResolution.displayCommand,
+        command,
+        displayCommand: command,
         description: profileResolution.description,
         policy: [...profileResolution.policy],
         profile: profileResolution.profile,
+        plan: profileResolution.plan,
       };
     } catch (error) {
       if (!(error instanceof ProjectProfileResolutionError)) throw error;
@@ -234,19 +247,21 @@ export async function resolveWorkspaceAction(
     }
   }
 
-  if (!preset.command) {
-    throw new Error(`Workspace action preset has no command: ${input.action}/${presetName}`);
+  if (!preset.plan) {
+    throw new Error(`Workspace action preset has no execution plan: ${input.action}/${presetName}`);
   }
+  const command = compileWorkspaceActionPlan(preset.plan);
   return {
     action: input.action,
     preset: presetName,
     parameters: { ...parameters },
     executable: "shell",
     args: [],
-    command: preset.command,
-    displayCommand: preset.command,
+    command,
+    displayCommand: command,
     description: preset.description,
     policy: [...definition.policy],
+    plan: preset.plan,
   };
 }
 

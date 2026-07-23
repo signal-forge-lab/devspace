@@ -74,7 +74,7 @@ action: workspace_review
 preset: summary | integrity
 
 action: project_verify
-preset: standard
+preset: quick | standard
 ```
 
 It runs this fixed fail-fast sequence:
@@ -109,6 +109,12 @@ Automatic detection prefers the exact `workbridge` profile, then the generic
 `node` profile. To select a profile explicitly, pass
 `parameters: { "profile": "workbridge" }` or `parameters: { "profile": "node" }`.
 No external profile or action configuration files are loaded.
+
+`project_verify/quick` omits build steps and, for Workbridge, also omits the full
+test suite. `project_verify/standard` remains the default complete verification.
+Actions are stored internally as ordered step plans, then compiled to the same
+fail-fast shell command used by the existing process/session runtime. Step data
+is not added to the public result contract in the 1.0 series.
 
 The Node profile chooses its package manager from `package.json.packageManager`
 first, then from a single recognized lockfile, and finally falls back to npm.

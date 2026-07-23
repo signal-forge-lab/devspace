@@ -16,6 +16,7 @@ assert.deepEqual(catalog[0]?.policy, ["workspace_modify", "long_running"]);
 assert.equal(catalog[1]?.defaultPreset, "summary");
 assert.deepEqual(catalog[1]?.policy, ["read_only"]);
 assert.deepEqual(catalog[1]?.presets.map((preset) => preset.name), ["summary", "integrity"]);
+assert.deepEqual(catalog[2]?.presets.map((preset) => preset.name), ["quick", "standard"]);
 
 const resolved = await resolveWorkspaceAction({
   workspaceRoot: process.cwd(),
@@ -59,6 +60,18 @@ assert.equal(projectVerify.profile, "workbridge");
 assert.equal(projectVerify.preset, "standard");
 assert.match(projectVerify.command, /npm run baseline:tools:check/);
 assert.deepEqual(projectVerify.policy, ["workspace_modify", "long_running"]);
+
+const projectVerifyQuick = await resolveWorkspaceAction({
+  workspaceRoot: process.cwd(),
+  action: "project_verify",
+  preset: "quick",
+});
+assert.equal(projectVerifyQuick.profile, "workbridge");
+assert.equal(projectVerifyQuick.preset, "quick");
+assert.match(projectVerifyQuick.command, /npm run typecheck/);
+assert.match(projectVerifyQuick.command, /npm run baseline:tools:check/);
+assert.doesNotMatch(projectVerifyQuick.command, /npm test/);
+assert.doesNotMatch(projectVerifyQuick.command, /npm run build/);
 
 const projectVerifyNode = await resolveWorkspaceAction({
   workspaceRoot: process.cwd(),
