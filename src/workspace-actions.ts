@@ -33,7 +33,9 @@ export type WorkspaceActionResolutionErrorKind =
   | "invalid_parameters"
   | "unsupported_project_profile"
   | "unsupported_action_for_profile"
-  | "invalid_project_manifest";
+  | "invalid_project_manifest"
+  | "unsupported_package_manager"
+  | "ambiguous_package_manager";
 
 export class WorkspaceActionResolutionError extends Error {
   readonly kind: WorkspaceActionResolutionErrorKind;

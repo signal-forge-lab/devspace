@@ -110,6 +110,12 @@ Automatic detection prefers the exact `workbridge` profile, then the generic
 `parameters: { "profile": "workbridge" }` or `parameters: { "profile": "node" }`.
 No external profile or action configuration files are loaded.
 
+The Node profile chooses its package manager from `package.json.packageManager`
+first, then from a single recognized lockfile, and finally falls back to npm.
+Supported managers are npm, pnpm, yarn, and bun. Multiple manager lockfiles are
+rejected unless `packageManager` explicitly selects one. Git validation uses
+`git rev-parse`, so normal checkouts and Git worktrees are handled consistently.
+
 Use `dryRun: true` to inspect the resolved command and policy without executing
 it. Unknown actions and presets return the available registry entries.
 

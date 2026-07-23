@@ -1,6 +1,6 @@
 {
   "formatVersion": 2,
-  "packageVersion": "1.0.8",
+  "packageVersion": "1.0.9",
   "source": "in-memory MCP tools/list contract summary",
   "configuration": {
     "toolSurface": "fixed",

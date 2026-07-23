@@ -69,7 +69,7 @@ Workbridge rather than composed as an arbitrary command by the model.
 ```json
 {
   "workspaceId": "ws_example",
-  "action": "workspace_verify",
+  "action": "project_verify",
   "preset": "standard",
   "parameters": {},
   "dryRun": false

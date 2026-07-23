@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 export const PROJECT_PROFILE_NAMES = ["workbridge", "node"] as const;
 export type ProjectProfileName = (typeof PROJECT_PROFILE_NAMES)[number];
@@ -7,7 +9,9 @@ export type ProjectProfileName = (typeof PROJECT_PROFILE_NAMES)[number];
 export type ProjectProfileResolutionErrorKind =
   | "unsupported_project_profile"
   | "unsupported_action_for_profile"
-  | "invalid_project_manifest";
+  | "invalid_project_manifest"
+  | "unsupported_package_manager"
+  | "ambiguous_package_manager";
 
 export class ProjectProfileResolutionError extends Error {
   readonly kind: ProjectProfileResolutionErrorKind;
@@ -31,10 +35,21 @@ export interface ProjectVerifyProfileResolution {
 
 interface PackageManifest {
   name?: unknown;
+  packageManager?: unknown;
   scripts?: unknown;
 }
 
 const NODE_VERIFY_SCRIPT_ORDER = ["typecheck", "lint", "test", "build"] as const;
+const execFileAsync = promisify(execFile);
+
+type NodePackageManager = "npm" | "pnpm" | "yarn" | "bun";
+
+const PACKAGE_MANAGER_LOCKFILES: Record<NodePackageManager, readonly string[]> = {
+  npm: ["package-lock.json", "npm-shrinkwrap.json"],
+  pnpm: ["pnpm-lock.yaml"],
+  yarn: ["yarn.lock"],
+  bun: ["bun.lock", "bun.lockb"],
+};
 
 export async function resolveProjectVerifyProfile(input: {
   workspaceRoot: string;
@@ -154,8 +169,9 @@ async function nodeProfile(
     );
   }
 
-  const commands = selectedScripts.map((name) => `npm run ${name}`);
-  if (await pathExists(join(workspaceRoot, ".git"))) {
+  const packageManager = await resolveNodePackageManager(workspaceRoot, manifest);
+  const commands = selectedScripts.map((name) => packageManagerRunCommand(packageManager, name));
+  if (await isGitWorkTree(workspaceRoot)) {
     commands.push("git diff --check", "git status --short");
   }
   const command = commands.join(" && ");
@@ -164,6 +180,7 @@ async function nodeProfile(
     confidence: "strong",
     evidence: [
       "package.json exists",
+      `package manager: ${packageManager}`,
       `supported scripts: ${selectedScripts.join(", ")}`,
     ],
     command,
@@ -171,6 +188,66 @@ async function nodeProfile(
     description: "Run supported package.json verification scripts in a fixed order.",
     policy: ["workspace_modify", "long_running"],
   };
+}
+
+async function resolveNodePackageManager(
+  workspaceRoot: string,
+  manifest: PackageManifest,
+): Promise<NodePackageManager> {
+  const declared = declaredPackageManager(manifest.packageManager);
+  if (declared) return declared;
+
+  const detected: NodePackageManager[] = [];
+  for (const manager of Object.keys(PACKAGE_MANAGER_LOCKFILES) as NodePackageManager[]) {
+    const lockfiles = PACKAGE_MANAGER_LOCKFILES[manager];
+    if (await anyPathExists(lockfiles.map((file) => join(workspaceRoot, file)))) {
+      detected.push(manager);
+    }
+  }
+
+  if (detected.length > 1) {
+    throw new ProjectProfileResolutionError(
+      "ambiguous_package_manager",
+      `Multiple package managers were detected from lockfiles: ${detected.join(", ")}. Declare packageManager in package.json to choose one explicitly.`,
+    );
+  }
+  return detected[0] ?? "npm";
+}
+
+function declaredPackageManager(value: unknown): NodePackageManager | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new ProjectProfileResolutionError(
+      "invalid_project_manifest",
+      "package.json packageManager must be a non-empty string when present.",
+    );
+  }
+
+  const name = value.trim().split("@")[0]?.toLowerCase();
+  if (name === "npm" || name === "pnpm" || name === "yarn" || name === "bun") {
+    return name;
+  }
+  throw new ProjectProfileResolutionError(
+    "unsupported_package_manager",
+    `Unsupported package manager in package.json: ${value}. Supported package managers: npm, pnpm, yarn, bun.`,
+  );
+}
+
+function packageManagerRunCommand(manager: NodePackageManager, script: string): string {
+  return `${manager} run ${script}`;
+}
+
+async function isGitWorkTree(workspaceRoot: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-C", workspaceRoot, "rev-parse", "--is-inside-work-tree"],
+      { windowsHide: true },
+    );
+    return stdout.trim() === "true";
+  } catch {
+    return false;
+  }
 }
 
 function packageScripts(manifest: PackageManifest): Set<string> {
@@ -192,6 +269,13 @@ async function pathExists(path: string): Promise<boolean> {
     if (errorCode(error) === "ENOENT") return false;
     throw error;
   }
+}
+
+async function anyPathExists(paths: readonly string[]): Promise<boolean> {
+  for (const path of paths) {
+    if (await pathExists(path)) return true;
+  }
+  return false;
 }
 
 function errorCode(error: unknown): string | undefined {

@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import {
   ProjectProfileResolutionError,
   resolveProjectVerifyProfile,
 } from "./project-profiles.js";
+
+const execFileAsync = promisify(execFile);
 
 const root = await mkdtemp(join(tmpdir(), "workbridge-project-profiles-test-"));
 try {
@@ -31,7 +35,8 @@ try {
   assert.equal(forcedNode.command, "npm run test");
 
   const nodeRoot = join(root, "node");
-  await mkdir(join(nodeRoot, ".git"), { recursive: true });
+  await mkdir(nodeRoot, { recursive: true });
+  await execFileAsync("git", ["init", nodeRoot], { windowsHide: true });
   await writeFile(
     join(nodeRoot, "package.json"),
     JSON.stringify({
@@ -49,6 +54,64 @@ try {
   assert.equal(
     node.command,
     "npm run typecheck && npm run test && npm run build && git diff --check && git status --short",
+  );
+  assert.match(node.evidence.join("\n"), /package manager: npm/);
+
+  const pnpmRoot = join(root, "pnpm");
+  await mkdir(pnpmRoot, { recursive: true });
+  await writeFile(
+    join(pnpmRoot, "package.json"),
+    JSON.stringify({
+      packageManager: "pnpm@10.0.0",
+      scripts: { lint: "eslint .", test: "vitest run" },
+    }),
+  );
+  await writeFile(join(pnpmRoot, "package-lock.json"), "{}\n");
+  const pnpm = await resolveProjectVerifyProfile({ workspaceRoot: pnpmRoot });
+  assert.equal(pnpm.command, "pnpm run lint && pnpm run test");
+  assert.match(pnpm.evidence.join("\n"), /package manager: pnpm/);
+
+  const yarnRoot = join(root, "yarn");
+  await mkdir(yarnRoot, { recursive: true });
+  await writeFile(join(yarnRoot, "package.json"), JSON.stringify({ scripts: { build: "vite build" } }));
+  await writeFile(join(yarnRoot, "yarn.lock"), "# yarn lockfile\n");
+  const yarn = await resolveProjectVerifyProfile({ workspaceRoot: yarnRoot });
+  assert.equal(yarn.command, "yarn run build");
+
+  const bunRoot = join(root, "bun");
+  await mkdir(bunRoot, { recursive: true });
+  await writeFile(join(bunRoot, "package.json"), JSON.stringify({ scripts: { test: "bun test" } }));
+  await writeFile(join(bunRoot, "bun.lock"), "lockfileVersion = 1\n");
+  const bun = await resolveProjectVerifyProfile({ workspaceRoot: bunRoot });
+  assert.equal(bun.command, "bun run test");
+
+  const ambiguousRoot = join(root, "ambiguous-manager");
+  await mkdir(ambiguousRoot, { recursive: true });
+  await writeFile(join(ambiguousRoot, "package.json"), JSON.stringify({ scripts: { test: "node test.js" } }));
+  await writeFile(join(ambiguousRoot, "package-lock.json"), "{}\n");
+  await writeFile(join(ambiguousRoot, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+  await assert.rejects(
+    () => resolveProjectVerifyProfile({ workspaceRoot: ambiguousRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "ambiguous_package_manager");
+      return true;
+    },
+  );
+
+  const unsupportedManagerRoot = join(root, "unsupported-manager");
+  await mkdir(unsupportedManagerRoot, { recursive: true });
+  await writeFile(
+    join(unsupportedManagerRoot, "package.json"),
+    JSON.stringify({ packageManager: "deno@2.0.0", scripts: { test: "deno test" } }),
+  );
+  await assert.rejects(
+    () => resolveProjectVerifyProfile({ workspaceRoot: unsupportedManagerRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "unsupported_package_manager");
+      return true;
+    },
   );
 
   await assert.rejects(
