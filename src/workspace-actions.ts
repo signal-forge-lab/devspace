@@ -104,20 +104,12 @@ const EMPTY_PARAMETERS: Record<string, unknown> = Object.freeze({});
 
 const WORKSPACE_ACTIONS: Record<WorkspaceActionName, WorkspaceActionDefinition> = {
   workspace_verify: {
-    description: "Run the fixed standard verification sequence for the Workbridge workspace.",
+    description: "Compatibility action for the Workbridge standard project verification sequence.",
     defaultPreset: "standard",
     policy: ["workspace_modify", "long_running"],
     presets: {
       standard: {
-        description: "Run typecheck, tool-schema baseline validation, tests, build, diff validation, and status.",
-        plan: shellSteps([
-          { id: "typecheck", label: "TypeScript typecheck", command: "npm run typecheck" },
-          { id: "tool-contract", label: "Tool contract baseline", command: "npm run baseline:tools:check" },
-          { id: "tests", label: "Test suite", command: "npm test" },
-          { id: "build", label: "Production build", command: "npm run build" },
-          { id: "diff-check", label: "Git diff validation", command: "git diff --check" },
-          { id: "status", label: "Git status", command: "git status --short" },
-        ]),
+        description: "Run project_verify/standard with the built-in workbridge profile.",
         validateParameters: requireNoParameters,
       },
     },
@@ -253,6 +245,38 @@ export async function resolveWorkspaceAction(
         command,
         displayCommand: command,
         description: profileResolution.description,
+        policy: [...profileResolution.policy],
+        profile: profileResolution.profile,
+        plan: profileResolution.plan,
+      };
+    } catch (error) {
+      if (!(error instanceof ProjectProfileResolutionError)) throw error;
+      throw new WorkspaceActionResolutionError({
+        kind: error.kind,
+        message: error.message,
+        requestedAction: input.action,
+        requestedPreset: presetName,
+      });
+    }
+  }
+
+  if (input.action === "workspace_verify") {
+    try {
+      const profileResolution = await resolveProjectVerifyProfile({
+        workspaceRoot: input.workspaceRoot,
+        requestedProfile: "workbridge",
+        preset: "standard",
+      });
+      const command = compileWorkspaceActionPlan(profileResolution.plan);
+      return {
+        action: input.action,
+        preset: presetName,
+        parameters: { ...parameters },
+        executable: "shell",
+        args: [],
+        command,
+        displayCommand: command,
+        description: "Compatibility alias for project_verify/standard with profile=workbridge.",
         policy: [...profileResolution.policy],
         profile: profileResolution.profile,
         plan: profileResolution.plan,

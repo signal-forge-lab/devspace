@@ -95,6 +95,11 @@ git status --short
 plus staged and unstaged diff statistics. Its `integrity` preset runs
 `git diff --check` and then reports concise Git status.
 
+`workspace_verify/standard` is retained as a 1.x compatibility action. It is
+resolved through `project_verify/standard` with the built-in `workbridge`
+profile, so the verification sequence has one implementation. New workflows
+should call `project_verify` directly.
+
 `project_verify` selects a built-in project profile and resolves a fixed command.
 The first built-in profiles are:
 
@@ -154,6 +159,14 @@ existing `src/name.test.ts` or `src/name.spec.ts`. Python maps modules to
 existing `test_name.py` or `name_test.py` files and requires configured Pytest.
 Generic Node and Chrome extension profiles are rejected until a runner-specific
 exact mapping is available. When no mapping exists, use `project_verify/quick`.
+
+### 1.x compatibility policy
+
+The public seven-tool schema and action result contract v1 remain fixed for the
+rest of the 1.0 series. New actions, presets, and built-in profiles may be added
+without changing the MCP schema. `workspace_verify` remains available through
+the 1.x series; removal or result-contract expansion requires a later major or
+minor contract boundary.
 
 Use `dryRun: true` to inspect the resolved command and policy without executing
 it. Unknown actions and presets return the available registry entries.

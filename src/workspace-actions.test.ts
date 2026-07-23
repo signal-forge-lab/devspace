@@ -26,6 +26,7 @@ const resolved = await resolveWorkspaceAction({
 });
 assert.equal(resolved.action, "workspace_verify");
 assert.equal(resolved.preset, "standard");
+assert.equal(resolved.profile, "workbridge");
 assert.equal(resolved.executable, "shell");
 assert.match(resolved.command, /npm run typecheck/);
 assert.match(resolved.command, /npm run baseline:tools:check/);
@@ -62,6 +63,8 @@ assert.equal(projectVerify.profile, "workbridge");
 assert.equal(projectVerify.preset, "standard");
 assert.match(projectVerify.command, /npm run baseline:tools:check/);
 assert.deepEqual(projectVerify.policy, ["workspace_modify", "long_running"]);
+assert.equal(resolved.command, projectVerify.command);
+assert.deepEqual(resolved.plan, projectVerify.plan);
 
 const projectVerifyQuick = await resolveWorkspaceAction({
   workspaceRoot: process.cwd(),
