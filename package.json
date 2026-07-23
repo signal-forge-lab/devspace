@@ -1,6 +1,6 @@
 {
   "name": "@waishnav/devspace",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Expose a secure local coding workspace through an MCP server.",
   "type": "module",
   "main": "dist/server.js",
@@ -30,7 +30,7 @@
     "dev": "node scripts/dev-server.mjs",
     "postinstall": "node scripts/fix-node-pty-permissions.mjs",
     "start": "node dist/cli.js serve",
-    "test": "tsx src/branding.test.ts && tsx src/version.test.ts && tsx src/config.test.ts && tsx src/logger.test.ts && tsx src/incoming-artifacts.test.ts && tsx src/artifact-download.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/path-redaction.test.ts && tsx src/pi-tools.test.ts && tsx src/child-environment.test.ts && tsx src/process-sessions.test.ts && tsx src/mcp-sessions.test.ts && tsx src/server-shutdown.test.ts && tsx src/soft-pause.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/skills.test.ts && tsx src/workspace-actions.test.ts && tsx src/workspace-action-contract.test.ts && tsx src/workspace-store.test.ts && tsx src/workspaces.test.ts && tsx src/review-checkpoints.test.ts && tsx src/oauth-security.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts",
+    "test": "tsx src/branding.test.ts && tsx src/version.test.ts && tsx src/config.test.ts && tsx src/logger.test.ts && tsx src/incoming-artifacts.test.ts && tsx src/artifact-download.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/path-redaction.test.ts && tsx src/pi-tools.test.ts && tsx src/child-environment.test.ts && tsx src/process-sessions.test.ts && tsx src/mcp-sessions.test.ts && tsx src/server-shutdown.test.ts && tsx src/soft-pause.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/skills.test.ts && tsx src/project-profiles.test.ts && tsx src/workspace-actions.test.ts && tsx src/workspace-action-contract.test.ts && tsx src/workspace-store.test.ts && tsx src/workspaces.test.ts && tsx src/review-checkpoints.test.ts && tsx src/oauth-security.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "keywords": [],

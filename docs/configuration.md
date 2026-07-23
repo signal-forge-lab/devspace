@@ -72,6 +72,9 @@ preset: standard
 
 action: workspace_review
 preset: summary | integrity
+
+action: project_verify
+preset: standard
 ```
 
 It runs this fixed fail-fast sequence:
@@ -88,6 +91,24 @@ git status --short
 `workspace_review` is read-only. Its `summary` preset reports concise Git status
 plus staged and unstaged diff statistics. Its `integrity` preset runs
 `git diff --check` and then reports concise Git status.
+
+`project_verify` selects a built-in project profile and resolves a fixed command.
+The first built-in profiles are:
+
+```text
+workbridge
+  exact match: package name @waishnav/devspace plus src/workspace-actions.ts
+  command: the Workbridge-specific verification sequence
+
+node
+  strong match: package.json in the workspace root
+  command: available typecheck, lint, test, and build scripts in that order
+```
+
+Automatic detection prefers the exact `workbridge` profile, then the generic
+`node` profile. To select a profile explicitly, pass
+`parameters: { "profile": "workbridge" }` or `parameters: { "profile": "node" }`.
+No external profile or action configuration files are loaded.
 
 Use `dryRun: true` to inspect the resolved command and policy without executing
 it. Unknown actions and presets return the available registry entries.

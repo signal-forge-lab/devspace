@@ -1,4 +1,14 @@
-export const WORKSPACE_ACTION_NAMES = ["workspace_verify", "workspace_review"] as const;
+import {
+  ProjectProfileResolutionError,
+  resolveProjectVerifyProfile,
+  type ProjectProfileName,
+} from "./project-profiles.js";
+
+export const WORKSPACE_ACTION_NAMES = [
+  "workspace_verify",
+  "workspace_review",
+  "project_verify",
+] as const;
 export type WorkspaceActionName = (typeof WORKSPACE_ACTION_NAMES)[number];
 
 export const WORKSPACE_ACTION_POLICIES = [
@@ -20,7 +30,10 @@ export interface ResolveWorkspaceActionInput {
 export type WorkspaceActionResolutionErrorKind =
   | "unsupported_action"
   | "unsupported_preset"
-  | "invalid_parameters";
+  | "invalid_parameters"
+  | "unsupported_project_profile"
+  | "unsupported_action_for_profile"
+  | "invalid_project_manifest";
 
 export class WorkspaceActionResolutionError extends Error {
   readonly kind: WorkspaceActionResolutionErrorKind;
@@ -53,11 +66,12 @@ export interface ResolvedWorkspaceAction {
   displayCommand: string;
   description: string;
   policy: WorkspaceActionPolicy[];
+  profile?: ProjectProfileName;
 }
 
 interface WorkspaceActionPresetDefinition {
   description: string;
-  command: string;
+  command?: string;
   validateParameters(parameters: Record<string, unknown>): void;
 }
 
@@ -111,6 +125,17 @@ const WORKSPACE_ACTIONS: Record<WorkspaceActionName, WorkspaceActionDefinition> 
           "git status --short",
         ].join(" && "),
         validateParameters: requireNoParameters,
+      },
+    },
+  },
+  project_verify: {
+    description: "Detect a built-in project profile and run its standard verification sequence.",
+    defaultPreset: "standard",
+    policy: ["workspace_modify", "long_running"],
+    presets: {
+      standard: {
+        description: "Run the standard verification sequence selected by the matched project profile.",
+        validateParameters: validateProjectVerifyParameters,
       },
     },
   },
@@ -178,6 +203,38 @@ export async function resolveWorkspaceAction(
     });
   }
 
+  if (input.action === "project_verify") {
+    try {
+      const profileResolution = await resolveProjectVerifyProfile({
+        workspaceRoot: input.workspaceRoot,
+        requestedProfile: projectVerifyProfileParameter(parameters),
+      });
+      return {
+        action: input.action,
+        preset: presetName,
+        parameters: { ...parameters },
+        executable: "shell",
+        args: [],
+        command: profileResolution.command,
+        displayCommand: profileResolution.displayCommand,
+        description: profileResolution.description,
+        policy: [...profileResolution.policy],
+        profile: profileResolution.profile,
+      };
+    } catch (error) {
+      if (!(error instanceof ProjectProfileResolutionError)) throw error;
+      throw new WorkspaceActionResolutionError({
+        kind: error.kind,
+        message: error.message,
+        requestedAction: input.action,
+        requestedPreset: presetName,
+      });
+    }
+  }
+
+  if (!preset.command) {
+    throw new Error(`Workspace action preset has no command: ${input.action}/${presetName}`);
+  }
   return {
     action: input.action,
     preset: presetName,
@@ -196,4 +253,20 @@ function requireNoParameters(parameters: Record<string, unknown>): void {
   if (names.length > 0) {
     throw new Error(`This action preset does not accept parameters: ${names.join(", ")}`);
   }
+}
+
+function validateProjectVerifyParameters(parameters: Record<string, unknown>): void {
+  const unknown = Object.keys(parameters).filter((name) => name !== "profile");
+  if (unknown.length > 0) {
+    throw new Error(`This action preset accepts only the profile parameter: ${unknown.join(", ")}`);
+  }
+  const profile = parameters.profile;
+  if (profile !== undefined && (typeof profile !== "string" || profile.trim() === "")) {
+    throw new Error("The project_verify profile parameter must be a non-empty string.");
+  }
+}
+
+function projectVerifyProfileParameter(parameters: Record<string, unknown>): string | undefined {
+  const profile = parameters.profile;
+  return typeof profile === "string" ? profile : undefined;
 }

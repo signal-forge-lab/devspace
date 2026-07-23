@@ -186,6 +186,7 @@ const actionBackground = await manager.start({
     contractVersion: 1,
     action: "workspace_verify",
     preset: "standard",
+    profile: "workbridge",
     policy: ["workspace_modify", "long_running"],
     commandPreview: "workspace verification",
   },
@@ -194,6 +195,7 @@ assert.equal(actionBackground.running, true);
 assert.ok(actionBackground.sessionId);
 assert.equal(actionBackground.context?.kind, "workspace_action");
 assert.equal(actionBackground.context?.action, "workspace_verify");
+assert.equal(actionBackground.context?.profile, "workbridge");
 
 const actionCompleted = await manager.write({
   workspaceId: "workspace-a",
@@ -204,6 +206,7 @@ assert.equal(actionCompleted.running, false);
 assert.equal(actionCompleted.exitCode, 0);
 assert.equal(actionCompleted.context?.kind, "workspace_action");
 assert.equal(actionCompleted.context?.action, "workspace_verify");
+assert.equal(actionCompleted.context?.profile, "workbridge");
 assert.deepEqual(actionCompleted.context?.policy, ["workspace_modify", "long_running"]);
 
 const interactive = await manager.start({

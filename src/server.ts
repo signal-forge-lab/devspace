@@ -216,6 +216,7 @@ interface ToolLogFields {
   commandLength?: number;
   action?: string;
   preset?: string;
+  profile?: string;
   dryRun?: boolean;
   affectedFiles?: number;
   additions?: number;
@@ -1933,6 +1934,7 @@ export function createMcpServer(
             status: "rejected",
             action: resolved.action,
             preset: resolved.preset,
+            profile: resolved.profile,
             executed: false,
             policy: resolved.policy,
             commandPreview: resolved.displayCommand,
@@ -1949,7 +1951,12 @@ export function createMcpServer(
       }
 
       if (dryRun) {
-        const result = `Dry run action: ${resolved.action}/${resolved.preset}\nCommand: ${resolved.displayCommand}\nPolicy: ${resolved.policy.join(", ")}`;
+        const result = [
+          `Dry run action: ${resolved.action}/${resolved.preset}`,
+          resolved.profile ? `Profile: ${resolved.profile}` : undefined,
+          `Command: ${resolved.displayCommand}`,
+          `Policy: ${resolved.policy.join(", ")}`,
+        ].filter(Boolean).join("\n");
         const content = [textBlock(result)];
         logToolCall(config, {
           tool: "run_workspace_action",
@@ -1972,6 +1979,7 @@ export function createMcpServer(
               summary: {
                 action: resolved.action,
                 preset: resolved.preset,
+                profile: resolved.profile,
                 dryRun: true,
                 command: resolved.displayCommand,
                 policy: resolved.policy,
@@ -1984,6 +1992,7 @@ export function createMcpServer(
             status: "dry_run",
             action: resolved.action,
             preset: resolved.preset,
+            profile: resolved.profile,
             executed: false,
             policy: resolved.policy,
             commandPreview: resolved.displayCommand,
@@ -2013,6 +2022,7 @@ export function createMcpServer(
             contractVersion: WORKSPACE_ACTION_CONTRACT_VERSION,
             action: resolved.action,
             preset: resolved.preset,
+            profile: resolved.profile,
             policy: resolved.policy,
             commandPreview: resolved.displayCommand,
           },
@@ -2043,6 +2053,7 @@ export function createMcpServer(
             status: "failed",
             action: resolved.action,
             preset: resolved.preset,
+            profile: resolved.profile,
             executed: false,
             policy: resolved.policy,
             commandPreview: resolved.displayCommand,
@@ -2066,6 +2077,7 @@ export function createMcpServer(
         commandLength: resolved.displayCommand.length,
         action: resolved.action,
         preset: resolved.preset,
+        profile: resolved.profile,
         dryRun: false,
         success: true,
         durationMs: Math.round(performance.now() - startedAt),
@@ -2074,6 +2086,7 @@ export function createMcpServer(
       return processToolResponse("run_workspace_action", workspaceId, snapshot, {
         action: resolved.action,
         preset: resolved.preset,
+        profile: resolved.profile,
         parameters: resolved.parameters,
         command: resolved.displayCommand,
         policy: resolved.policy,
