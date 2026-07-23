@@ -1,4 +1,4 @@
-export const WORKSPACE_ACTION_NAMES = ["workspace_verify"] as const;
+export const WORKSPACE_ACTION_NAMES = ["workspace_verify", "workspace_review"] as const;
 export type WorkspaceActionName = (typeof WORKSPACE_ACTION_NAMES)[number];
 
 export const WORKSPACE_ACTION_POLICIES = [
@@ -83,6 +83,30 @@ const WORKSPACE_ACTIONS: Record<WorkspaceActionName, WorkspaceActionDefinition> 
           "npm run baseline:tools:check",
           "npm test",
           "npm run build",
+          "git diff --check",
+          "git status --short",
+        ].join(" && "),
+        validateParameters: requireNoParameters,
+      },
+    },
+  },
+  workspace_review: {
+    description: "Inspect current Git changes without modifying the workspace.",
+    defaultPreset: "summary",
+    policy: ["read_only"],
+    presets: {
+      summary: {
+        description: "Show concise working-tree status plus unstaged and staged diff statistics.",
+        command: [
+          "git status --short",
+          "git diff --stat",
+          "git diff --cached --stat",
+        ].join(" && "),
+        validateParameters: requireNoParameters,
+      },
+      integrity: {
+        description: "Validate diff whitespace and show concise working-tree status.",
+        command: [
           "git diff --check",
           "git status --short",
         ].join(" && "),

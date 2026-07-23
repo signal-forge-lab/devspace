@@ -64,11 +64,14 @@ Workbridge resolves the action and preset, validates structured parameters,
 applies the action policy, and chooses the concrete command. Arbitrary CLI
 arguments are not forwarded from `parameters`.
 
-The built-in action is:
+The built-in actions are:
 
 ```text
 action: workspace_verify
 preset: standard
+
+action: workspace_review
+preset: summary | integrity
 ```
 
 It runs this fixed fail-fast sequence:
@@ -81,6 +84,10 @@ npm run build
 git diff --check
 git status --short
 ```
+
+`workspace_review` is read-only. Its `summary` preset reports concise Git status
+plus staged and unstaged diff statistics. Its `integrity` preset runs
+`git diff --check` and then reports concise Git status.
 
 Use `dryRun: true` to inspect the resolved command and policy without executing
 it. Unknown actions and presets return the available registry entries.

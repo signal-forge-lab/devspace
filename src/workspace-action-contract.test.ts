@@ -63,6 +63,22 @@ try {
   assert.deepEqual(dryRun.policy, ["workspace_modify", "long_running"]);
   assert.match(requiredString(dryRun, "commandPreview"), /npm run typecheck/);
 
+  const reviewDryRun = structured(await client.callTool({
+    name: "run_workspace_action",
+    arguments: {
+      workspaceId,
+      action: "workspace_review",
+      dryRun: true,
+    },
+  }));
+  assert.equal(reviewDryRun.contractVersion, 1);
+  assert.equal(reviewDryRun.status, "dry_run");
+  assert.equal(reviewDryRun.action, "workspace_review");
+  assert.equal(reviewDryRun.preset, "summary");
+  assert.equal(reviewDryRun.executed, false);
+  assert.deepEqual(reviewDryRun.policy, ["read_only"]);
+  assert.match(requiredString(reviewDryRun, "commandPreview"), /git status --short/);
+
   const rejected = structured(await client.callTool({
     name: "run_workspace_action",
     arguments: {
@@ -77,7 +93,10 @@ try {
   assert.equal(rejected.running, false);
   assert.deepEqual(rejected.policy, []);
   assert.equal(record(rejected.error).code, "unsupported_action");
-  assert.ok(Array.isArray(rejected.catalog));
+  assert.deepEqual(
+    (rejected.catalog as Array<Record<string, unknown>>).map((entry) => entry.action),
+    ["workspace_verify", "workspace_review"],
+  );
 
   const invalidWorkingDirectory = structured(await client.callTool({
     name: "run_workspace_action",
