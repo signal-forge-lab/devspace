@@ -26,6 +26,7 @@ export interface StartCommandInput {
   rows?: number;
   yieldTimeMs?: number;
   maxOutputTokens?: number;
+  context?: ProcessSessionContext;
 }
 
 export interface WriteStdinInput {
@@ -47,7 +48,21 @@ export interface ProcessSnapshot {
   exitCode?: number;
   signal?: string;
   wallTimeMs: number;
+  cancelled?: boolean;
+  context?: ProcessSessionContext;
 }
+
+export interface WorkspaceActionProcessContext {
+  kind: "workspace_action";
+  contractVersion: 1;
+  action: string;
+  preset: string;
+  profile?: string;
+  policy: string[];
+  commandPreview?: string;
+}
+
+export type ProcessSessionContext = WorkspaceActionProcessContext;
 
 interface ManagedProcess {
   write(data: string): void;
@@ -68,6 +83,8 @@ interface ProcessSession {
   running: boolean;
   exitCode?: number;
   signal?: string;
+  cancelRequested: boolean;
+  context?: ProcessSessionContext;
   exitPromise: Promise<void>;
   resolveExit: () => void;
   cleanupTimer?: NodeJS.Timeout;
@@ -248,6 +265,7 @@ export class ProcessSessionManager {
 
     const interruptRequested = chars.includes("\u0003") && session.running;
     if (interruptRequested) {
+      session.cancelRequested = true;
       session.process?.kill("SIGINT");
     }
     const writableChars = chars.replaceAll("\u0003", "");
@@ -267,7 +285,10 @@ export class ProcessSessionManager {
 
   terminate(workspaceId: string, sessionId: number): void {
     const session = this.getOwnedSession(workspaceId, sessionId);
-    if (session.running) session.process?.kill("SIGTERM");
+    if (session.running) {
+      session.cancelRequested = true;
+      session.process?.kill("SIGTERM");
+    }
   }
 
   shutdown(): void {
@@ -308,6 +329,13 @@ export class ProcessSessionManager {
       outputRedactions: input.outputRedactions ?? [],
       outputMode: input.outputMode ?? "full",
       running: true,
+      cancelRequested: false,
+      context: input.context
+        ? {
+            ...input.context,
+            policy: [...input.context.policy],
+          }
+        : undefined,
       exitPromise,
       resolveExit,
     };
@@ -409,6 +437,13 @@ export class ProcessSessionManager {
       exitCode: session.exitCode,
       signal: session.signal,
       wallTimeMs: Date.now() - session.startedAt,
+      cancelled: !session.running && session.cancelRequested ? true : undefined,
+      context: session.context
+        ? {
+            ...session.context,
+            policy: [...session.context.policy],
+          }
+        : undefined,
     };
   }
 

@@ -85,6 +85,29 @@ git status --short
 Use `dryRun: true` to inspect the resolved command and policy without executing
 it. Unknown actions and presets return the available registry entries.
 
+### Action result contract v1
+
+Every `run_workspace_action` response identifies the resolved operation instead
+of returning only generic process fields:
+
+```text
+contractVersion: 1
+status: dry_run | running | completed | failed | cancelled | rejected
+action
+preset?
+profile?
+executed
+policy
+commandPreview?
+error?
+```
+
+`rejected` means the action was not executed because action resolution or input
+validation failed. `failed` means the registered action started but its process
+failed. When an action continues as a process session, later `write_stdin`
+responses retain the same action, preset, policy, and status fields. Sessions
+created by `exec_command` continue to return the ordinary process contract.
+
 ## Core Environment Variables
 
 | Variable | Purpose |

@@ -1,6 +1,6 @@
 {
   "formatVersion": 2,
-  "packageVersion": "1.0.5",
+  "packageVersion": "1.0.6",
   "source": "in-memory MCP tools/list contract summary",
   "configuration": {
     "toolSurface": "fixed",
@@ -160,19 +160,34 @@
           "workspaceId"
         ],
         "outputProperties": [
+          "action",
+          "catalog",
+          "commandPreview",
+          "contractVersion",
+          "error",
+          "executed",
           "exitCode",
           "outputSuppressed",
           "outputTruncated",
+          "policy",
+          "preset",
+          "profile",
           "result",
           "running",
           "sessionId",
           "signal",
+          "status",
           "wallTimeMs"
         ],
         "requiredOutputProperties": [
+          "action",
+          "contractVersion",
+          "executed",
           "outputTruncated",
+          "policy",
           "result",
           "running",
+          "status",
           "wallTimeMs"
         ]
       },
@@ -192,13 +207,22 @@
           "workspaceId"
         ],
         "outputProperties": [
+          "action",
+          "commandPreview",
+          "contractVersion",
+          "error",
+          "executed",
           "exitCode",
           "outputSuppressed",
           "outputTruncated",
+          "policy",
+          "preset",
+          "profile",
           "result",
           "running",
           "sessionId",
           "signal",
+          "status",
           "wallTimeMs"
         ],
         "requiredOutputProperties": [

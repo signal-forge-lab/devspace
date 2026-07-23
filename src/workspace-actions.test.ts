@@ -8,7 +8,7 @@ import {
 const catalog = workspaceActionCatalog();
 assert.deepEqual(catalog.map((entry) => entry.action), ["workspace_verify"]);
 assert.equal(catalog[0]?.defaultPreset, "standard");
-assert.deepEqual(catalog[0]?.policy, ["read_only", "long_running"]);
+assert.deepEqual(catalog[0]?.policy, ["workspace_modify", "long_running"]);
 
 const resolved = await resolveWorkspaceAction({
   workspaceRoot: process.cwd(),

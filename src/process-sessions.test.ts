@@ -176,6 +176,36 @@ assert.equal(completed.running, false);
 assert.equal(completed.exitCode, 0);
 assert.match(completed.output, /finished/);
 
+const actionBackground = await manager.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "setTimeout(() => console.log('action-finished'), 100)"`,
+  yieldTimeMs: 5,
+  context: {
+    kind: "workspace_action",
+    contractVersion: 1,
+    action: "workspace_verify",
+    preset: "standard",
+    policy: ["workspace_modify", "long_running"],
+    commandPreview: "workspace verification",
+  },
+});
+assert.equal(actionBackground.running, true);
+assert.ok(actionBackground.sessionId);
+assert.equal(actionBackground.context?.kind, "workspace_action");
+assert.equal(actionBackground.context?.action, "workspace_verify");
+
+const actionCompleted = await manager.write({
+  workspaceId: "workspace-a",
+  sessionId: actionBackground.sessionId,
+  yieldTimeMs: 2_000,
+});
+assert.equal(actionCompleted.running, false);
+assert.equal(actionCompleted.exitCode, 0);
+assert.equal(actionCompleted.context?.kind, "workspace_action");
+assert.equal(actionCompleted.context?.action, "workspace_verify");
+assert.deepEqual(actionCompleted.context?.policy, ["workspace_modify", "long_running"]);
+
 const interactive = await manager.start({
   workspaceId: "workspace-a",
   cwd: process.cwd(),
@@ -248,6 +278,7 @@ const interrupted = await manager.write({
   yieldTimeMs: 2_000,
 });
 assert.equal(interrupted.running, false);
+assert.equal(interrupted.cancelled, true);
 if (process.platform !== "win32") assert.equal(interrupted.signal, "SIGINT");
 
 let buffered = await manager.start({

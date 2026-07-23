@@ -1,12 +1,14 @@
 export const WORKSPACE_ACTION_NAMES = ["workspace_verify"] as const;
 export type WorkspaceActionName = (typeof WORKSPACE_ACTION_NAMES)[number];
 
-export type WorkspaceActionPolicy =
-  | "read_only"
-  | "workspace_modify"
-  | "git_modify"
-  | "external_effect"
-  | "long_running";
+export const WORKSPACE_ACTION_POLICIES = [
+  "read_only",
+  "workspace_modify",
+  "git_modify",
+  "external_effect",
+  "long_running",
+] as const;
+export type WorkspaceActionPolicy = (typeof WORKSPACE_ACTION_POLICIES)[number];
 
 export interface ResolveWorkspaceActionInput {
   workspaceRoot: string;
@@ -72,7 +74,7 @@ const WORKSPACE_ACTIONS: Record<WorkspaceActionName, WorkspaceActionDefinition> 
   workspace_verify: {
     description: "Run the fixed standard verification sequence for the Workbridge workspace.",
     defaultPreset: "standard",
-    policy: ["read_only", "long_running"],
+    policy: ["workspace_modify", "long_running"],
     presets: {
       standard: {
         description: "Run typecheck, tool-schema baseline validation, tests, build, diff validation, and status.",

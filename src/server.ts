@@ -68,6 +68,7 @@ import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
 import { formatAgentsPath, WorkspaceRegistry } from "./workspaces.js";
 import {
+  WORKSPACE_ACTION_POLICIES,
   WorkspaceActionResolutionError,
   resolveWorkspaceAction,
 } from "./workspace-actions.js";
@@ -634,8 +635,20 @@ function processResult(snapshot: ProcessSnapshot): string {
   return snapshot.output ? `${snapshot.output.replace(/\n$/, "")}\n${status}` : status;
 }
 
-function processOutputSchema(): z.ZodRawShape {
-  return resultOutputSchema({
+const WORKSPACE_ACTION_CONTRACT_VERSION = 1 as const;
+const WORKSPACE_ACTION_STATUSES = [
+  "dry_run",
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+  "rejected",
+] as const;
+
+type WorkspaceActionStatus = (typeof WORKSPACE_ACTION_STATUSES)[number];
+
+function processOutputFields(): z.ZodRawShape {
+  return {
     sessionId: z.number().optional(),
     running: z.boolean(),
     exitCode: z.number().int().optional(),
@@ -643,7 +656,96 @@ function processOutputSchema(): z.ZodRawShape {
     wallTimeMs: z.number().nonnegative(),
     outputTruncated: z.boolean(),
     outputSuppressed: z.boolean().optional(),
+  };
+}
+
+function processOutputSchema(): z.ZodRawShape {
+  return resultOutputSchema(processOutputFields());
+}
+
+function workspaceActionCatalogSchema() {
+  return z.array(z.object({
+    action: z.string(),
+    description: z.string(),
+    defaultPreset: z.string(),
+    presets: z.array(z.object({
+      name: z.string(),
+      description: z.string(),
+    })),
+    policy: z.array(z.enum(WORKSPACE_ACTION_POLICIES)),
+  }));
+}
+
+function workspaceActionErrorSchema() {
+  return z.object({
+    code: z.string(),
+    message: z.string(),
   });
+}
+
+function workspaceActionOutputSchema(): z.ZodRawShape {
+  return resultOutputSchema({
+    ...processOutputFields(),
+    contractVersion: z.literal(WORKSPACE_ACTION_CONTRACT_VERSION),
+    status: z.enum(WORKSPACE_ACTION_STATUSES),
+    action: z.string(),
+    preset: z.string().optional(),
+    profile: z.string().optional(),
+    executed: z.boolean(),
+    policy: z.array(z.enum(WORKSPACE_ACTION_POLICIES)),
+    commandPreview: z.string().optional(),
+    error: workspaceActionErrorSchema().optional(),
+    catalog: workspaceActionCatalogSchema().optional(),
+  });
+}
+
+function processOrWorkspaceActionOutputSchema(): z.ZodRawShape {
+  return resultOutputSchema({
+    ...processOutputFields(),
+    contractVersion: z.literal(WORKSPACE_ACTION_CONTRACT_VERSION).optional(),
+    status: z.enum(WORKSPACE_ACTION_STATUSES).optional(),
+    action: z.string().optional(),
+    preset: z.string().optional(),
+    profile: z.string().optional(),
+    executed: z.boolean().optional(),
+    policy: z.array(z.enum(WORKSPACE_ACTION_POLICIES)).optional(),
+    commandPreview: z.string().optional(),
+    error: workspaceActionErrorSchema().optional(),
+  });
+}
+
+function workspaceActionStatus(snapshot: ProcessSnapshot): WorkspaceActionStatus {
+  if (snapshot.running) return "running";
+  if (snapshot.cancelled) return "cancelled";
+  if (snapshot.exitCode === 0 && !snapshot.signal) return "completed";
+  return "failed";
+}
+
+function workspaceActionProcessFields(snapshot: ProcessSnapshot): Record<string, unknown> {
+  const context = snapshot.context;
+  if (context?.kind !== "workspace_action") return {};
+
+  const status = workspaceActionStatus(snapshot);
+  const error = status === "failed"
+    ? {
+        code: snapshot.signal ? "process_signalled" : "process_failed",
+        message: snapshot.signal
+          ? `Workspace action process exited after signal ${snapshot.signal}.`
+          : `Workspace action process exited with code ${snapshot.exitCode ?? "unknown"}.`,
+      }
+    : undefined;
+
+  return {
+    contractVersion: context.contractVersion,
+    status,
+    action: context.action,
+    preset: context.preset,
+    profile: context.profile,
+    executed: true,
+    policy: context.policy,
+    commandPreview: context.commandPreview,
+    error,
+  };
 }
 
 function processToolResponse(
@@ -655,13 +757,14 @@ function processToolResponse(
   const result = processResult(snapshot);
   const content = [textBlock(result)];
   const outputSummary = textSummary(snapshot.output ? [textBlock(snapshot.output)] : []);
+  const actionFields = workspaceActionProcessFields(snapshot);
   return {
     content,
     _meta: {
       tool,
       card: {
         workspaceId,
-        summary: { ...summary, ...outputSummary },
+        summary: { ...summary, ...actionFields, ...outputSummary },
         payload: { content },
       },
     },
@@ -674,6 +777,7 @@ function processToolResponse(
       wallTimeMs: snapshot.wallTimeMs,
       outputTruncated: snapshot.outputTruncated,
       outputSuppressed: snapshot.outputSuppressed,
+      ...actionFields,
     },
   };
 }
@@ -790,7 +894,7 @@ function registerCodexProcessTools(
         "Poll or write characters to a process returned by exec_command or run_workspace_action. Omit chars or pass an empty string to poll. Pass \\u0003 to send Ctrl-C.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier used to start the process."),
-        sessionId: z.number().describe("Process session identifier returned by exec_command."),
+        sessionId: z.number().describe("Process session identifier returned by exec_command or run_workspace_action."),
         chars: z.string().optional().describe("Characters to write. Omit or pass an empty string to poll."),
         columns: z.number().int().min(1).max(1_000).optional().describe("Resize a PTY to this width."),
         rows: z.number().int().min(1).max(1_000).optional().describe("Resize a PTY to this height."),
@@ -809,7 +913,7 @@ function registerCodexProcessTools(
           .optional()
           .describe("Approximate output token budget. Defaults to 10000."),
       },
-      outputSchema: processOutputSchema(),
+      outputSchema: processOrWorkspaceActionOutputSchema(),
       ...toolWidgetDescriptorMeta(config, "shell"),
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
@@ -1739,7 +1843,7 @@ export function createMcpServer(
         yieldTimeMs: z.number().int().min(0).max(30_000).optional().describe("Milliseconds to wait before returning a running session."),
         maxOutputTokens: z.number().int().positive().max(100_000).optional().describe("Approximate output token budget."),
       },
-      outputSchema: processOutputSchema(),
+      outputSchema: workspaceActionOutputSchema(),
       ...toolWidgetDescriptorMeta(config, "shell"),
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
@@ -1784,14 +1888,65 @@ export function createMcpServer(
         return {
           content,
           structuredContent: {
+            contractVersion: WORKSPACE_ACTION_CONTRACT_VERSION,
+            status: "rejected",
+            action,
+            preset: preset?.trim() || undefined,
+            executed: false,
+            policy: [],
             result,
             running: false,
             wallTimeMs: 0,
             outputTruncated: false,
+            error: {
+              code: error.kind,
+              message: error.message,
+            },
+            catalog: error.catalog,
           },
         };
       }
-      const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
+      let cwd: string;
+      try {
+        cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const result = `Workspace action working directory was rejected: ${message}`;
+        const content = [textBlock(result)];
+        logToolCall(config, {
+          tool: "run_workspace_action",
+          workspaceId,
+          workingDirectory: workingDirectory ?? ".",
+          action: resolved.action,
+          preset: resolved.preset,
+          dryRun: Boolean(dryRun),
+          success: false,
+          executed: false,
+          executionPolicy: "invalid_working_directory",
+          durationMs: Math.round(performance.now() - startedAt),
+          error: message,
+        });
+        return {
+          content,
+          structuredContent: {
+            contractVersion: WORKSPACE_ACTION_CONTRACT_VERSION,
+            status: "rejected",
+            action: resolved.action,
+            preset: resolved.preset,
+            executed: false,
+            policy: resolved.policy,
+            commandPreview: resolved.displayCommand,
+            result,
+            running: false,
+            wallTimeMs: 0,
+            outputTruncated: false,
+            error: {
+              code: "invalid_working_directory",
+              message,
+            },
+          },
+        };
+      }
 
       if (dryRun) {
         const result = `Dry run action: ${resolved.action}/${resolved.preset}\nCommand: ${resolved.displayCommand}\nPolicy: ${resolved.policy.join(", ")}`;
@@ -1825,6 +1980,13 @@ export function createMcpServer(
             },
           },
           structuredContent: {
+            contractVersion: WORKSPACE_ACTION_CONTRACT_VERSION,
+            status: "dry_run",
+            action: resolved.action,
+            preset: resolved.preset,
+            executed: false,
+            policy: resolved.policy,
+            commandPreview: resolved.displayCommand,
             result,
             running: false,
             wallTimeMs: 0,
@@ -1833,18 +1995,68 @@ export function createMcpServer(
         };
       }
 
-      const snapshot = await processSessions.start({
-        workspaceId,
-        command: resolved.command,
-        cwd,
-        workspaceRoot: workspace.root,
-        outputMode: "full",
-        tty,
-        columns,
-        rows,
-        yieldTimeMs,
-        maxOutputTokens,
-      });
+      let snapshot: ProcessSnapshot;
+      try {
+        snapshot = await processSessions.start({
+          workspaceId,
+          command: resolved.command,
+          cwd,
+          workspaceRoot: workspace.root,
+          outputMode: "full",
+          tty,
+          columns,
+          rows,
+          yieldTimeMs,
+          maxOutputTokens,
+          context: {
+            kind: "workspace_action",
+            contractVersion: WORKSPACE_ACTION_CONTRACT_VERSION,
+            action: resolved.action,
+            preset: resolved.preset,
+            policy: resolved.policy,
+            commandPreview: resolved.displayCommand,
+          },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const result = `Workspace action process failed to start: ${message}`;
+        const content = [textBlock(result)];
+        logToolCall(config, {
+          tool: "run_workspace_action",
+          workspaceId,
+          workingDirectory: workingDirectory ?? ".",
+          command: resolved.displayCommand,
+          commandLength: resolved.displayCommand.length,
+          action: resolved.action,
+          preset: resolved.preset,
+          dryRun: false,
+          success: false,
+          executed: false,
+          executionPolicy: "process_start_failed",
+          durationMs: Math.round(performance.now() - startedAt),
+          error: message,
+        });
+        return {
+          content,
+          structuredContent: {
+            contractVersion: WORKSPACE_ACTION_CONTRACT_VERSION,
+            status: "failed",
+            action: resolved.action,
+            preset: resolved.preset,
+            executed: false,
+            policy: resolved.policy,
+            commandPreview: resolved.displayCommand,
+            result,
+            running: false,
+            wallTimeMs: 0,
+            outputTruncated: false,
+            error: {
+              code: "process_start_failed",
+              message,
+            },
+          },
+        };
+      }
 
       logToolCall(config, {
         tool: "run_workspace_action",
