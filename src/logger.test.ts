@@ -168,23 +168,3 @@ assert.equal(alignedConsoleLines[0]?.split(" | ")[2], "HTTP   ");
 assert.equal(alignedConsoleLines[0]?.split(" | ")[3], "http_request       ");
 assert.equal(alignedConsoleLines[1]?.split(" | ")[2], "MCPSESS");
 assert.equal(alignedConsoleLines[1]?.split(" | ")[3], "sessions           ");
-
-const skippedToolConsoleLines: string[] = [];
-const originalSkippedToolConsoleLog = console.log;
-console.log = (line?: unknown) => skippedToolConsoleLines.push(String(line));
-try {
-  logEvent({ ...config, file: false }, "info", "tool_call", {
-    tool: "exec_command",
-    workspaceId: "ws_policy_test",
-    success: true,
-    executed: false,
-    executionPolicy: "sandbox_bundle",
-    durationMs: 0,
-  });
-} finally {
-  console.log = originalSkippedToolConsoleLog;
-}
-assert.equal(skippedToolConsoleLines.length, 1);
-assert.match(skippedToolConsoleLines[0] ?? "", /SKIP/);
-assert.match(skippedToolConsoleLines[0] ?? "", /skip/);
-assert.match(skippedToolConsoleLines[0] ?? "", /policy=sandbox_bundle/);

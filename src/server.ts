@@ -23,7 +23,7 @@ import {
   registerArtifactTools,
 } from "./artifact-tools.js";
 import { LEGACY_SERVICE_NAME, PRODUCT_DISPLAY_NAME } from "./branding.js";
-import { loadConfig, type ExperimentalFeature, type ServerConfig, type WidgetMode } from "./config.js";
+import { loadConfig, type ServerConfig, type WidgetMode } from "./config.js";
 import {
   createOpenAIIncomingArtifactAdapter,
   type IncomingArtifactAdapter,
@@ -74,18 +74,6 @@ import {
 import { summarizeLocalAgentProfile } from "./local-agent-profiles.js";
 import { PACKAGE_VERSION } from "./version.js";
 import {
-  WorkspaceBundleStore,
-  redactWorkspaceBundleRequestPath,
-} from "./workspace-bundle.js";
-import {
-  registerWorkspaceBundleDownloadRoutes,
-  registerWorkspaceBundleEmbeddedTransferProbeTool,
-  registerWorkspaceBundleExceptionReadTool,
-  registerWorkspaceBundleTool,
-  workspaceBundleTransferResult,
-  type WorkspaceBundleToolContent,
-} from "./workspace-bundle-registration.js";
-import {
   formatLocalAgentProviderAvailabilitySummary,
   getLocalAgentProviderAvailabilitySnapshot,
   type LocalAgentProviderAvailability,
@@ -128,8 +116,7 @@ interface RunningServer {
 
 type ToolContent =
   | { type: "text"; text: string }
-  | { type: "image"; data: string; mimeType: string }
-  | WorkspaceBundleToolContent;
+  | { type: "image"; data: string; mimeType: string };
 
 interface WorkspaceAppManifestEntry {
   file: string;
@@ -415,10 +402,6 @@ function logFailedToolResponse(
   });
 }
 
-function experimentalFeatureEnabled(config: ServerConfig, feature: ExperimentalFeature): boolean {
-  return config.experimentalFeatures.includes(feature);
-}
-
 const COMMAND_METADATA_INTENTS = ["inspect", "modify", "verify", "run", "git", "other"] as const;
 const COMMAND_METADATA_RETRY_CONTEXTS = [
   "none",
@@ -695,52 +678,6 @@ function processToolResponse(
   };
 }
 
-function sandboxBundlePolicyMessage(tool: string): string {
-  return `Sandbox bundle policy is inactive in the fixed Workbridge surface. ${tool} was not executed.`;
-}
-
-function sandboxBundlePolicyToolResponse(
-  tool: string,
-  workspaceId: string,
-  summary: Record<string, unknown> = {},
-) {
-  const result = sandboxBundlePolicyMessage(tool);
-  const content = [textBlock(result)];
-  return {
-    content,
-    _meta: {
-      tool,
-      card: {
-        workspaceId,
-        summary: {
-          ...summary,
-          executed: false,
-          executionPolicy: "sandbox_bundle",
-        },
-        payload: { content },
-      },
-    },
-    structuredContent: { result },
-  };
-}
-
-function sandboxBundlePolicyProcessResponse(
-  tool: "exec_command" | "write_stdin" | "run_workspace_action",
-  workspaceId: string,
-  summary: Record<string, unknown> = {},
-) {
-  const response = sandboxBundlePolicyToolResponse(tool, workspaceId, summary);
-  return {
-    ...response,
-    structuredContent: {
-      ...response.structuredContent,
-      running: false,
-      wallTimeMs: 0,
-      outputTruncated: false,
-    },
-  };
-}
-
 function registerCodexProcessTools(
   server: McpServer,
   config: ServerConfig,
@@ -914,7 +851,6 @@ export function createMcpServer(
   processSessions: ProcessSessionManager,
   localAgentProviders: LocalAgentProviderAvailability[],
   incomingArtifactAdapters: readonly IncomingArtifactAdapter[],
-  workspaceBundleStore?: WorkspaceBundleStore,
   softPause = new SoftPauseController(config.stateDir),
 ): McpServer {
   const registerTool = createSoftPauseToolRegistrar(softPause);
@@ -983,11 +919,7 @@ export function createMcpServer(
       const startedAt = performance.now();
       const { workspace, agentsFiles, availableAgentsFiles } = await workspaces.openWorkspace({ path, mode, baseRef });
       const redactions = workspacePathRedactions(workspace.root);
-      if (
-        config.widgets === "changes"
-        && config.toolMode !== "sandbox_bundle"
-        && !config.sandboxBundlePolicyEnabled
-      ) {
+      if (config.widgets === "changes") {
         void reviewCheckpoints.initializeWorkspace({
           workspaceId: workspace.id,
           root: workspace.root,
@@ -1074,34 +1006,7 @@ export function createMcpServer(
     },
   );
 
-  if (config.sandboxBundleEnabled && !workspaceBundleStore) {
-    throw new Error("Sandbox bundle export is enabled without a WorkspaceBundleStore.");
-  }
-  if (config.sandboxBundleEnabled && workspaceBundleStore) {
-    registerWorkspaceBundleEmbeddedTransferProbeTool({
-      server,
-      registerTool,
-      logToolCall: (fields) => logToolCall(config, fields),
-    });
-    registerWorkspaceBundleTool({
-      server,
-      workspaces,
-      bundleStore: workspaceBundleStore,
-      registerTool,
-      logToolCall: (fields) => logToolCall(config, fields),
-    });
-    if (config.toolMode === "sandbox_bundle") {
-      registerWorkspaceBundleExceptionReadTool({
-        server,
-        workspaces,
-        bundleStore: workspaceBundleStore,
-        registerTool,
-        logToolCall: (fields) => logToolCall(config, fields),
-      });
-    }
-  }
-
-  if (config.toolMode !== "sandbox_bundle") registerTool(
+  registerTool(
     server,
     toolNames.read,
     {
@@ -1148,20 +1053,6 @@ export function createMcpServer(
       const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
       const readPath = workspaces.resolveReadPath(workspace, input.path);
-      if (config.sandboxBundlePolicyEnabled && !readPath.skillRead) {
-        logToolCall(config, {
-          tool: toolNames.read,
-          workspaceId,
-          path: input.path,
-          success: true,
-          executed: false,
-          executionPolicy: "sandbox_bundle",
-          durationMs: Math.round(performance.now() - startedAt),
-        });
-        return sandboxBundlePolicyToolResponse(toolNames.read, workspaceId, {
-          path: input.path,
-        });
-      }
       const response = await readFileTool(
         { ...input, path: readPath.absolutePath },
         {
@@ -1212,7 +1103,7 @@ export function createMcpServer(
     },
   );
 
-  if (config.toolMode !== "codex" && config.toolMode !== "sandbox_bundle") {
+  if (config.toolMode !== "codex") {
   registerTool(
     server,
     toolNames.write,
@@ -1378,16 +1269,14 @@ export function createMcpServer(
   );
   }
 
-  if (config.toolMode === "codex" || config.toolMode === "sandbox_bundle") {
+  if (config.toolMode === "codex") {
     registerTool(
       server,
       "apply_patch",
       {
         title: "Apply patch",
         description:
-          config.toolMode === "sandbox_bundle"
-            ? `Apply the final consolidated patch produced after inspecting and editing the referenced workspace bundle in the ChatGPT sandbox. Do not use this tool for exploratory edits before extracting and inspecting the ZIP. Supports adding, overwriting, updating, deleting, and moving files. Paths must be relative to the workspace. ${WORKSPACE_REUSE_DESCRIPTION} Prefer one apply_patch call for the whole current logical change set; split only when a patch failed, the change set is too large to review safely, or the user asks for separate checkpoints.`
-            : `Apply one Codex-style patch inside an open workspace. Supports adding, overwriting, updating, deleting, and moving files. Use this for all file modifications. Paths must be relative to the workspace. ${WORKSPACE_REUSE_DESCRIPTION} Prefer one apply_patch call for the whole current logical change set: a single patch may contain multiple Add File, Update File, Delete File, and Move File sections. Batch related edits instead of making repeated apply_patch calls for small adjacent edits or one file at a time; split only when a patch failed, the change set is too large to review safely, or the user asks for separate checkpoints.`,
+          `Apply one Codex-style patch inside an open workspace. Supports adding, overwriting, updating, deleting, and moving files. Use this for all file modifications. Paths must be relative to the workspace. ${WORKSPACE_REUSE_DESCRIPTION} Prefer one apply_patch call for the whole current logical change set: a single patch may contain multiple Add File, Update File, Delete File, and Move File sections. Batch related edits instead of making repeated apply_patch calls for small adjacent edits or one file at a time; split only when a patch failed, the change set is too large to review safely, or the user asks for separate checkpoints.`,
         inputSchema: {
           workspaceId: z
             .string()
@@ -1413,16 +1302,7 @@ export function createMcpServer(
       async ({ workspaceId, patch }) => {
         const startedAt = performance.now();
         const workspace = workspaces.getWorkspace(workspaceId);
-        const bundleRequired = config.toolMode === "sandbox_bundle" || config.sandboxBundlePolicyEnabled;
-        if (bundleRequired && !workspaceBundleStore) {
-          throw new Error("Sandbox bundle patch policy is active without a WorkspaceBundleStore.");
-        }
-        const applied = bundleRequired
-          ? await workspaceBundleStore!.applyPatchFromLatestBundle(
-              workspace,
-              async (beforeCommit) => applyPatch(workspace.root, patch, { beforeCommit }),
-            )
-          : await applyPatch(workspace.root, patch);
+        const applied = await applyPatch(workspace.root, patch);
         const paths = applied.files.map((file) => file.path).join(", ");
         const result = `Applied patch to ${applied.files.length} file(s): ${paths}`;
         const content = [textBlock(result)];
@@ -1468,7 +1348,7 @@ export function createMcpServer(
     );
   }
 
-  if (config.widgets === "changes" && config.toolMode !== "sandbox_bundle") {
+  if (config.widgets === "changes") {
     registerTool(
       server,
       "show_changes",
@@ -1488,17 +1368,6 @@ export function createMcpServer(
       async ({ workspaceId }) => {
         const startedAt = performance.now();
         const workspace = workspaces.getWorkspace(workspaceId);
-        if (config.sandboxBundlePolicyEnabled) {
-          logToolCall(config, {
-            tool: "show_changes",
-            workspaceId,
-            success: true,
-            executed: false,
-            executionPolicy: "sandbox_bundle",
-            durationMs: Math.round(performance.now() - startedAt),
-          });
-          return sandboxBundlePolicyToolResponse("show_changes", workspaceId);
-        }
         const review = await reviewCheckpoints.reviewChanges({
           workspaceId,
           root: workspace.root,
@@ -1746,7 +1615,7 @@ export function createMcpServer(
     );
   }
 
-  if (config.toolMode !== "codex" && config.toolMode !== "sandbox_bundle") {
+  if (config.toolMode !== "codex") {
   registerTool(
     server,
     toolNames.shell,
@@ -2043,12 +1912,6 @@ export function createServer(
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
   const reviewCheckpoints = createReviewCheckpointManager();
   const processSessions = new ProcessSessionManager();
-  const workspaceBundleStore = config.sandboxBundleEnabled
-    ? new WorkspaceBundleStore({
-        stateDir: config.stateDir,
-        publicBaseUrl: config.publicBaseUrl,
-      })
-    : undefined;
   const softPause = new SoftPauseController(config.stateDir);
   const localAgentProviders = config.subagents
     ? getLocalAgentProviderAvailabilitySnapshot()
@@ -2148,7 +2011,7 @@ export function createServer(
     res.locals.requestId = requestId;
 
     res.on("finish", () => {
-      const path = redactWorkspaceBundleRequestPath(requestPath(req));
+      const path = requestPath(req);
       if (!config.logging.requests) return;
       if (!config.logging.assets && path.startsWith("/mcp-app-assets")) return;
 
@@ -2165,10 +2028,6 @@ export function createServer(
 
     next();
   });
-
-  if (workspaceBundleStore) {
-    registerWorkspaceBundleDownloadRoutes(app, workspaceBundleStore);
-  }
 
   app.use(
     mcpAuthRouter({
@@ -2266,7 +2125,6 @@ export function createServer(
           processSessions,
           localAgentProviders,
           incomingArtifactAdapters,
-          workspaceBundleStore,
           softPause,
         );
         await server.connect(transport);
@@ -2298,7 +2156,6 @@ export function createServer(
         const results = await transports.closeAll();
         logSessionCloseResults("server_shutdown", results);
         processSessions.shutdown();
-        await workspaceBundleStore?.close();
         oauthProvider.close();
         workspaceStore.close?.();
       })();

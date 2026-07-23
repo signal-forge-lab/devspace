@@ -1,8 +1,9 @@
 # Configuration Reference
 
-Workbridge uses a fixed MCP contract. Tool modes, widget modes, ZIP-bundle
-modes, dynamic task arguments, experimental feature bundles, and subagent
-exposure are not runtime options.
+Workbridge uses a fixed MCP contract. The upstream tool modes, widget modes,
+and subagent implementations remain in the codebase for upstream compatibility,
+but the Workbridge runtime selects its fixed profile rather than exposing them
+as runtime options.
 
 The default persisted files are:
 
@@ -28,12 +29,14 @@ apply_patch
 exec_command
 write_stdin
 run_workspace_action
+download_artifact
 ```
 
 Changing environment variables does not add, remove, or reshape these tools.
 Command metadata fields are always present on `exec_command`. Skills are always
-enabled. Widget metadata, `show_changes`, ZIP-transfer tools, and subagent
-catalog fields are not exposed.
+enabled. Widget metadata, `show_changes`, and subagent catalog fields are not
+exposed by the Workbridge profile. `download_artifact` remains visible on every
+platform; Linux executes it, while unsupported platforms return a clear error.
 
 ## Workspace Actions
 

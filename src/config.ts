@@ -6,9 +6,8 @@ import type { LoggingConfig, LogFormat, LogLevel } from "./logger.js";
 import type { OAuthConfig } from "./oauth-provider.js";
 import { devspaceAgentsDir, devspaceSkillsDir, loadDevspaceFiles } from "./user-config.js";
 
-export type ToolMode = "minimal" | "full" | "codex" | "sandbox_bundle";
+export type ToolMode = "minimal" | "full" | "codex";
 export type WidgetMode = "off" | "changes" | "full";
-export type ExperimentalFeature = "command_metadata" | "shell_command_logging";
 const DEFAULT_OAUTH_ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const DEFAULT_OAUTH_MAX_REGISTERED_CLIENTS = 50;
@@ -30,11 +29,6 @@ export interface ServerConfig {
   allowedHosts: string[];
   publicBaseUrl: string;
   toolMode: ToolMode;
-  experimentalFeatures: ExperimentalFeature[];
-  workspaceTasksEnabled: boolean;
-  workspaceTaskDynamicArgsEnabled: boolean;
-  sandboxBundleEnabled: boolean;
-  sandboxBundlePolicyEnabled: boolean;
   widgets: WidgetMode;
   stateDir: string;
   worktreeRoot: string;
@@ -296,11 +290,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     allowedHosts: parseAllowedHosts(env.DEVSPACE_ALLOWED_HOSTS, derivedAllowedHosts),
     publicBaseUrl,
     toolMode: "codex",
-    experimentalFeatures: ["command_metadata"],
-    workspaceTasksEnabled: true,
-    workspaceTaskDynamicArgsEnabled: false,
-    sandboxBundleEnabled: false,
-    sandboxBundlePolicyEnabled: false,
     widgets: "off",
     stateDir,
     worktreeRoot: resolve(expandHomePath(env.DEVSPACE_WORKTREE_ROOT ?? files.config.worktreeRoot ?? defaultWorktreeRoot())),

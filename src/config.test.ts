@@ -14,11 +14,6 @@ const baseEnv = {
 const fixed = loadConfig(baseEnv);
 assert.equal(fixed.toolMode, "codex");
 assert.equal(fixed.widgets, "off");
-assert.deepEqual(fixed.experimentalFeatures, ["command_metadata"]);
-assert.equal(fixed.workspaceTasksEnabled, true);
-assert.equal(fixed.workspaceTaskDynamicArgsEnabled, false);
-assert.equal(fixed.sandboxBundleEnabled, false);
-assert.equal(fixed.sandboxBundlePolicyEnabled, false);
 assert.equal(fixed.artifactsEnabled, true);
 assert.equal(fixed.artifactMaxFileBytes, 100 * 1024 * 1024);
 assert.equal(fixed.skillsEnabled, true);
@@ -26,27 +21,15 @@ assert.equal(fixed.subagents, false);
 
 const deprecatedOptionsIgnored = loadConfig({
   ...baseEnv,
-  DEVSPACE_TOOL_MODE: "sandbox_bundle",
+  DEVSPACE_TOOL_MODE: "full",
   DEVSPACE_MINIMAL_TOOLS: "1",
   DEVSPACE_WIDGETS: "full",
-  WORKBRIDGE_ENABLE_WORKSPACE_TASKS: "0",
-  DEVSPACE_ENABLE_WORKSPACE_TASKS: "0",
-  WORKBRIDGE_ENABLE_WORKSPACE_TASK_DYNAMIC_ARGS: "1",
-  WORKBRIDGE_ENABLE_SANDBOX_BUNDLE: "1",
-  WORKBRIDGE_SANDBOX_BUNDLE_POLICY: "1",
   DEVSPACE_ARTIFACTS: "0",
-  WORKBRIDGE_EXPERIMENTAL_FEATURES: "shell_command_logging",
-  DEVSPACE_EXPERIMENTAL_FEATURES: "shell_command_logging",
   DEVSPACE_SKILLS: "0",
   DEVSPACE_SUBAGENTS: "1",
 });
 assert.equal(deprecatedOptionsIgnored.toolMode, "codex");
 assert.equal(deprecatedOptionsIgnored.widgets, "off");
-assert.deepEqual(deprecatedOptionsIgnored.experimentalFeatures, ["command_metadata"]);
-assert.equal(deprecatedOptionsIgnored.workspaceTasksEnabled, true);
-assert.equal(deprecatedOptionsIgnored.workspaceTaskDynamicArgsEnabled, false);
-assert.equal(deprecatedOptionsIgnored.sandboxBundleEnabled, false);
-assert.equal(deprecatedOptionsIgnored.sandboxBundlePolicyEnabled, false);
 assert.equal(deprecatedOptionsIgnored.artifactsEnabled, true);
 assert.equal(deprecatedOptionsIgnored.skillsEnabled, true);
 assert.equal(deprecatedOptionsIgnored.subagents, false);

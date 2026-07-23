@@ -306,7 +306,6 @@ function httpWorkspaceColumn(fields: LogFields): string {
 
 function compactOperationLabel(tool: string): string {
   if (tool === "run_workspace_action") return "ACTION";
-  if (tool === "export_workspace_bundle") return "EXPORT";
   if (tool === "exec_command" || tool === "bash" || tool === "write_stdin") return "RUN";
   if (tool === "read" || tool === "grep" || tool === "glob" || tool === "ls") return "READ";
   if (tool === "edit" || tool === "write" || tool === "apply_patch") return "CHANGE";
