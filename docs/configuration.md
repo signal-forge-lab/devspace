@@ -100,14 +100,23 @@ workbridge
   exact match: package name @waishnav/devspace plus src/workspace-actions.ts
   command: the Workbridge-specific verification sequence
 
+chrome_extension
+  strong match: valid manifest.json in the workspace root
+  command: manifest/resource validation plus supported package scripts
+
 node
   strong match: package.json in the workspace root
   command: available typecheck, lint, test, and build scripts in that order
 ```
 
-Automatic detection prefers the exact `workbridge` profile, then the generic
-`node` profile. To select a profile explicitly, pass
-`parameters: { "profile": "workbridge" }` or `parameters: { "profile": "node" }`.
+Automatic detection prefers the exact `workbridge` profile, then
+`chrome_extension`, then the generic `node` profile. The Chrome extension
+profile validates manifest version 2 or 3 and verifies directly referenced
+background, content-script, popup, options, icon, side-panel, DevTools, and
+URL-override files before executing package scripts. To select a profile explicitly, pass
+`parameters: { "profile": "workbridge" }`,
+`parameters: { "profile": "chrome_extension" }`, or
+`parameters: { "profile": "node" }`.
 No external profile or action configuration files are loaded.
 
 `project_verify/quick` omits build steps and, for Workbridge, also omits the full

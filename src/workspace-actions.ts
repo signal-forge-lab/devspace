@@ -39,6 +39,8 @@ export type WorkspaceActionResolutionErrorKind =
   | "unsupported_project_profile"
   | "unsupported_action_for_profile"
   | "invalid_project_manifest"
+  | "invalid_extension_manifest"
+  | "missing_extension_resource"
   | "unsupported_package_manager"
   | "ambiguous_package_manager";
 

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   compileWorkspaceActionPlan,
@@ -9,13 +9,15 @@ import {
   type WorkspaceActionStep,
 } from "./workspace-action-plans.js";
 
-export const PROJECT_PROFILE_NAMES = ["workbridge", "node"] as const;
+export const PROJECT_PROFILE_NAMES = ["workbridge", "chrome_extension", "node"] as const;
 export type ProjectProfileName = (typeof PROJECT_PROFILE_NAMES)[number];
 
 export type ProjectProfileResolutionErrorKind =
   | "unsupported_project_profile"
   | "unsupported_action_for_profile"
   | "invalid_project_manifest"
+  | "invalid_extension_manifest"
+  | "missing_extension_resource"
   | "unsupported_package_manager"
   | "ambiguous_package_manager";
 
@@ -46,6 +48,21 @@ interface PackageManifest {
   scripts?: unknown;
 }
 
+interface ChromeExtensionManifest {
+  manifest_version?: unknown;
+  icons?: unknown;
+  action?: unknown;
+  browser_action?: unknown;
+  page_action?: unknown;
+  background?: unknown;
+  content_scripts?: unknown;
+  options_page?: unknown;
+  options_ui?: unknown;
+  side_panel?: unknown;
+  devtools_page?: unknown;
+  chrome_url_overrides?: unknown;
+}
+
 const NODE_VERIFY_SCRIPT_ORDER = ["typecheck", "lint", "test", "build"] as const;
 const execFileAsync = promisify(execFile);
 
@@ -65,6 +82,7 @@ export async function resolveProjectVerifyProfile(input: {
 }): Promise<ProjectVerifyProfileResolution> {
   const preset = input.preset ?? "standard";
   const manifest = await readPackageManifest(input.workspaceRoot);
+  const extensionManifest = await readChromeExtensionManifest(input.workspaceRoot);
   const requestedProfile = normalizeRequestedProfile(input.requestedProfile);
   const workbridgeMatch = await matchesWorkbridgeProfile(input.workspaceRoot, manifest);
 
@@ -88,12 +106,25 @@ export async function resolveProjectVerifyProfile(input: {
     return nodeProfile(input.workspaceRoot, manifest, preset);
   }
 
+  if (requestedProfile === "chrome_extension") {
+    if (!extensionManifest) {
+      throw new ProjectProfileResolutionError(
+        "unsupported_project_profile",
+        "The chrome_extension project profile requires manifest.json in the workspace root.",
+      );
+    }
+    return chromeExtensionProfile(input.workspaceRoot, extensionManifest, manifest, preset);
+  }
+
   if (workbridgeMatch) return workbridgeProfile(preset);
+  if (extensionManifest) {
+    return chromeExtensionProfile(input.workspaceRoot, extensionManifest, manifest, preset);
+  }
   if (manifest) return nodeProfile(input.workspaceRoot, manifest, preset);
 
   throw new ProjectProfileResolutionError(
     "unsupported_project_profile",
-    "No supported project profile matched this workspace. Supported profiles: workbridge, node.",
+    "No supported project profile matched this workspace. Supported profiles: workbridge, chrome_extension, node.",
   );
 }
 
@@ -133,6 +164,36 @@ async function readPackageManifest(workspaceRoot: string): Promise<PackageManife
   }
 }
 
+async function readChromeExtensionManifest(
+  workspaceRoot: string,
+): Promise<ChromeExtensionManifest | undefined> {
+  const path = join(workspaceRoot, "manifest.json");
+  let source: string;
+  try {
+    source = await readFile(path, "utf8");
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return undefined;
+    throw error;
+  }
+
+  try {
+    const manifest = JSON.parse(source) as unknown;
+    if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+      throw new Error("manifest.json must contain a JSON object.");
+    }
+    const typed = manifest as ChromeExtensionManifest;
+    if (typed.manifest_version !== 2 && typed.manifest_version !== 3) {
+      throw new Error("manifest_version must be 2 or 3.");
+    }
+    return typed;
+  } catch (error) {
+    throw new ProjectProfileResolutionError(
+      "invalid_extension_manifest",
+      `Unable to validate manifest.json: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 async function matchesWorkbridgeProfile(
   workspaceRoot: string,
   manifest: PackageManifest | undefined,
@@ -167,6 +228,68 @@ function workbridgeProfile(preset: "quick" | "standard"): ProjectVerifyProfileRe
     command,
     displayCommand: command,
     description: `Run the Workbridge-specific ${preset} verification sequence.`,
+    policy: ["workspace_modify", "long_running"],
+  };
+}
+
+async function chromeExtensionProfile(
+  workspaceRoot: string,
+  extensionManifest: ChromeExtensionManifest,
+  packageManifest: PackageManifest | undefined,
+  preset: "quick" | "standard",
+): Promise<ProjectVerifyProfileResolution> {
+  const referencedResources = extensionResourcePaths(extensionManifest);
+  await validateExtensionResources(workspaceRoot, referencedResources);
+
+  const steps: WorkspaceActionStep[] = [
+    {
+      id: "manifest",
+      label: "Chrome extension manifest validation",
+      command: "node -e \"const fs=require('fs');const m=JSON.parse(fs.readFileSync('manifest.json','utf8'));if(m.manifest_version!==2&&m.manifest_version!==3)throw new Error('Unsupported manifest_version');console.log('Chrome extension manifest valid')\"",
+    },
+  ];
+  const evidence = [
+    `manifest.json version: ${String(extensionManifest.manifest_version)}`,
+    `validated referenced resources: ${referencedResources.length}`,
+  ];
+
+  if (packageManifest) {
+    const scripts = packageScripts(packageManifest);
+    const allowedScripts = preset === "quick"
+      ? NODE_VERIFY_SCRIPT_ORDER.filter((name) => name !== "build")
+      : NODE_VERIFY_SCRIPT_ORDER;
+    const selectedScripts = allowedScripts.filter((name) => scripts.has(name));
+    if (selectedScripts.length > 0) {
+      const packageManager = await resolveNodePackageManager(workspaceRoot, packageManifest);
+      steps.push(...selectedScripts.map((name) => ({
+        id: name,
+        label: `Package script: ${name}`,
+        command: packageManagerRunCommand(packageManager, name),
+      })));
+      evidence.push(
+        `package manager: ${packageManager}`,
+        `supported scripts: ${selectedScripts.join(", ")}`,
+      );
+    }
+  }
+
+  if (await isGitWorkTree(workspaceRoot)) {
+    steps.push(
+      { id: "diff-check", label: "Git diff validation", command: "git diff --check" },
+      { id: "status", label: "Git status", command: "git status --short" },
+    );
+  }
+
+  const plan = shellSteps(steps);
+  const command = compileWorkspaceActionPlan(plan);
+  return {
+    profile: "chrome_extension",
+    confidence: "strong",
+    evidence,
+    plan,
+    command,
+    displayCommand: command,
+    description: `Validate the Chrome extension and run available ${preset} package verification scripts.`,
     policy: ["workspace_modify", "long_running"],
   };
 }
@@ -287,6 +410,104 @@ function packageScripts(manifest: PackageManifest): Set<string> {
       .filter(([, command]) => typeof command === "string" && command.trim() !== "")
       .map(([name]) => name),
   );
+}
+
+function extensionResourcePaths(manifest: ChromeExtensionManifest): string[] {
+  const paths = new Set<string>();
+  addStringRecordValues(paths, manifest.icons);
+  addActionResources(paths, manifest.action);
+  addActionResources(paths, manifest.browser_action);
+  addActionResources(paths, manifest.page_action);
+
+  const background = objectRecord(manifest.background);
+  addString(paths, background?.service_worker);
+  addStringArray(paths, background?.scripts);
+
+  if (Array.isArray(manifest.content_scripts)) {
+    for (const entry of manifest.content_scripts) {
+      const contentScript = objectRecord(entry);
+      addStringArray(paths, contentScript?.js);
+      addStringArray(paths, contentScript?.css);
+    }
+  }
+
+  addString(paths, manifest.options_page);
+  addString(paths, objectRecord(manifest.options_ui)?.page);
+  addString(paths, objectRecord(manifest.side_panel)?.default_path);
+  addString(paths, manifest.devtools_page);
+  addStringRecordValues(paths, manifest.chrome_url_overrides);
+  return [...paths];
+}
+
+function addActionResources(paths: Set<string>, value: unknown): void {
+  const action = objectRecord(value);
+  if (!action) return;
+  addString(paths, action.default_popup);
+  if (typeof action.default_icon === "string") addString(paths, action.default_icon);
+  else addStringRecordValues(paths, action.default_icon);
+}
+
+function addStringRecordValues(paths: Set<string>, value: unknown): void {
+  const record = objectRecord(value);
+  if (!record) return;
+  for (const candidate of Object.values(record)) addString(paths, candidate);
+}
+
+function addStringArray(paths: Set<string>, value: unknown): void {
+  if (!Array.isArray(value)) return;
+  for (const candidate of value) addString(paths, candidate);
+}
+
+function addString(paths: Set<string>, value: unknown): void {
+  if (typeof value !== "string" || value.trim() === "") return;
+  paths.add(value.trim());
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
+async function validateExtensionResources(
+  workspaceRoot: string,
+  resources: readonly string[],
+): Promise<void> {
+  const missing: string[] = [];
+  for (const resource of resources) {
+    const relativePath = normalizeExtensionResourcePath(resource);
+    if (!relativePath) continue;
+    const absolutePath = resolve(workspaceRoot, relativePath);
+    const relation = relative(workspaceRoot, absolutePath);
+    if (relation === ".." || relation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(relation)) {
+      throw new ProjectProfileResolutionError(
+        "invalid_extension_manifest",
+        `Extension resource escapes the workspace root: ${resource}`,
+      );
+    }
+    if (!(await pathExists(absolutePath))) missing.push(resource);
+  }
+
+  if (missing.length > 0) {
+    throw new ProjectProfileResolutionError(
+      "missing_extension_resource",
+      `Chrome extension manifest references missing resources: ${missing.join(", ")}.`,
+    );
+  }
+}
+
+function normalizeExtensionResourcePath(resource: string): string | undefined {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(resource) || resource.startsWith("//")) {
+    return undefined;
+  }
+  const withoutSuffix = resource.split(/[?#]/, 1)[0]?.replace(/^\/+/, "").trim();
+  if (!withoutSuffix || withoutSuffix.includes("*")) return undefined;
+  if (isAbsolute(withoutSuffix)) {
+    throw new ProjectProfileResolutionError(
+      "invalid_extension_manifest",
+      `Extension resource must be relative: ${resource}`,
+    );
+  }
+  return withoutSuffix;
 }
 
 async function pathExists(path: string): Promise<boolean> {

@@ -67,6 +67,94 @@ try {
   );
   assert.doesNotMatch(nodeQuick.command, /npm run build/);
 
+  const chromeRoot = join(root, "chrome-extension");
+  await mkdir(join(chromeRoot, "scripts"), { recursive: true });
+  await mkdir(join(chromeRoot, "styles"), { recursive: true });
+  await mkdir(join(chromeRoot, "icons"), { recursive: true });
+  await mkdir(join(chromeRoot, "pages"), { recursive: true });
+  await writeFile(
+    join(chromeRoot, "manifest.json"),
+    JSON.stringify({
+      manifest_version: 3,
+      name: "Example extension",
+      version: "1.0.0",
+      background: { service_worker: "scripts/background.js" },
+      content_scripts: [{
+        matches: ["https://example.com/*"],
+        js: ["scripts/content.js"],
+        css: ["styles/content.css"],
+      }],
+      action: {
+        default_popup: "pages/popup.html",
+        default_icon: { 16: "icons/icon-16.png" },
+      },
+      icons: { 48: "icons/icon-48.png" },
+      options_page: "pages/options.html",
+    }),
+  );
+  await writeFile(
+    join(chromeRoot, "package.json"),
+    JSON.stringify({ scripts: { test: "node test.js", build: "vite build" } }),
+  );
+  await Promise.all([
+    writeFile(join(chromeRoot, "scripts", "background.js"), "\n"),
+    writeFile(join(chromeRoot, "scripts", "content.js"), "\n"),
+    writeFile(join(chromeRoot, "styles", "content.css"), "\n"),
+    writeFile(join(chromeRoot, "icons", "icon-16.png"), "\n"),
+    writeFile(join(chromeRoot, "icons", "icon-48.png"), "\n"),
+    writeFile(join(chromeRoot, "pages", "popup.html"), "\n"),
+    writeFile(join(chromeRoot, "pages", "options.html"), "\n"),
+  ]);
+  const chrome = await resolveProjectVerifyProfile({ workspaceRoot: chromeRoot });
+  assert.equal(chrome.profile, "chrome_extension");
+  assert.match(chrome.command, /Chrome extension manifest valid/);
+  assert.match(chrome.command, /npm run test/);
+  assert.match(chrome.command, /npm run build/);
+  assert.match(chrome.evidence.join("\n"), /validated referenced resources: 7/);
+
+  const chromeQuick = await resolveProjectVerifyProfile({
+    workspaceRoot: chromeRoot,
+    preset: "quick",
+  });
+  assert.equal(chromeQuick.profile, "chrome_extension");
+  assert.match(chromeQuick.command, /npm run test/);
+  assert.doesNotMatch(chromeQuick.command, /npm run build/);
+
+  const missingChromeRoot = join(root, "chrome-missing-resource");
+  await mkdir(missingChromeRoot, { recursive: true });
+  await writeFile(
+    join(missingChromeRoot, "manifest.json"),
+    JSON.stringify({
+      manifest_version: 3,
+      name: "Missing resource",
+      version: "1.0.0",
+      background: { service_worker: "missing.js" },
+    }),
+  );
+  await assert.rejects(
+    () => resolveProjectVerifyProfile({ workspaceRoot: missingChromeRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "missing_extension_resource");
+      return true;
+    },
+  );
+
+  const invalidChromeRoot = join(root, "chrome-invalid-manifest");
+  await mkdir(invalidChromeRoot, { recursive: true });
+  await writeFile(
+    join(invalidChromeRoot, "manifest.json"),
+    JSON.stringify({ manifest_version: 1, name: "Invalid", version: "1.0.0" }),
+  );
+  await assert.rejects(
+    () => resolveProjectVerifyProfile({ workspaceRoot: invalidChromeRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "invalid_extension_manifest");
+      return true;
+    },
+  );
+
   const pnpmRoot = join(root, "pnpm");
   await mkdir(pnpmRoot, { recursive: true });
   await writeFile(
