@@ -7,6 +7,7 @@ import {
 import {
   compileWorkspaceActionPlan,
   shellSteps,
+  WorkspaceActionPlanResolutionError,
   type WorkspaceActionArtifact,
   type WorkspaceActionExecutionPlan,
 } from "./workspace-action-plans.js";
@@ -49,6 +50,7 @@ export type WorkspaceActionResolutionErrorKind =
   | "not_git_workspace"
   | "no_changed_files"
   | "no_exact_test_mapping"
+  | "action_plan_too_large"
   | "unsafe_changed_path"
   | "unsupported_package_manager"
   | "ambiguous_package_manager";
@@ -105,6 +107,8 @@ interface WorkspaceActionDefinition {
 }
 
 const EMPTY_PARAMETERS: Record<string, unknown> = Object.freeze({});
+const MAX_PROFILE_EVIDENCE_ITEMS = 20;
+const MAX_PROFILE_EVIDENCE_CHARACTERS = 4_000;
 
 const WORKSPACE_ACTIONS: Record<WorkspaceActionName, WorkspaceActionDefinition> = {
   workspace_verify: {
@@ -251,13 +255,16 @@ export async function resolveWorkspaceAction(
         description: profileResolution.description,
         policy: [...profileResolution.policy],
         profile: profileResolution.profile,
-        profileEvidence: [...profileResolution.evidence],
+        profileEvidence: boundedProfileEvidence(profileResolution.evidence),
         warnings: [],
         artifacts: [],
         plan: profileResolution.plan,
       };
     } catch (error) {
-      if (!(error instanceof ProjectProfileResolutionError)) throw error;
+      if (
+        !(error instanceof ProjectProfileResolutionError)
+        && !(error instanceof WorkspaceActionPlanResolutionError)
+      ) throw error;
       throw new WorkspaceActionResolutionError({
         kind: error.kind,
         message: error.message,
@@ -286,13 +293,16 @@ export async function resolveWorkspaceAction(
         description: "Compatibility alias for project_verify/standard with profile=workbridge.",
         policy: [...profileResolution.policy],
         profile: profileResolution.profile,
-        profileEvidence: [...profileResolution.evidence],
+        profileEvidence: boundedProfileEvidence(profileResolution.evidence),
         warnings: ["workspace_verify is a compatibility alias; prefer project_verify."],
         artifacts: [],
         plan: profileResolution.plan,
       };
     } catch (error) {
-      if (!(error instanceof ProjectProfileResolutionError)) throw error;
+      if (
+        !(error instanceof ProjectProfileResolutionError)
+        && !(error instanceof WorkspaceActionPlanResolutionError)
+      ) throw error;
       throw new WorkspaceActionResolutionError({
         kind: error.kind,
         message: error.message,
@@ -320,13 +330,16 @@ export async function resolveWorkspaceAction(
         description: profileResolution.description,
         policy: [...profileResolution.policy],
         profile: profileResolution.profile,
-        profileEvidence: [...profileResolution.evidence],
+        profileEvidence: boundedProfileEvidence(profileResolution.evidence),
         warnings: [],
         artifacts: [],
         plan: profileResolution.plan,
       };
     } catch (error) {
-      if (!(error instanceof ProjectProfileResolutionError)) throw error;
+      if (
+        !(error instanceof ProjectProfileResolutionError)
+        && !(error instanceof WorkspaceActionPlanResolutionError)
+      ) throw error;
       throw new WorkspaceActionResolutionError({
         kind: error.kind,
         message: error.message,
@@ -378,4 +391,17 @@ function validateProjectVerifyParameters(parameters: Record<string, unknown>): v
 function projectVerifyProfileParameter(parameters: Record<string, unknown>): string | undefined {
   const profile = parameters.profile;
   return typeof profile === "string" ? profile : undefined;
+}
+
+function boundedProfileEvidence(evidence: readonly string[]): string[] {
+  const totalCharacters = evidence.reduce((total, entry) => total + entry.length, 0);
+  if (
+    evidence.length > MAX_PROFILE_EVIDENCE_ITEMS
+    || totalCharacters > MAX_PROFILE_EVIDENCE_CHARACTERS
+  ) {
+    throw new WorkspaceActionPlanResolutionError(
+      `Workspace action profile evidence exceeds the supported limit (${evidence.length} items, ${totalCharacters} characters).`,
+    );
+  }
+  return [...evidence];
 }

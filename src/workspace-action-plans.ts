@@ -36,11 +36,28 @@ export interface WorkspaceActionExecutionPlan {
   steps: WorkspaceActionStep[];
 }
 
+export const MAX_WORKSPACE_ACTION_STEPS = 100;
+export const MAX_WORKSPACE_ACTION_COMMAND_PREVIEW_CHARACTERS = 20_000;
+
+export class WorkspaceActionPlanResolutionError extends Error {
+  readonly kind = "action_plan_too_large" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkspaceActionPlanResolutionError";
+  }
+}
+
 export function shellSteps(
   steps: readonly WorkspaceActionStep[],
 ): WorkspaceActionExecutionPlan {
   if (steps.length === 0) {
     throw new Error("Workspace action plans must contain at least one step.");
+  }
+  if (steps.length > MAX_WORKSPACE_ACTION_STEPS) {
+    throw new WorkspaceActionPlanResolutionError(
+      `Workspace action plan contains ${steps.length} steps; the maximum is ${MAX_WORKSPACE_ACTION_STEPS}.`,
+    );
   }
 
   const ids = new Set<string>();
@@ -64,7 +81,13 @@ export function shellSteps(
 export function compileWorkspaceActionPlan(
   plan: WorkspaceActionExecutionPlan,
 ): string {
-  return plan.steps.map((step) => step.command).join(" && ");
+  const command = plan.steps.map((step) => step.command).join(" && ");
+  if (command.length > MAX_WORKSPACE_ACTION_COMMAND_PREVIEW_CHARACTERS) {
+    throw new WorkspaceActionPlanResolutionError(
+      `Workspace action command preview contains ${command.length} characters; the maximum is ${MAX_WORKSPACE_ACTION_COMMAND_PREVIEW_CHARACTERS}.`,
+    );
+  }
+  return command;
 }
 
 export function pendingWorkspaceActionSteps(

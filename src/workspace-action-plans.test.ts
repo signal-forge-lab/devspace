@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import {
+  MAX_WORKSPACE_ACTION_COMMAND_PREVIEW_CHARACTERS,
+  MAX_WORKSPACE_ACTION_STEPS,
+  WorkspaceActionPlanResolutionError,
   compileWorkspaceActionPlan,
   pendingWorkspaceActionSteps,
   shellSteps,
@@ -27,4 +30,32 @@ assert.throws(
     { id: "duplicate", label: "Two", command: "echo two" },
   ]),
   /Duplicate workspace action step id/,
+);
+
+assert.throws(
+  () => shellSteps(Array.from({ length: MAX_WORKSPACE_ACTION_STEPS + 1 }, (_, index) => ({
+    id: `step-${index}`,
+    label: `Step ${index}`,
+    command: "echo step",
+  }))),
+  (error: unknown) => {
+    assert.ok(error instanceof WorkspaceActionPlanResolutionError);
+    assert.equal(error.kind, "action_plan_too_large");
+    return true;
+  },
+);
+
+assert.throws(
+  () => compileWorkspaceActionPlan(shellSteps([
+    {
+      id: "oversized",
+      label: "Oversized",
+      command: "x".repeat(MAX_WORKSPACE_ACTION_COMMAND_PREVIEW_CHARACTERS + 1),
+    },
+  ])),
+  (error: unknown) => {
+    assert.ok(error instanceof WorkspaceActionPlanResolutionError);
+    assert.equal(error.kind, "action_plan_too_large");
+    return true;
+  },
 );

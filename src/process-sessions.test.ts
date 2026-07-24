@@ -235,6 +235,11 @@ assert.deepEqual(
 );
 assert.match(actionCompleted.output, /action-first/);
 assert.match(actionCompleted.output, /action-second/);
+const actionOutput = `${actionBackground.output}${actionCompleted.output}`;
+assert.match(actionOutput, /==> \[first\] First action step/);
+assert.match(actionOutput, /<== \[first\] completed in \d+ms/);
+assert.match(actionOutput, /==> \[second\] Second action step/);
+assert.match(actionOutput, /<== \[second\] completed in \d+ms/);
 
 const failingPlan = shellSteps([
   {
@@ -278,6 +283,7 @@ assert.deepEqual(
 );
 assert.equal(failedAction.context?.steps[1]?.exitCode, 7);
 assert.doesNotMatch(failedAction.output, /should-not-run/);
+assert.match(failedAction.output, /<== \[fail\] failed with exit code 7 in \d+ms/);
 
 const cancellablePlan = shellSteps([
   {
@@ -321,6 +327,10 @@ assert.equal(cancelledAction.cancelled, true);
 assert.deepEqual(
   cancelledAction.context?.steps.map((step) => step.status),
   ["cancelled", "skipped"],
+);
+assert.match(
+  `${cancellableAction.output}${cancelledAction.output}`,
+  /<== \[wait\] cancelled in \d+ms/,
 );
 
 const interactive = await manager.start({

@@ -267,6 +267,30 @@ try {
   const changedWorkbridge = await resolveChangedTestsProfile({ workspaceRoot: changedWorkbridgeRoot });
   assert.equal(changedWorkbridge.profile, "workbridge");
   assert.equal(changedWorkbridge.command, "node --import tsx \"src/sample.test.ts\"");
+  assert.match(changedWorkbridge.evidence[0] ?? "", /^changed files \(1\):/);
+
+  const nestedGitRoot = join(root, "nested-git-workspace");
+  const nestedWorkbridgeRoot = join(nestedGitRoot, "packages", "workbridge");
+  await mkdir(join(nestedWorkbridgeRoot, "src"), { recursive: true });
+  await writeFile(
+    join(nestedWorkbridgeRoot, "package.json"),
+    JSON.stringify({ name: "@waishnav/devspace", scripts: { test: "node test.js" } }),
+  );
+  await writeFile(join(nestedWorkbridgeRoot, "src", "workspace-actions.ts"), "export {};\n");
+  await writeFile(join(nestedWorkbridgeRoot, "src", "sample.ts"), "export const value = 1;\n");
+  await writeFile(join(nestedWorkbridgeRoot, "src", "sample.test.ts"), "export {};\n");
+  await writeFile(join(nestedGitRoot, "outside.ts"), "export const outside = 1;\n");
+  await initializeGitRepository(nestedGitRoot);
+  await writeFile(join(nestedWorkbridgeRoot, "src", "sample.ts"), "export const value = 2;\n");
+  await writeFile(join(nestedGitRoot, "outside.ts"), "export const outside = 2;\n");
+  const nestedChangedWorkbridge = await resolveChangedTestsProfile({
+    workspaceRoot: nestedWorkbridgeRoot,
+  });
+  assert.equal(
+    nestedChangedWorkbridge.command,
+    "node --import tsx \"src/sample.test.ts\"",
+  );
+  assert.doesNotMatch(nestedChangedWorkbridge.evidence.join("\n"), /outside\.ts/);
 
   const changedPythonRoot = join(root, "changed-python");
   await mkdir(join(changedPythonRoot, "tests"), { recursive: true });
@@ -317,6 +341,48 @@ try {
     (error: unknown) => {
       assert.ok(error instanceof ProjectProfileResolutionError);
       assert.equal(error.kind, "no_exact_test_mapping");
+      return true;
+    },
+  );
+
+  const tooManyChangesRoot = join(root, "too-many-changes");
+  await mkdir(join(tooManyChangesRoot, "src"), { recursive: true });
+  await writeFile(
+    join(tooManyChangesRoot, "package.json"),
+    JSON.stringify({ name: "@waishnav/devspace" }),
+  );
+  await writeFile(join(tooManyChangesRoot, "src", "workspace-actions.ts"), "export {};\n");
+  await initializeGitRepository(tooManyChangesRoot);
+  await Promise.all(Array.from({ length: 501 }, (_, index) => writeFile(
+    join(tooManyChangesRoot, `change-${index}.txt`),
+    `${index}\n`,
+  )));
+  await assert.rejects(
+    () => resolveChangedTestsProfile({ workspaceRoot: tooManyChangesRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "action_plan_too_large");
+      return true;
+    },
+  );
+
+  const tooManyTestsRoot = join(root, "too-many-tests");
+  await mkdir(join(tooManyTestsRoot, "src"), { recursive: true });
+  await writeFile(
+    join(tooManyTestsRoot, "package.json"),
+    JSON.stringify({ name: "@waishnav/devspace" }),
+  );
+  await writeFile(join(tooManyTestsRoot, "src", "workspace-actions.ts"), "export {};\n");
+  await initializeGitRepository(tooManyTestsRoot);
+  await Promise.all(Array.from({ length: 51 }, (_, index) => writeFile(
+    join(tooManyTestsRoot, "src", `case-${index}.test.ts`),
+    "export {};\n",
+  )));
+  await assert.rejects(
+    () => resolveChangedTestsProfile({ workspaceRoot: tooManyTestsRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "action_plan_too_large");
       return true;
     },
   );

@@ -400,6 +400,7 @@ export class ProcessSessionManager {
       }
 
       resultStep.status = "running";
+      this.append(session, `==> [${singleLineStepText(planStep.id)}] ${singleLineStepText(planStep.label)}\n`);
       const stepStartedAt = Date.now();
       let outcome: { exitCode?: number; signal?: string };
       try {
@@ -409,6 +410,7 @@ export class ProcessSessionManager {
         resultStep.exitCode = 1;
         resultStep.status = "failed";
         this.append(session, `${error instanceof Error ? error.message : String(error)}\n`);
+        this.append(session, stepEndMarker(planStep.id, "failed to start", resultStep.durationMs));
         this.markRemainingStepsSkipped(session, index + 1);
         this.finish(session, 1);
         return;
@@ -419,6 +421,7 @@ export class ProcessSessionManager {
 
       if (session.cancelRequested) {
         resultStep.status = "cancelled";
+        this.append(session, stepEndMarker(planStep.id, "cancelled", resultStep.durationMs));
         this.markRemainingStepsSkipped(session, index + 1);
         this.finish(session, outcome.exitCode, outcome.signal);
         return;
@@ -426,12 +429,17 @@ export class ProcessSessionManager {
 
       if (outcome.signal || outcome.exitCode !== 0) {
         resultStep.status = "failed";
+        const detail = outcome.signal
+          ? `failed after signal ${outcome.signal}`
+          : `failed with exit code ${outcome.exitCode ?? "unknown"}`;
+        this.append(session, stepEndMarker(planStep.id, detail, resultStep.durationMs));
         this.markRemainingStepsSkipped(session, index + 1);
         this.finish(session, outcome.exitCode, outcome.signal);
         return;
       }
 
       resultStep.status = "completed";
+      this.append(session, stepEndMarker(planStep.id, "completed", resultStep.durationMs));
     }
 
     this.finish(session, 0);
@@ -620,4 +628,12 @@ function cloneProcessSessionContext(context: ProcessSessionContext): ProcessSess
     artifacts: context.artifacts.map((artifact) => ({ ...artifact })),
     steps: context.steps.map((step) => ({ ...step })),
   };
+}
+
+function singleLineStepText(value: string): string {
+  return value.replace(/[\r\n]+/g, " ").trim();
+}
+
+function stepEndMarker(id: string, status: string, durationMs: number | undefined): string {
+  return `<== [${singleLineStepText(id)}] ${status} in ${durationMs ?? 0}ms\n`;
 }

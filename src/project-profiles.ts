@@ -23,6 +23,7 @@ export type ProjectProfileResolutionErrorKind =
   | "not_git_workspace"
   | "no_changed_files"
   | "no_exact_test_mapping"
+  | "action_plan_too_large"
   | "unsafe_changed_path"
   | "unsupported_package_manager"
   | "ambiguous_package_manager";
@@ -73,6 +74,10 @@ interface ChromeExtensionManifest {
 
 const NODE_VERIFY_SCRIPT_ORDER = ["typecheck", "lint", "test", "build"] as const;
 const execFileAsync = promisify(execFile);
+const MAX_CHANGED_FILES = 500;
+const MAX_MAPPED_TESTS = 50;
+const MAX_EVIDENCE_PATHS = 20;
+const MAX_CHANGED_PATH_CHARACTERS = 512;
 
 type NodePackageManager = "npm" | "pnpm" | "yarn" | "bun";
 type PythonRunner = "uv" | "poetry" | "system";
@@ -696,20 +701,42 @@ function systemPythonCommand(): "py" | "python3" {
 }
 
 async function gitChangedFiles(workspaceRoot: string): Promise<string[]> {
+  const { stdout: gitRootOutput } = await execFileAsync(
+    "git",
+    ["-C", workspaceRoot, "rev-parse", "--show-toplevel"],
+    { windowsHide: true },
+  );
+  const gitRoot = gitRootOutput.trim();
+  const projectPrefix = relative(gitRoot, workspaceRoot).replaceAll("\\", "/");
   const commands = [
     ["diff", "--name-only", "--diff-filter=ACMR"],
     ["diff", "--cached", "--name-only", "--diff-filter=ACMR"],
-    ["ls-files", "--others", "--exclude-standard"],
+    ["ls-files", "--others", "--exclude-standard", "--full-name"],
   ] as const;
   const changed = new Set<string>();
   for (const args of commands) {
     const { stdout } = await execFileAsync("git", ["-C", workspaceRoot, ...args], { windowsHide: true });
     for (const line of stdout.split(/\r?\n/)) {
-      const path = line.trim().replaceAll("\\", "/");
+      const repositoryPath = line.trim().replaceAll("\\", "/");
+      const path = projectRelativeGitPath(repositoryPath, projectPrefix);
       if (path) changed.add(path);
     }
   }
-  return [...changed].sort();
+  const result = [...changed].sort();
+  if (result.length > MAX_CHANGED_FILES) {
+    throw new ProjectProfileResolutionError(
+      "action_plan_too_large",
+      `The changed-file set contains ${result.length} files; the maximum is ${MAX_CHANGED_FILES}. Narrow the workingDirectory or run project_verify/quick.`,
+    );
+  }
+  return result;
+}
+
+function projectRelativeGitPath(repositoryPath: string, projectPrefix: string): string | undefined {
+  if (!repositoryPath) return undefined;
+  if (!projectPrefix || projectPrefix === ".") return repositoryPath;
+  const prefix = `${projectPrefix.replace(/\/$/, "")}/`;
+  return repositoryPath.startsWith(prefix) ? repositoryPath.slice(prefix.length) : undefined;
 }
 
 async function mapWorkbridgeChangedTests(
@@ -770,6 +797,12 @@ function requireExactTestMappings(tests: Set<string>): string[] {
       "No exact changed-file to test-file mapping was found. Run project_verify/quick instead.",
     );
   }
+  if (result.length > MAX_MAPPED_TESTS) {
+    throw new ProjectProfileResolutionError(
+      "action_plan_too_large",
+      `The exact changed-test mapping contains ${result.length} tests; the maximum is ${MAX_MAPPED_TESTS}. Narrow the workingDirectory or run project_verify/quick.`,
+    );
+  }
   return result;
 }
 
@@ -790,8 +823,8 @@ function changedTestsResolution(
     profile,
     confidence: "exact",
     evidence: [
-      `changed files: ${changedFiles.join(", ")}`,
-      `mapped tests: ${tests.join(", ")}`,
+      summarizeEvidencePaths("changed files", changedFiles),
+      summarizeEvidencePaths("mapped tests", tests),
     ],
     plan,
     command,
@@ -808,12 +841,23 @@ function pythonPytestPathCommand(runner: PythonRunner, path: string): string {
 }
 
 function assertSafeActionPath(path: string): void {
-  if (!/^[A-Za-z0-9_./-]+$/.test(path) || path.startsWith("/") || path.includes("../")) {
+  if (
+    path.length > MAX_CHANGED_PATH_CHARACTERS
+    || !/^[A-Za-z0-9_./-]+$/.test(path)
+    || path.startsWith("/")
+    || path.includes("../")
+  ) {
     throw new ProjectProfileResolutionError(
       "unsafe_changed_path",
       `Changed path cannot be represented safely in a fixed action command: ${path}`,
     );
   }
+}
+
+function summarizeEvidencePaths(label: string, paths: readonly string[]): string {
+  const shown = paths.slice(0, MAX_EVIDENCE_PATHS);
+  const omitted = paths.length - shown.length;
+  return `${label} (${paths.length}): ${shown.join(", ")}${omitted > 0 ? `, ... +${omitted} more` : ""}`;
 }
 
 function extensionResourcePaths(manifest: ChromeExtensionManifest): string[] {

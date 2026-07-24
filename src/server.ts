@@ -1896,7 +1896,7 @@ export function createMcpServer(
         tty: z.boolean().optional().describe("Allocate a pseudo-terminal when supported. Defaults to false."),
         columns: z.number().int().min(1).max(1_000).optional().describe("Initial PTY width. Defaults to 80."),
         rows: z.number().int().min(1).max(1_000).optional().describe("Initial PTY height. Defaults to 24."),
-        workingDirectory: z.string().optional().describe("Working directory relative to the workspace root. Defaults to the workspace root."),
+        workingDirectory: z.string().optional().describe("Working directory relative to the workspace root. Defaults to the workspace root and becomes the project root for profile-based actions."),
         yieldTimeMs: z.number().int().min(0).max(30_000).optional().describe("Milliseconds to wait before returning a running session."),
         maxOutputTokens: z.number().int().positive().max(100_000).optional().describe("Approximate output token budget."),
       },
@@ -1911,10 +1911,59 @@ export function createMcpServer(
       } = rawInput as WorkspaceActionToolInput;
       const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
+      let cwd: string;
+      try {
+        cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
+        if (action === "workspace_verify" && cwd !== workspace.root) {
+          throw new Error(
+            "workspace_verify is restricted to the workspace root. Use project_verify for a nested workingDirectory.",
+          );
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const result = `Workspace action working directory was rejected: ${message}`;
+        const content = [textBlock(result)];
+        logToolCall(config, {
+          tool: "run_workspace_action",
+          workspaceId,
+          workingDirectory: workingDirectory ?? ".",
+          action,
+          preset,
+          dryRun: Boolean(dryRun),
+          success: false,
+          executed: false,
+          executionPolicy: "invalid_working_directory",
+          durationMs: Math.round(performance.now() - startedAt),
+          error: message,
+        });
+        return {
+          content,
+          structuredContent: {
+            contractVersion: WORKSPACE_ACTION_CONTRACT_VERSION,
+            status: "rejected",
+            action,
+            preset: preset?.trim() || undefined,
+            executed: false,
+            policy: [],
+            steps: [],
+            profileEvidence: [],
+            warnings: [],
+            artifacts: [],
+            result,
+            running: false,
+            wallTimeMs: 0,
+            outputTruncated: false,
+            error: {
+              code: "invalid_working_directory",
+              message,
+            },
+          },
+        };
+      }
       let resolved: Awaited<ReturnType<typeof resolveWorkspaceAction>>;
       try {
         resolved = await resolveWorkspaceAction({
-          workspaceRoot: workspace.root,
+          workspaceRoot: cwd,
           action,
           preset,
           parameters,
@@ -1967,53 +2016,6 @@ export function createMcpServer(
           },
         };
       }
-      let cwd: string;
-      try {
-        cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const result = `Workspace action working directory was rejected: ${message}`;
-        const content = [textBlock(result)];
-        logToolCall(config, {
-          tool: "run_workspace_action",
-          workspaceId,
-          workingDirectory: workingDirectory ?? ".",
-          action: resolved.action,
-          preset: resolved.preset,
-          dryRun: Boolean(dryRun),
-          success: false,
-          executed: false,
-          executionPolicy: "invalid_working_directory",
-          durationMs: Math.round(performance.now() - startedAt),
-          error: message,
-        });
-        return {
-          content,
-          structuredContent: {
-            contractVersion: WORKSPACE_ACTION_CONTRACT_VERSION,
-            status: "rejected",
-            action: resolved.action,
-            preset: resolved.preset,
-            profile: resolved.profile,
-            executed: false,
-            policy: resolved.policy,
-            commandPreview: resolved.displayCommand,
-            steps: pendingWorkspaceActionSteps(resolved.plan),
-            profileEvidence: resolved.profileEvidence,
-            warnings: resolved.warnings,
-            artifacts: resolved.artifacts,
-            result,
-            running: false,
-            wallTimeMs: 0,
-            outputTruncated: false,
-            error: {
-              code: "invalid_working_directory",
-              message,
-            },
-          },
-        };
-      }
-
       if (dryRun) {
         const result = [
           `Dry run action: ${resolved.action}/${resolved.preset}`,
@@ -2078,7 +2080,7 @@ export function createMcpServer(
           workspaceId,
           plan: resolved.plan,
           cwd,
-          workspaceRoot: workspace.root,
+          workspaceRoot: cwd,
           outputMode: "full",
           tty,
           columns,

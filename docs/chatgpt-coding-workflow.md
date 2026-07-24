@@ -80,6 +80,11 @@ The Action Registry chooses the command, validates parameters, and attaches a
 policy classification. New actions can be added without changing the MCP tool
 schema.
 
+For nested projects, pass `workingDirectory`; Workbridge resolves it before
+profile detection and treats it as the project root for `project_verify` and
+`test_changed`. The compatibility action `workspace_verify` is intentionally
+restricted to the opened workspace root.
+
 Action result contract v2 includes ordered `steps`, `profileEvidence`,
 `warnings`, and `artifacts`. A failed step stops the plan and marks later steps
 as `skipped`. When an action returns a `sessionId`, polling with `write_stdin`

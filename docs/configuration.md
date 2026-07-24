@@ -139,6 +139,22 @@ test suite. `project_verify/standard` remains the default complete verification.
 Actions are stored internally as ordered step plans. Starting in 1.1, the action
 process runtime executes those steps sequentially inside one Workbridge session
 and records completion, failure, cancellation, and skipped follow-up steps.
+Each step emits concise start and finish markers around its ordinary process
+output, for example `==> [typecheck] TypeScript typecheck` and
+`<== [typecheck] completed in 4120ms`.
+
+For profile-based actions, `workingDirectory` is resolved before profile
+detection and becomes the project root used for detection, Git scoping, and
+execution. This supports nested projects in a monorepo without inspecting the
+outer workspace as the selected project. The compatibility-only
+`workspace_verify` action remains restricted to the opened workspace root; use
+`project_verify` for nested projects.
+
+Action resolution is fail-closed when generated work would be excessive. The
+current limits are 500 changed files, 50 exactly mapped tests, 100 action steps,
+20,000 command-preview characters, and profile evidence bounded to 20 entries
+and 4,000 total characters. Exceeding a limit returns
+`action_plan_too_large`; Workbridge never runs a partial subset silently.
 
 The Node profile chooses its package manager from `package.json.packageManager`
 first, then from a single recognized lockfile, and finally falls back to npm.
