@@ -79,3 +79,8 @@ Workbridge rather than composed as an arbitrary command by the model.
 The Action Registry chooses the command, validates parameters, and attaches a
 policy classification. New actions can be added without changing the MCP tool
 schema.
+
+Action result contract v2 includes ordered `steps`, `profileEvidence`,
+`warnings`, and `artifacts`. A failed step stops the plan and marks later steps
+as `skipped`. When an action returns a `sessionId`, polling with `write_stdin`
+returns the same evolving step state until completion or cancellation.

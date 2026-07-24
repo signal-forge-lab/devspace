@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { HeadTailBuffer, ProcessSessionManager } from "./process-sessions.js";
 import { workspacePathRedactions } from "./path-redaction.js";
+import { pendingWorkspaceActionSteps, shellSteps } from "./workspace-action-plans.js";
 
 const smallBuffer = new HeadTailBuffer(100);
 smallBuffer.append("hello\n");
@@ -176,19 +177,35 @@ assert.equal(completed.running, false);
 assert.equal(completed.exitCode, 0);
 assert.match(completed.output, /finished/);
 
-const actionBackground = await manager.start({
+const actionPlan = shellSteps([
+  {
+    id: "first",
+    label: "First action step",
+    command: `${node} -e "setTimeout(() => console.log('action-first'), 100)"`,
+  },
+  {
+    id: "second",
+    label: "Second action step",
+    command: `${node} -e "console.log('action-second')"`,
+  },
+]);
+const actionBackground = await manager.startPlan({
   workspaceId: "workspace-a",
   cwd: process.cwd(),
-  command: `${node} -e "setTimeout(() => console.log('action-finished'), 100)"`,
+  plan: actionPlan,
   yieldTimeMs: 5,
   context: {
     kind: "workspace_action",
-    contractVersion: 1,
+    contractVersion: 2,
     action: "workspace_verify",
     preset: "standard",
     profile: "workbridge",
     policy: ["workspace_modify", "long_running"],
     commandPreview: "workspace verification",
+    profileEvidence: ["test profile evidence"],
+    warnings: ["test warning"],
+    artifacts: [],
+    steps: pendingWorkspaceActionSteps(actionPlan),
   },
 });
 assert.equal(actionBackground.running, true);
@@ -196,6 +213,8 @@ assert.ok(actionBackground.sessionId);
 assert.equal(actionBackground.context?.kind, "workspace_action");
 assert.equal(actionBackground.context?.action, "workspace_verify");
 assert.equal(actionBackground.context?.profile, "workbridge");
+assert.equal(actionBackground.context?.steps[0]?.status, "running");
+assert.equal(actionBackground.context?.steps[1]?.status, "pending");
 
 const actionCompleted = await manager.write({
   workspaceId: "workspace-a",
@@ -208,6 +227,101 @@ assert.equal(actionCompleted.context?.kind, "workspace_action");
 assert.equal(actionCompleted.context?.action, "workspace_verify");
 assert.equal(actionCompleted.context?.profile, "workbridge");
 assert.deepEqual(actionCompleted.context?.policy, ["workspace_modify", "long_running"]);
+assert.deepEqual(actionCompleted.context?.profileEvidence, ["test profile evidence"]);
+assert.deepEqual(actionCompleted.context?.warnings, ["test warning"]);
+assert.deepEqual(
+  actionCompleted.context?.steps.map((step) => step.status),
+  ["completed", "completed"],
+);
+assert.match(actionCompleted.output, /action-first/);
+assert.match(actionCompleted.output, /action-second/);
+
+const failingPlan = shellSteps([
+  {
+    id: "pass",
+    label: "Passing step",
+    command: `${node} -e "console.log('pass')"`,
+  },
+  {
+    id: "fail",
+    label: "Failing step",
+    command: `${node} -e "process.exit(7)"`,
+  },
+  {
+    id: "after",
+    label: "Skipped step",
+    command: `${node} -e "console.log('should-not-run')"`,
+  },
+]);
+const failedAction = await manager.startPlan({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  plan: failingPlan,
+  yieldTimeMs: 2_000,
+  context: {
+    kind: "workspace_action",
+    contractVersion: 2,
+    action: "test_action",
+    preset: "standard",
+    policy: ["workspace_modify"],
+    profileEvidence: [],
+    warnings: [],
+    artifacts: [],
+    steps: pendingWorkspaceActionSteps(failingPlan),
+  },
+});
+assert.equal(failedAction.running, false);
+assert.equal(failedAction.exitCode, 7);
+assert.deepEqual(
+  failedAction.context?.steps.map((step) => step.status),
+  ["completed", "failed", "skipped"],
+);
+assert.equal(failedAction.context?.steps[1]?.exitCode, 7);
+assert.doesNotMatch(failedAction.output, /should-not-run/);
+
+const cancellablePlan = shellSteps([
+  {
+    id: "wait",
+    label: "Waiting step",
+    command: `${node} -e "setInterval(() => console.log('action-tick'), 10)"`,
+  },
+  {
+    id: "after-cancel",
+    label: "Step after cancellation",
+    command: `${node} -e "console.log('after-cancel')"`,
+  },
+]);
+const cancellableAction = await manager.startPlan({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  plan: cancellablePlan,
+  yieldTimeMs: 50,
+  context: {
+    kind: "workspace_action",
+    contractVersion: 2,
+    action: "test_action",
+    preset: "standard",
+    policy: ["workspace_modify", "long_running"],
+    profileEvidence: [],
+    warnings: [],
+    artifacts: [],
+    steps: pendingWorkspaceActionSteps(cancellablePlan),
+  },
+});
+assert.equal(cancellableAction.running, true);
+assert.ok(cancellableAction.sessionId);
+const cancelledAction = await manager.write({
+  workspaceId: "workspace-a",
+  sessionId: cancellableAction.sessionId,
+  chars: "\u0003",
+  yieldTimeMs: 2_000,
+});
+assert.equal(cancelledAction.running, false);
+assert.equal(cancelledAction.cancelled, true);
+assert.deepEqual(
+  cancelledAction.context?.steps.map((step) => step.status),
+  ["cancelled", "skipped"],
+);
 
 const interactive = await manager.start({
   workspaceId: "workspace-a",

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   compileWorkspaceActionPlan,
+  pendingWorkspaceActionSteps,
   shellSteps,
 } from "./workspace-action-plans.js";
 
@@ -11,6 +12,10 @@ const plan = shellSteps([
 assert.equal(plan.kind, "shell_steps");
 assert.deepEqual(plan.steps.map((step) => step.id), ["first", "second"]);
 assert.equal(compileWorkspaceActionPlan(plan), "echo first && echo second");
+assert.deepEqual(pendingWorkspaceActionSteps(plan), [
+  { id: "first", label: "First", status: "pending" },
+  { id: "second", label: "Second", status: "pending" },
+]);
 
 assert.throws(
   () => shellSteps([]),

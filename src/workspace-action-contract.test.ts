@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -12,13 +12,24 @@ import { createWorkspaceStore } from "./workspace-store.js";
 import { WorkspaceRegistry } from "./workspaces.js";
 
 const temporaryRoot = await mkdtemp(join(tmpdir(), "workbridge-action-contract-test-"));
+const failingProjectRoot = join(temporaryRoot, "failing-node-project");
+await mkdir(failingProjectRoot, { recursive: true });
+await writeFile(
+  join(failingProjectRoot, "package.json"),
+  JSON.stringify({
+    scripts: {
+      test: "node -e \"process.exit(7)\"",
+      build: "node -e \"console.log('should-not-build')\"",
+    },
+  }),
+);
 const stateDir = join(temporaryRoot, "state");
 const workspaceStore = createWorkspaceStore(stateDir);
 const processSessions = new ProcessSessionManager();
 const config = loadConfig({
   DEVSPACE_CONFIG_DIR: join(temporaryRoot, "config"),
   DEVSPACE_STATE_DIR: stateDir,
-  DEVSPACE_ALLOWED_ROOTS: process.cwd(),
+  DEVSPACE_ALLOWED_ROOTS: `${process.cwd()},${temporaryRoot}`,
   DEVSPACE_OAUTH_OWNER_TOKEN: "workbridge-action-contract-owner-token",
 });
 const server = createMcpServer(
@@ -54,7 +65,7 @@ try {
       dryRun: true,
     },
   }));
-  assert.equal(dryRun.contractVersion, 1);
+  assert.equal(dryRun.contractVersion, 2);
   assert.equal(dryRun.status, "dry_run");
   assert.equal(dryRun.action, "workspace_verify");
   assert.equal(dryRun.preset, "standard");
@@ -62,6 +73,10 @@ try {
   assert.equal(dryRun.running, false);
   assert.deepEqual(dryRun.policy, ["workspace_modify", "long_running"]);
   assert.match(requiredString(dryRun, "commandPreview"), /npm run typecheck/);
+  assert.ok((dryRun.steps as Array<Record<string, unknown>>).every((step) => step.status === "pending"));
+  assert.ok((dryRun.profileEvidence as unknown[]).length > 0);
+  assert.deepEqual(dryRun.artifacts, []);
+  assert.ok((dryRun.warnings as string[]).some((warning) => /compatibility alias/.test(warning)));
 
   const reviewDryRun = structured(await client.callTool({
     name: "run_workspace_action",
@@ -71,13 +86,38 @@ try {
       dryRun: true,
     },
   }));
-  assert.equal(reviewDryRun.contractVersion, 1);
+  assert.equal(reviewDryRun.contractVersion, 2);
   assert.equal(reviewDryRun.status, "dry_run");
   assert.equal(reviewDryRun.action, "workspace_review");
   assert.equal(reviewDryRun.preset, "summary");
   assert.equal(reviewDryRun.executed, false);
   assert.deepEqual(reviewDryRun.policy, ["read_only"]);
   assert.match(requiredString(reviewDryRun, "commandPreview"), /git status --short/);
+  assert.deepEqual(reviewDryRun.profileEvidence, []);
+  assert.deepEqual(reviewDryRun.warnings, []);
+  assert.equal((reviewDryRun.steps as unknown[]).length, 3);
+
+  const reviewCompleted = structured(await client.callTool({
+    name: "run_workspace_action",
+    arguments: {
+      workspaceId,
+      action: "workspace_review",
+      preset: "summary",
+      yieldTimeMs: 30_000,
+    },
+  }));
+  assert.equal(reviewCompleted.contractVersion, 2);
+  assert.equal(reviewCompleted.status, "completed");
+  assert.equal(reviewCompleted.executed, true);
+  assert.equal(reviewCompleted.running, false);
+  assert.deepEqual(
+    (reviewCompleted.steps as Array<Record<string, unknown>>).map((step) => step.status),
+    ["completed", "completed", "completed"],
+  );
+  assert.ok(
+    (reviewCompleted.steps as Array<Record<string, unknown>>)
+      .every((step) => typeof step.durationMs === "number"),
+  );
 
   const projectDryRun = structured(await client.callTool({
     name: "run_workspace_action",
@@ -87,12 +127,13 @@ try {
       dryRun: true,
     },
   }));
-  assert.equal(projectDryRun.contractVersion, 1);
+  assert.equal(projectDryRun.contractVersion, 2);
   assert.equal(projectDryRun.status, "dry_run");
   assert.equal(projectDryRun.action, "project_verify");
   assert.equal(projectDryRun.profile, "workbridge");
   assert.equal(projectDryRun.executed, false);
   assert.match(requiredString(projectDryRun, "commandPreview"), /npm run baseline:tools:check/);
+  assert.ok((projectDryRun.profileEvidence as unknown[]).length > 0);
 
   const rejected = structured(await client.callTool({
     name: "run_workspace_action",
@@ -101,12 +142,16 @@ try {
       action: "unknown_action",
     },
   }));
-  assert.equal(rejected.contractVersion, 1);
+  assert.equal(rejected.contractVersion, 2);
   assert.equal(rejected.status, "rejected");
   assert.equal(rejected.action, "unknown_action");
   assert.equal(rejected.executed, false);
   assert.equal(rejected.running, false);
   assert.deepEqual(rejected.policy, []);
+  assert.deepEqual(rejected.steps, []);
+  assert.deepEqual(rejected.profileEvidence, []);
+  assert.deepEqual(rejected.warnings, []);
+  assert.deepEqual(rejected.artifacts, []);
   assert.equal(record(rejected.error).code, "unsupported_action");
   assert.deepEqual(
     (rejected.catalog as Array<Record<string, unknown>>).map((entry) => entry.action),
@@ -121,10 +166,37 @@ try {
       workingDirectory: "../outside-workspace",
     },
   }));
-  assert.equal(invalidWorkingDirectory.contractVersion, 1);
+  assert.equal(invalidWorkingDirectory.contractVersion, 2);
   assert.equal(invalidWorkingDirectory.status, "rejected");
   assert.equal(invalidWorkingDirectory.executed, false);
   assert.equal(record(invalidWorkingDirectory.error).code, "invalid_working_directory");
+  assert.ok((invalidWorkingDirectory.steps as Array<Record<string, unknown>>)
+    .every((step) => step.status === "pending"));
+
+  const failingOpened = await client.callTool({
+    name: "open_workspace",
+    arguments: { path: failingProjectRoot },
+  });
+  const failingWorkspaceId = requiredString(structured(failingOpened), "workspaceId");
+  const failed = structured(await client.callTool({
+    name: "run_workspace_action",
+    arguments: {
+      workspaceId: failingWorkspaceId,
+      action: "project_verify",
+      preset: "standard",
+      yieldTimeMs: 30_000,
+    },
+  }));
+  assert.equal(failed.contractVersion, 2);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.executed, true);
+  assert.equal(failed.running, false);
+  assert.equal(record(failed.error).code, "step_failed");
+  assert.deepEqual(
+    (failed.steps as Array<Record<string, unknown>>).map((step) => step.status),
+    ["failed", "skipped"],
+  );
+  assert.equal((failed.steps as Array<Record<string, unknown>>)[0]?.exitCode, 7);
 } finally {
   await client.close().catch(() => undefined);
   await server.close().catch(() => undefined);

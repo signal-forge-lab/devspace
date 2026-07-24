@@ -7,6 +7,7 @@ import {
 import {
   compileWorkspaceActionPlan,
   shellSteps,
+  type WorkspaceActionArtifact,
   type WorkspaceActionExecutionPlan,
 } from "./workspace-action-plans.js";
 
@@ -84,6 +85,9 @@ export interface ResolvedWorkspaceAction {
   description: string;
   policy: WorkspaceActionPolicy[];
   profile?: ProjectProfileName;
+  profileEvidence: string[];
+  warnings: string[];
+  artifacts: WorkspaceActionArtifact[];
   plan: WorkspaceActionExecutionPlan;
 }
 
@@ -247,6 +251,9 @@ export async function resolveWorkspaceAction(
         description: profileResolution.description,
         policy: [...profileResolution.policy],
         profile: profileResolution.profile,
+        profileEvidence: [...profileResolution.evidence],
+        warnings: [],
+        artifacts: [],
         plan: profileResolution.plan,
       };
     } catch (error) {
@@ -279,6 +286,9 @@ export async function resolveWorkspaceAction(
         description: "Compatibility alias for project_verify/standard with profile=workbridge.",
         policy: [...profileResolution.policy],
         profile: profileResolution.profile,
+        profileEvidence: [...profileResolution.evidence],
+        warnings: ["workspace_verify is a compatibility alias; prefer project_verify."],
+        artifacts: [],
         plan: profileResolution.plan,
       };
     } catch (error) {
@@ -310,6 +320,9 @@ export async function resolveWorkspaceAction(
         description: profileResolution.description,
         policy: [...profileResolution.policy],
         profile: profileResolution.profile,
+        profileEvidence: [...profileResolution.evidence],
+        warnings: [],
+        artifacts: [],
         plan: profileResolution.plan,
       };
     } catch (error) {
@@ -337,6 +350,9 @@ export async function resolveWorkspaceAction(
     displayCommand: command,
     description: preset.description,
     policy: [...definition.policy],
+    profileEvidence: [],
+    warnings: [],
+    artifacts: [],
     plan: preset.plan,
   };
 }

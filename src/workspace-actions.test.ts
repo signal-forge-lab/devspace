@@ -63,6 +63,9 @@ assert.equal(projectVerify.profile, "workbridge");
 assert.equal(projectVerify.preset, "standard");
 assert.match(projectVerify.command, /npm run baseline:tools:check/);
 assert.deepEqual(projectVerify.policy, ["workspace_modify", "long_running"]);
+assert.ok(projectVerify.profileEvidence.length > 0);
+assert.deepEqual(projectVerify.warnings, []);
+assert.deepEqual(projectVerify.artifacts, []);
 assert.equal(resolved.command, projectVerify.command);
 assert.deepEqual(resolved.plan, projectVerify.plan);
 
@@ -77,6 +80,9 @@ assert.match(projectVerifyQuick.command, /npm run typecheck/);
 assert.match(projectVerifyQuick.command, /npm run baseline:tools:check/);
 assert.doesNotMatch(projectVerifyQuick.command, /npm test/);
 assert.doesNotMatch(projectVerifyQuick.command, /npm run build/);
+
+assert.ok(resolved.warnings.some((warning) => /compatibility alias/.test(warning)));
+assert.ok(resolved.profileEvidence.length > 0);
 
 const projectVerifyNode = await resolveWorkspaceAction({
   workspaceRoot: process.cwd(),

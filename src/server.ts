@@ -72,6 +72,10 @@ import {
   WorkspaceActionResolutionError,
   resolveWorkspaceAction,
 } from "./workspace-actions.js";
+import {
+  WORKSPACE_ACTION_STEP_STATUSES,
+  pendingWorkspaceActionSteps,
+} from "./workspace-action-plans.js";
 import { summarizeLocalAgentProfile } from "./local-agent-profiles.js";
 import { PACKAGE_VERSION } from "./version.js";
 import {
@@ -636,7 +640,7 @@ function processResult(snapshot: ProcessSnapshot): string {
   return snapshot.output ? `${snapshot.output.replace(/\n$/, "")}\n${status}` : status;
 }
 
-const WORKSPACE_ACTION_CONTRACT_VERSION = 1 as const;
+const WORKSPACE_ACTION_CONTRACT_VERSION = 2 as const;
 const WORKSPACE_ACTION_STATUSES = [
   "dry_run",
   "running",
@@ -684,6 +688,25 @@ function workspaceActionErrorSchema() {
   });
 }
 
+function workspaceActionStepSchema() {
+  return z.object({
+    id: z.string(),
+    label: z.string(),
+    status: z.enum(WORKSPACE_ACTION_STEP_STATUSES),
+    exitCode: z.number().int().optional(),
+    signal: z.string().optional(),
+    durationMs: z.number().nonnegative().optional(),
+  });
+}
+
+function workspaceActionArtifactSchema() {
+  return z.object({
+    path: z.string(),
+    kind: z.enum(["file", "directory", "report"]),
+    description: z.string().optional(),
+  });
+}
+
 function workspaceActionOutputSchema(): z.ZodRawShape {
   return resultOutputSchema({
     ...processOutputFields(),
@@ -695,6 +718,10 @@ function workspaceActionOutputSchema(): z.ZodRawShape {
     executed: z.boolean(),
     policy: z.array(z.enum(WORKSPACE_ACTION_POLICIES)),
     commandPreview: z.string().optional(),
+    steps: z.array(workspaceActionStepSchema()),
+    profileEvidence: z.array(z.string()),
+    warnings: z.array(z.string()),
+    artifacts: z.array(workspaceActionArtifactSchema()),
     error: workspaceActionErrorSchema().optional(),
     catalog: workspaceActionCatalogSchema().optional(),
   });
@@ -711,6 +738,10 @@ function processOrWorkspaceActionOutputSchema(): z.ZodRawShape {
     executed: z.boolean().optional(),
     policy: z.array(z.enum(WORKSPACE_ACTION_POLICIES)).optional(),
     commandPreview: z.string().optional(),
+    steps: z.array(workspaceActionStepSchema()).optional(),
+    profileEvidence: z.array(z.string()).optional(),
+    warnings: z.array(z.string()).optional(),
+    artifacts: z.array(workspaceActionArtifactSchema()).optional(),
     error: workspaceActionErrorSchema().optional(),
   });
 }
@@ -727,12 +758,15 @@ function workspaceActionProcessFields(snapshot: ProcessSnapshot): Record<string,
   if (context?.kind !== "workspace_action") return {};
 
   const status = workspaceActionStatus(snapshot);
+  const failedStep = context.steps.find((step) => step.status === "failed");
   const error = status === "failed"
     ? {
-        code: snapshot.signal ? "process_signalled" : "process_failed",
-        message: snapshot.signal
-          ? `Workspace action process exited after signal ${snapshot.signal}.`
-          : `Workspace action process exited with code ${snapshot.exitCode ?? "unknown"}.`,
+        code: failedStep ? "step_failed" : snapshot.signal ? "process_signalled" : "process_failed",
+        message: failedStep
+          ? `Workspace action step failed: ${failedStep.id}.`
+          : snapshot.signal
+            ? `Workspace action process exited after signal ${snapshot.signal}.`
+            : `Workspace action process exited with code ${snapshot.exitCode ?? "unknown"}.`,
       }
     : undefined;
 
@@ -745,6 +779,10 @@ function workspaceActionProcessFields(snapshot: ProcessSnapshot): Record<string,
     executed: true,
     policy: context.policy,
     commandPreview: context.commandPreview,
+    steps: context.steps,
+    profileEvidence: context.profileEvidence,
+    warnings: context.warnings,
+    artifacts: context.artifacts,
     error,
   };
 }
@@ -759,13 +797,31 @@ function processToolResponse(
   const content = [textBlock(result)];
   const outputSummary = textSummary(snapshot.output ? [textBlock(snapshot.output)] : []);
   const actionFields = workspaceActionProcessFields(snapshot);
+  const actionSummary = Object.keys(actionFields).length > 0
+    ? {
+        contractVersion: actionFields.contractVersion,
+        status: actionFields.status,
+        action: actionFields.action,
+        preset: actionFields.preset,
+        profile: actionFields.profile,
+        executed: actionFields.executed,
+        steps: Array.isArray(actionFields.steps)
+          ? actionFields.steps.map((step) => {
+              if (!step || typeof step !== "object") return step;
+              const value = step as Record<string, unknown>;
+              return { id: value.id, status: value.status };
+            })
+          : undefined,
+        warnings: actionFields.warnings,
+      }
+    : {};
   return {
     content,
     _meta: {
       tool,
       card: {
         workspaceId,
-        summary: { ...summary, ...actionFields, ...outputSummary },
+        summary: { ...summary, ...actionSummary, ...outputSummary },
         payload: { content },
       },
     },
@@ -1895,6 +1951,10 @@ export function createMcpServer(
             preset: preset?.trim() || undefined,
             executed: false,
             policy: [],
+            steps: [],
+            profileEvidence: [],
+            warnings: [],
+            artifacts: [],
             result,
             running: false,
             wallTimeMs: 0,
@@ -1938,6 +1998,10 @@ export function createMcpServer(
             executed: false,
             policy: resolved.policy,
             commandPreview: resolved.displayCommand,
+            steps: pendingWorkspaceActionSteps(resolved.plan),
+            profileEvidence: resolved.profileEvidence,
+            warnings: resolved.warnings,
+            artifacts: resolved.artifacts,
             result,
             running: false,
             wallTimeMs: 0,
@@ -1996,6 +2060,10 @@ export function createMcpServer(
             executed: false,
             policy: resolved.policy,
             commandPreview: resolved.displayCommand,
+            steps: pendingWorkspaceActionSteps(resolved.plan),
+            profileEvidence: resolved.profileEvidence,
+            warnings: resolved.warnings,
+            artifacts: resolved.artifacts,
             result,
             running: false,
             wallTimeMs: 0,
@@ -2006,9 +2074,9 @@ export function createMcpServer(
 
       let snapshot: ProcessSnapshot;
       try {
-        snapshot = await processSessions.start({
+        snapshot = await processSessions.startPlan({
           workspaceId,
-          command: resolved.command,
+          plan: resolved.plan,
           cwd,
           workspaceRoot: workspace.root,
           outputMode: "full",
@@ -2025,6 +2093,10 @@ export function createMcpServer(
             profile: resolved.profile,
             policy: resolved.policy,
             commandPreview: resolved.displayCommand,
+            profileEvidence: resolved.profileEvidence,
+            warnings: resolved.warnings,
+            artifacts: resolved.artifacts,
+            steps: pendingWorkspaceActionSteps(resolved.plan),
           },
         });
       } catch (error) {
@@ -2057,6 +2129,10 @@ export function createMcpServer(
             executed: false,
             policy: resolved.policy,
             commandPreview: resolved.displayCommand,
+            steps: pendingWorkspaceActionSteps(resolved.plan),
+            profileEvidence: resolved.profileEvidence,
+            warnings: resolved.warnings,
+            artifacts: resolved.artifacts,
             result,
             running: false,
             wallTimeMs: 0,

@@ -2,6 +2,11 @@ import { spawn } from "node:child_process";
 import { buildChildProcessEnvironment } from "./child-environment.js";
 import { resolveShellCommand, terminateProcessTree } from "./process-platform.js";
 import { redactPathsInText, type PathRedaction } from "./path-redaction.js";
+import type {
+  WorkspaceActionArtifact,
+  WorkspaceActionExecutionPlan,
+  WorkspaceActionStepResult,
+} from "./workspace-action-plans.js";
 
 const DEFAULT_EXEC_YIELD_MS = 10_000;
 const DEFAULT_INTERACTIVE_YIELD_MS = 250;
@@ -29,6 +34,21 @@ export interface StartCommandInput {
   context?: ProcessSessionContext;
 }
 
+export interface StartActionPlanInput {
+  workspaceId: string;
+  plan: WorkspaceActionExecutionPlan;
+  cwd: string;
+  workspaceRoot?: string;
+  outputRedactions?: PathRedaction[];
+  outputMode?: "full" | "status";
+  tty?: boolean;
+  columns?: number;
+  rows?: number;
+  yieldTimeMs?: number;
+  maxOutputTokens?: number;
+  context: WorkspaceActionProcessContext;
+}
+
 export interface WriteStdinInput {
   workspaceId: string;
   sessionId: number;
@@ -54,12 +74,16 @@ export interface ProcessSnapshot {
 
 export interface WorkspaceActionProcessContext {
   kind: "workspace_action";
-  contractVersion: 1;
+  contractVersion: 2;
   action: string;
   preset: string;
   profile?: string;
   policy: string[];
   commandPreview?: string;
+  profileEvidence: string[];
+  warnings: string[];
+  artifacts: WorkspaceActionArtifact[];
+  steps: WorkspaceActionStepResult[];
 }
 
 export type ProcessSessionContext = WorkspaceActionProcessContext;
@@ -248,6 +272,25 @@ export class ProcessSessionManager {
     return snapshot;
   }
 
+  async startPlan(input: StartActionPlanInput): Promise<ProcessSnapshot> {
+    const session = this.createSession(input);
+    this.sessions.set(session.id, session);
+
+    void this.runPlan(session, input).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      this.append(session, `${message}\n`);
+      this.markRemainingStepsSkipped(session);
+      this.finish(session, 1);
+    });
+
+    const yieldTimeMs = boundedInteger(input.yieldTimeMs, DEFAULT_EXEC_YIELD_MS, MAX_COMMAND_YIELD_MS);
+    await this.waitForExit(session, yieldTimeMs);
+
+    const snapshot = this.consume(session, input.maxOutputTokens);
+    if (!session.running) this.removeSession(session.id);
+    return snapshot;
+  }
+
   async write(input: WriteStdinInput): Promise<ProcessSnapshot> {
     const session = this.getOwnedSession(input.workspaceId, input.sessionId);
     const chars = input.chars ?? "";
@@ -313,7 +356,7 @@ export class ProcessSessionManager {
     }
   }
 
-  private createSession(input: StartCommandInput): ProcessSession {
+  private createSession(input: StartCommandInput | StartActionPlanInput): ProcessSession {
     let resolveExit = (): void => undefined;
     const exitPromise = new Promise<void>((resolve) => {
       resolveExit = resolve;
@@ -331,17 +374,119 @@ export class ProcessSessionManager {
       running: true,
       cancelRequested: false,
       context: input.context
-        ? {
-            ...input.context,
-            policy: [...input.context.policy],
-          }
+        ? cloneProcessSessionContext(input.context)
         : undefined,
       exitPromise,
       resolveExit,
     };
   }
 
-  private startPipe(session: ProcessSession, input: StartCommandInput): void {
+  private async runPlan(session: ProcessSession, input: StartActionPlanInput): Promise<void> {
+    const context = session.context;
+    if (context?.kind !== "workspace_action") {
+      throw new Error("Workspace action plan sessions require workspace action context.");
+    }
+
+    for (let index = 0; index < input.plan.steps.length; index++) {
+      const planStep = input.plan.steps[index];
+      const resultStep = context.steps[index];
+      if (!planStep || !resultStep) {
+        throw new Error("Workspace action plan and result steps are out of sync.");
+      }
+
+      if (session.cancelRequested) {
+        resultStep.status = "skipped";
+        continue;
+      }
+
+      resultStep.status = "running";
+      const stepStartedAt = Date.now();
+      let outcome: { exitCode?: number; signal?: string };
+      try {
+        outcome = await this.runPlanStep(session, input, planStep.command);
+      } catch (error) {
+        resultStep.durationMs = Date.now() - stepStartedAt;
+        resultStep.exitCode = 1;
+        resultStep.status = "failed";
+        this.append(session, `${error instanceof Error ? error.message : String(error)}\n`);
+        this.markRemainingStepsSkipped(session, index + 1);
+        this.finish(session, 1);
+        return;
+      }
+      resultStep.durationMs = Date.now() - stepStartedAt;
+      resultStep.exitCode = outcome.exitCode;
+      resultStep.signal = outcome.signal;
+
+      if (session.cancelRequested) {
+        resultStep.status = "cancelled";
+        this.markRemainingStepsSkipped(session, index + 1);
+        this.finish(session, outcome.exitCode, outcome.signal);
+        return;
+      }
+
+      if (outcome.signal || outcome.exitCode !== 0) {
+        resultStep.status = "failed";
+        this.markRemainingStepsSkipped(session, index + 1);
+        this.finish(session, outcome.exitCode, outcome.signal);
+        return;
+      }
+
+      resultStep.status = "completed";
+    }
+
+    this.finish(session, 0);
+  }
+
+  private runPlanStep(
+    session: ProcessSession,
+    input: StartActionPlanInput,
+    command: string,
+  ): Promise<{ exitCode?: number; signal?: string }> {
+    return new Promise((resolve, reject) => {
+      const commandInput: StartCommandInput = {
+        workspaceId: input.workspaceId,
+        command,
+        cwd: input.cwd,
+        workspaceRoot: input.workspaceRoot,
+        outputRedactions: input.outputRedactions,
+        outputMode: input.outputMode,
+        tty: input.tty,
+        columns: session.columns,
+        rows: session.rows,
+      };
+
+      try {
+        if (input.tty && process.platform !== "win32") {
+          void this.startPty(session, commandInput, (exitCode, signal) => {
+            resolve({ exitCode, signal });
+          }).catch(reject);
+        } else {
+          this.startPipe(session, commandInput, (exitCode, signal) => {
+            resolve({ exitCode, signal });
+          });
+        }
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  private markRemainingStepsSkipped(session: ProcessSession, startIndex = 0): void {
+    const context = session.context;
+    if (context?.kind !== "workspace_action") return;
+    for (let index = startIndex; index < context.steps.length; index++) {
+      const step = context.steps[index];
+      if (step?.status === "pending") step.status = "skipped";
+    }
+  }
+
+  private startPipe(
+    session: ProcessSession,
+    input: StartCommandInput,
+    onExit: (exitCode?: number, signal?: string) => void = (exitCode, signal) => {
+      this.finish(session, exitCode, signal);
+    },
+  ): void {
     const shell = resolveShellCommand(input.command);
     const detached = process.platform !== "win32";
     const child = spawn(input.command, {
@@ -364,10 +509,16 @@ export class ProcessSessionManager {
     child.stdout.on("data", (data: Buffer) => this.append(session, data.toString("utf8")));
     child.stderr.on("data", (data: Buffer) => this.append(session, data.toString("utf8")));
     child.on("error", (error) => this.append(session, `${error.message}\n`));
-    child.on("close", (code, signal) => this.finish(session, code ?? undefined, signal ?? undefined));
+    child.on("close", (code, signal) => onExit(code ?? undefined, signal ?? undefined));
   }
 
-  private async startPty(session: ProcessSession, input: StartCommandInput): Promise<void> {
+  private async startPty(
+    session: ProcessSession,
+    input: StartCommandInput,
+    onExit: (exitCode?: number, signal?: string) => void = (exitCode, signal) => {
+      this.finish(session, exitCode, signal);
+    },
+  ): Promise<void> {
     let nodePty: typeof import("node-pty");
     try {
       nodePty = await import("node-pty");
@@ -399,7 +550,7 @@ export class ProcessSessionManager {
     };
     pty.onData((data) => this.append(session, data));
     pty.onExit(({ exitCode, signal }) => {
-      this.finish(session, exitCode, signal === 0 ? undefined : String(signal));
+      onExit(exitCode, signal === 0 ? undefined : String(signal));
     });
   }
 
@@ -439,10 +590,7 @@ export class ProcessSessionManager {
       wallTimeMs: Date.now() - session.startedAt,
       cancelled: !session.running && session.cancelRequested ? true : undefined,
       context: session.context
-        ? {
-            ...session.context,
-            policy: [...session.context.policy],
-          }
+        ? cloneProcessSessionContext(session.context)
         : undefined,
     };
   }
@@ -461,4 +609,15 @@ export class ProcessSessionManager {
     if (session?.cleanupTimer) clearTimeout(session.cleanupTimer);
     this.sessions.delete(sessionId);
   }
+}
+
+function cloneProcessSessionContext(context: ProcessSessionContext): ProcessSessionContext {
+  return {
+    ...context,
+    policy: [...context.policy],
+    profileEvidence: [...context.profileEvidence],
+    warnings: [...context.warnings],
+    artifacts: context.artifacts.map((artifact) => ({ ...artifact })),
+    steps: context.steps.map((step) => ({ ...step })),
+  };
 }

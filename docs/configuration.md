@@ -136,9 +136,9 @@ No external profile or action configuration files are loaded.
 
 `project_verify/quick` omits build steps and, for Workbridge, also omits the full
 test suite. `project_verify/standard` remains the default complete verification.
-Actions are stored internally as ordered step plans, then compiled to the same
-fail-fast shell command used by the existing process/session runtime. Step data
-is not added to the public result contract in the 1.0 series.
+Actions are stored internally as ordered step plans. Starting in 1.1, the action
+process runtime executes those steps sequentially inside one Workbridge session
+and records completion, failure, cancellation, and skipped follow-up steps.
 
 The Node profile chooses its package manager from `package.json.packageManager`
 first, then from a single recognized lockfile, and finally falls back to npm.
@@ -160,24 +160,28 @@ existing `test_name.py` or `name_test.py` files and requires configured Pytest.
 Generic Node and Chrome extension profiles are rejected until a runner-specific
 exact mapping is available. When no mapping exists, use `project_verify/quick`.
 
-### 1.x compatibility policy
+### Compatibility policy
 
-The public seven-tool schema and action result contract v1 remain fixed for the
-rest of the 1.0 series. New actions, presets, and built-in profiles may be added
-without changing the MCP schema. `workspace_verify` remains available through
-the 1.x series; removal or result-contract expansion requires a later major or
-minor contract boundary.
+The public seven-tool set remains fixed. Action result contract v2 is the 1.1
+minor-version boundary and adds structured step and profile metadata. New
+actions, presets, profiles, warnings, and artifact entries may be added without
+adding tools. `workspace_verify` remains available through the 1.x series.
+
+Because 1.1 changes the advertised output schema for `run_workspace_action` and
+the optional action fields on `write_stdin`, restart Workbridge and refresh or
+recreate the connector binding before relying on contract v2 in an existing
+conversation.
 
 Use `dryRun: true` to inspect the resolved command and policy without executing
 it. Unknown actions and presets return the available registry entries.
 
-### Action result contract v1
+### Action result contract v2
 
 Every `run_workspace_action` response identifies the resolved operation instead
 of returning only generic process fields:
 
 ```text
-contractVersion: 1
+contractVersion: 2
 status: dry_run | running | completed | failed | cancelled | rejected
 action
 preset?
@@ -185,14 +189,20 @@ profile?
 executed
 policy
 commandPreview?
+steps[]
+profileEvidence[]
+warnings[]
+artifacts[]
 error?
 ```
 
 `rejected` means the action was not executed because action resolution or input
-validation failed. `failed` means the registered action started but its process
-failed. When an action continues as a process session, later `write_stdin`
-responses retain the same action, preset, policy, and status fields. Sessions
-created by `exec_command` continue to return the ordinary process contract.
+validation failed. `failed` means a registered action step failed. Each step is
+reported as `pending`, `running`, `completed`, `failed`, `cancelled`, or
+`skipped`, with exit details and duration when available. When an action
+continues as a process session, later `write_stdin` responses retain the full
+action state. Sessions created by `exec_command` continue to return the ordinary
+process contract.
 
 ## Core Environment Variables
 

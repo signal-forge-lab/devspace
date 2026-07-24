@@ -4,6 +4,33 @@ export interface WorkspaceActionStep {
   command: string;
 }
 
+export const WORKSPACE_ACTION_STEP_STATUSES = [
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+  "skipped",
+] as const;
+
+export type WorkspaceActionStepStatus =
+  (typeof WORKSPACE_ACTION_STEP_STATUSES)[number];
+
+export interface WorkspaceActionStepResult {
+  id: string;
+  label: string;
+  status: WorkspaceActionStepStatus;
+  exitCode?: number;
+  signal?: string;
+  durationMs?: number;
+}
+
+export interface WorkspaceActionArtifact {
+  path: string;
+  kind: "file" | "directory" | "report";
+  description?: string;
+}
+
 export interface WorkspaceActionExecutionPlan {
   kind: "shell_steps";
   steps: WorkspaceActionStep[];
@@ -38,4 +65,14 @@ export function compileWorkspaceActionPlan(
   plan: WorkspaceActionExecutionPlan,
 ): string {
   return plan.steps.map((step) => step.command).join(" && ");
+}
+
+export function pendingWorkspaceActionSteps(
+  plan: WorkspaceActionExecutionPlan,
+): WorkspaceActionStepResult[] {
+  return plan.steps.map((step) => ({
+    id: step.id,
+    label: step.label,
+    status: "pending",
+  }));
 }
