@@ -1,4 +1,8 @@
-# Workbridge コードレビュー・改修タスク台帳
+# Workbridge コードレビュー・改修タスク台帳（履歴資料）
+
+> **Archive notice:** この文書は2026-07-11時点の履歴資料であり、現在の
+> Workbridge実装・ブランチ・Action Registryの正本ではない。記載される
+> `launch_workspace_task`等の機能は、その後のfixed-surface再設計で廃止された。
 
 この文書は、2026-07-11 に実施した Workbridge 全体レビューと、その前後に実施した関連改修について、**何が完了し、何が未対応で、次に何を行うか**を一元管理するための正本である。
 

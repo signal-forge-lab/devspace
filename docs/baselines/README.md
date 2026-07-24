@@ -5,13 +5,14 @@ contract. It is generated through an in-memory MCP client/server exchange and
 contains:
 
 - the exact seven tool names
-- each tool's input properties and required inputs
-- each tool's output properties and required outputs
+- one SHA-256 digest per tool, calculated from the complete canonical tool
+  contract returned by `tools/list`
 - the fixed surface configuration
 
-The baseline intentionally excludes descriptor byte counts and hashes. Wording
-changes should not create noisy baseline churn; tool names and schemas remain
-protected.
+The digest covers the full model-visible contract, including descriptions,
+input and output schemas, nested types and enums, annotations, execution hints,
+and public `_meta` values. Any model-visible change updates the affected tool's
+digest without storing a very large duplicated schema document.
 
 Print the current contract:
 
@@ -25,5 +26,4 @@ Verify the committed contract:
 npm run baseline:tools:check
 ```
 
-Update it only when a model-visible tool name or input/output schema change is
-intentional.
+Update it only when a model-visible tool contract change is intentional.

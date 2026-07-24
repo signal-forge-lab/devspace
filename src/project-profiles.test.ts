@@ -308,6 +308,26 @@ try {
   assert.equal(changedPython.profile, "python");
   assert.equal(changedPython.command, "uv run pytest tests/test_alpha.py");
 
+  const pythonBasenameOnlyRoot = join(root, "python-basename-only");
+  await mkdir(join(pythonBasenameOnlyRoot, "pkg_a"), { recursive: true });
+  await mkdir(join(pythonBasenameOnlyRoot, "tests"), { recursive: true });
+  await writeFile(
+    join(pythonBasenameOnlyRoot, "pyproject.toml"),
+    "[project]\nname = \"python-basename-only\"\n[tool.pytest.ini_options]\ntestpaths = [\"tests\"]\n",
+  );
+  await writeFile(join(pythonBasenameOnlyRoot, "pkg_a", "util.py"), "VALUE = 1\n");
+  await writeFile(join(pythonBasenameOnlyRoot, "tests", "test_util.py"), "def test_util(): assert True\n");
+  await initializeGitRepository(pythonBasenameOnlyRoot);
+  await writeFile(join(pythonBasenameOnlyRoot, "pkg_a", "util.py"), "VALUE = 2\n");
+  await assert.rejects(
+    () => resolveChangedTestsProfile({ workspaceRoot: pythonBasenameOnlyRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "no_exact_test_mapping");
+      return true;
+    },
+  );
+
   const changedNodeRoot = join(root, "changed-node");
   await mkdir(join(changedNodeRoot, "src"), { recursive: true });
   await writeFile(
@@ -344,7 +364,48 @@ try {
   await initializeGitRepository(changedNodeTestRoot);
   await writeFile(join(changedNodeTestRoot, "src", "value.js"), "export const value = 2;\n");
   const changedNodeTest = await resolveChangedTestsProfile({ workspaceRoot: changedNodeTestRoot });
-  assert.equal(changedNodeTest.command, "node --test src/value.test.js");
+  assert.equal(changedNodeTest.command, "npm run test -- src/value.test.js");
+
+  const nodeOptionsRoot = join(root, "node-options");
+  await mkdir(join(nodeOptionsRoot, "src"), { recursive: true });
+  await writeFile(join(nodeOptionsRoot, "package.json"), JSON.stringify({ scripts: { test: "node --test --import tsx" } }));
+  await writeFile(join(nodeOptionsRoot, "src", "value.js"), "export const value = 1;\n");
+  await writeFile(join(nodeOptionsRoot, "src", "value.test.js"), "export {};\n");
+  await initializeGitRepository(nodeOptionsRoot);
+  await writeFile(join(nodeOptionsRoot, "src", "value.js"), "export const value = 2;\n");
+  const nodeOptions = await resolveChangedTestsProfile({ workspaceRoot: nodeOptionsRoot });
+  assert.equal(nodeOptions.command, "npm run test -- src/value.test.js");
+
+  const fixedTargetRoot = join(root, "fixed-target-runner");
+  await mkdir(join(fixedTargetRoot, "src"), { recursive: true });
+  await writeFile(join(fixedTargetRoot, "package.json"), JSON.stringify({ scripts: { test: "vitest run src/fixed.test.ts" } }));
+  await writeFile(join(fixedTargetRoot, "src", "value.test.ts"), "export {};\n");
+  await initializeGitRepository(fixedTargetRoot);
+  await writeFile(join(fixedTargetRoot, "src", "value.test.ts"), "export const changed = true;\n");
+  await assert.rejects(
+    () => resolveChangedTestsProfile({ workspaceRoot: fixedTargetRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "unsupported_action_for_profile");
+      assert.match(error.message, /already selects a positional target/);
+      return true;
+    },
+  );
+
+  const falseRunnerRoot = join(root, "false-runner");
+  await mkdir(join(falseRunnerRoot, "src"), { recursive: true });
+  await writeFile(join(falseRunnerRoot, "package.json"), JSON.stringify({ scripts: { test: "echo vitest" } }));
+  await writeFile(join(falseRunnerRoot, "src", "value.test.ts"), "export {};\n");
+  await initializeGitRepository(falseRunnerRoot);
+  await writeFile(join(falseRunnerRoot, "src", "value.test.ts"), "export const changed = true;\n");
+  await assert.rejects(
+    () => resolveChangedTestsProfile({ workspaceRoot: falseRunnerRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "unsupported_action_for_profile");
+      return true;
+    },
+  );
 
   const ambiguousRunnerRoot = join(root, "ambiguous-runner");
   await mkdir(join(ambiguousRunnerRoot, "src"), { recursive: true });
@@ -356,7 +417,7 @@ try {
     () => resolveChangedTestsProfile({ workspaceRoot: ambiguousRunnerRoot }),
     (error: unknown) => {
       assert.ok(error instanceof ProjectProfileResolutionError);
-      assert.equal(error.kind, "ambiguous_test_runner");
+      assert.equal(error.kind, "unsupported_action_for_profile");
       return true;
     },
   );
@@ -369,11 +430,20 @@ try {
   await initializeGitRepository(unicodePathRoot);
   await writeFile(join(unicodePathRoot, "src", "日本 語.js"), "export const value = 2;\n");
   const unicodePath = await resolveChangedTestsProfile({ workspaceRoot: unicodePathRoot });
-  assert.equal(unicodePath.command, "node --test \"src/日本 語.test.js\"");
+  assert.equal(unicodePath.command, "npm run test -- \"src/日本 語.test.js\"");
   const unicodeStep = unicodePath.plan.steps[0];
   assert.ok(unicodeStep && "kind" in unicodeStep && unicodeStep.kind === "process");
-  assert.deepEqual(unicodeStep.args, ["--test", "src/日本 語.test.js"]);
+  assert.deepEqual(unicodeStep.args, ["run", "test", "--", "src/日本 語.test.js"]);
 
+  await assert.rejects(
+    () => resolveProjectReportProfile({ workspaceRoot: changedNodeRoot }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectProfileResolutionError);
+      assert.equal(error.kind, "artifact_path_not_ignored");
+      return true;
+    },
+  );
+  await writeFile(join(changedNodeRoot, ".gitignore"), ".workbridge/\n");
   const projectReport = await resolveProjectReportProfile({ workspaceRoot: changedNodeRoot });
   assert.equal(projectReport.profile, "node");
   assert.match(projectReport.artifactPath, /^\.workbridge\/reports\/project-profile-/);

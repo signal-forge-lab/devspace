@@ -59,7 +59,7 @@ export type WorkspaceActionResolutionErrorKind =
   | "no_changed_files"
   | "no_exact_test_mapping"
   | "action_plan_too_large"
-  | "ambiguous_test_runner"
+  | "artifact_path_not_ignored"
   | "required_executable_missing"
   | "unsafe_changed_path"
   | "unsupported_package_manager"

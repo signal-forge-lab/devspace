@@ -5,5 +5,7 @@ releases/
 .devspace/
 logs/
 reports/
+.workbridge/
+workbridge-oauth-debug.jsonl
 .env
 *.log

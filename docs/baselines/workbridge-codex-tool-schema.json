@@ -1,7 +1,7 @@
 {
-  "formatVersion": 2,
-  "packageVersion": "1.1.4",
-  "source": "in-memory MCP tools/list contract summary",
+  "formatVersion": 3,
+  "packageVersion": "1.1.5",
+  "source": "SHA-256 of canonical full in-memory MCP tools/list contracts",
   "configuration": {
     "toolSurface": "fixed",
     "widgets": "off",
@@ -11,238 +11,33 @@
     "workspaceActions": "registry"
   },
   "tools": [
-      {
-        "name": "apply_patch",
-        "inputProperties": [
-          "patch",
-          "workspaceId"
-        ],
-        "requiredInputProperties": [
-          "patch",
-          "workspaceId"
-        ],
-        "outputProperties": [
-          "additions",
-          "files",
-          "removals",
-          "result"
-        ],
-        "requiredOutputProperties": [
-          "additions",
-          "files",
-          "removals",
-          "result"
-        ]
-      },
-      {
-        "name": "download_artifact",
-        "inputProperties": [
-          "file",
-          "path",
-          "workspaceId"
-        ],
-        "requiredInputProperties": [
-          "file",
-          "path",
-          "workspaceId"
-        ],
-        "outputProperties": [
-          "path"
-        ],
-        "requiredOutputProperties": [
-          "path"
-        ]
-      },
-      {
-        "name": "exec_command",
-        "inputProperties": [
-          "cmd",
-          "columns",
-          "intent",
-          "maxOutputTokens",
-          "retryContext",
-          "rows",
-          "tty",
-          "workingDirectory",
-          "workspaceId",
-          "yieldTimeMs"
-        ],
-        "requiredInputProperties": [
-          "cmd",
-          "workspaceId"
-        ],
-        "outputProperties": [
-          "exitCode",
-          "outputSuppressed",
-          "outputTruncated",
-          "result",
-          "running",
-          "sessionId",
-          "signal",
-          "wallTimeMs"
-        ],
-        "requiredOutputProperties": [
-          "outputTruncated",
-          "result",
-          "running",
-          "wallTimeMs"
-        ]
-      },
-      {
-        "name": "open_workspace",
-        "inputProperties": [
-          "baseRef",
-          "mode",
-          "path"
-        ],
-        "requiredInputProperties": [
-          "path"
-        ],
-        "outputProperties": [
-          "agentsFiles",
-          "availableAgentsFiles",
-          "instruction",
-          "mode",
-          "root",
-          "skillDiagnostics",
-          "skills",
-          "sourceRoot",
-          "workspaceId",
-          "worktree"
-        ],
-        "requiredOutputProperties": [
-          "agentsFiles",
-          "availableAgentsFiles",
-          "instruction",
-          "mode",
-          "root",
-          "skillDiagnostics",
-          "skills",
-          "workspaceId"
-        ]
-      },
-      {
-        "name": "read",
-        "inputProperties": [
-          "limit",
-          "offset",
-          "path",
-          "workspaceId"
-        ],
-        "requiredInputProperties": [
-          "path",
-          "workspaceId"
-        ],
-        "outputProperties": [
-          "result"
-        ],
-        "requiredOutputProperties": [
-          "result"
-        ]
-      },
-      {
-        "name": "run_workspace_action",
-        "inputProperties": [
-          "action",
-          "columns",
-          "dryRun",
-          "maxOutputTokens",
-          "parameters",
-          "preset",
-          "rows",
-          "tty",
-          "workingDirectory",
-          "workspaceId",
-          "yieldTimeMs"
-        ],
-        "requiredInputProperties": [
-          "action",
-          "workspaceId"
-        ],
-        "outputProperties": [
-          "action",
-          "artifacts",
-          "catalog",
-          "commandPreview",
-          "contractVersion",
-          "error",
-          "executed",
-          "exitCode",
-          "outputSuppressed",
-          "outputTruncated",
-          "policy",
-          "preset",
-          "profile",
-          "profileEvidence",
-          "result",
-          "running",
-          "sessionId",
-          "signal",
-          "status",
-          "steps",
-          "wallTimeMs",
-          "warnings"
-        ],
-        "requiredOutputProperties": [
-          "action",
-          "artifacts",
-          "contractVersion",
-          "executed",
-          "outputTruncated",
-          "policy",
-          "profileEvidence",
-          "result",
-          "running",
-          "status",
-          "steps",
-          "wallTimeMs",
-          "warnings"
-        ]
-      },
-      {
-        "name": "write_stdin",
-        "inputProperties": [
-          "chars",
-          "columns",
-          "maxOutputTokens",
-          "rows",
-          "sessionId",
-          "workspaceId",
-          "yieldTimeMs"
-        ],
-        "requiredInputProperties": [
-          "sessionId",
-          "workspaceId"
-        ],
-        "outputProperties": [
-          "action",
-          "artifacts",
-          "commandPreview",
-          "contractVersion",
-          "error",
-          "executed",
-          "exitCode",
-          "outputSuppressed",
-          "outputTruncated",
-          "policy",
-          "preset",
-          "profile",
-          "profileEvidence",
-          "result",
-          "running",
-          "sessionId",
-          "signal",
-          "status",
-          "steps",
-          "wallTimeMs",
-          "warnings"
-        ],
-        "requiredOutputProperties": [
-          "outputTruncated",
-          "result",
-          "running",
-          "wallTimeMs"
-        ]
-      }
+    {
+      "name": "apply_patch",
+      "contractSha256": "eaac2fb7d206db47e307b6a6ff5547bdee521a97a996b41ae35e15758354ec5a"
+    },
+    {
+      "name": "download_artifact",
+      "contractSha256": "447eaa8769a212efc751b2fca2e76276d719838cdde9a9a4ef53472ba16f0e8b"
+    },
+    {
+      "name": "exec_command",
+      "contractSha256": "c6f48f4ef1716ed79686f98203fa2067e6019df066391c089f51d09a7844aa1d"
+    },
+    {
+      "name": "open_workspace",
+      "contractSha256": "c141476c2463d85c53038a65078d5970febba8169086f305b5c457987b0b833d"
+    },
+    {
+      "name": "read",
+      "contractSha256": "af348d10f940d871a6d62a4917cc3c035cadb487d819f305068bb1321217c6b8"
+    },
+    {
+      "name": "run_workspace_action",
+      "contractSha256": "ecd313f0160809fc3bc0df5b5210b7e2f0e71408d4aea6719055fa26fe91400f"
+    },
+    {
+      "name": "write_stdin",
+      "contractSha256": "4681340aaf884f1387c51a91d82fa5782edabf4c74fbd23fc702b15d304e5dbd"
+    }
   ]
 }

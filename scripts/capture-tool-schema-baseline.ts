@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -41,18 +42,18 @@ try {
   await client.connect(clientTransport);
   const response = await client.listTools();
   const tools = response.tools
-    .map((tool) => ({
-      name: tool.name,
-      inputProperties: schemaPropertyNames(tool, "inputSchema"),
-      requiredInputProperties: schemaRequiredNames(tool, "inputSchema"),
-      outputProperties: schemaPropertyNames(tool, "outputSchema"),
-      requiredOutputProperties: schemaRequiredNames(tool, "outputSchema"),
-    }))
+    .map((tool) => {
+      const contract = canonicalizeJson(tool);
+      return {
+        name: tool.name,
+        contractSha256: sha256(contract),
+      };
+    })
     .sort((left, right) => left.name.localeCompare(right.name));
   const snapshot = {
-    formatVersion: 2,
+    formatVersion: 3,
     packageVersion: PACKAGE_VERSION,
-    source: "in-memory MCP tools/list contract summary",
+    source: "SHA-256 of canonical full in-memory MCP tools/list contracts",
     configuration: {
       toolSurface: "fixed",
       widgets: "off",
@@ -86,24 +87,17 @@ try {
   await rm(temporaryRoot, { recursive: true, force: true });
 }
 
-function schemaPropertyNames(value: unknown, schemaName: string): string[] {
-  const schema = recordField(value, schemaName);
-  const properties = recordField(schema, "properties");
-  return properties ? Object.keys(properties).sort() : [];
+function canonicalizeJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeJson);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, canonicalizeJson(entry)]),
+  );
 }
 
-function schemaRequiredNames(value: unknown, schemaName: string): string[] {
-  const schema = recordField(value, schemaName);
-  const required = schema?.required;
-  return Array.isArray(required)
-    ? required.filter((entry): entry is string => typeof entry === "string").sort()
-    : [];
-}
-
-function recordField(value: unknown, field: string): Record<string, unknown> | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const fieldValue = (value as Record<string, unknown>)[field];
-  return typeof fieldValue === "object" && fieldValue !== null && !Array.isArray(fieldValue)
-    ? fieldValue as Record<string, unknown>
-    : undefined;
+function sha256(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }

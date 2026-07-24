@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { lstat, mkdir, open } from "node:fs/promises";
+import { link, lstat, mkdir, open, rm } from "node:fs/promises";
 import { isAbsolute, join, normalize, sep } from "node:path";
 
 const NO_FOLLOW = fsConstants.O_NOFOLLOW ?? 0;
@@ -21,30 +22,36 @@ export async function writeWorkspaceJsonArtifact(
   for (const part of parts) {
     directory = join(directory, part);
     try {
-      const entry = await lstat(directory);
-      if (entry.isSymbolicLink() || !entry.isDirectory()) {
-        throw new Error(`Artifact parent is not a safe directory: ${part}`);
-      }
+      await mkdir(directory, { mode: 0o700 });
     } catch (error) {
-      if (errorCode(error) !== "ENOENT") throw error;
-      await mkdir(directory);
-      const entry = await lstat(directory);
-      if (entry.isSymbolicLink() || !entry.isDirectory()) {
-        throw new Error(`Artifact parent is not a safe directory: ${part}`);
-      }
+      if (errorCode(error) !== "EEXIST") throw error;
+    }
+    const entry = await lstat(directory);
+    if (entry.isSymbolicLink() || !entry.isDirectory()) {
+      throw new Error(`Artifact parent is not a safe directory: ${part}`);
     }
   }
 
   const destination = join(directory, fileName);
+  const temporary = join(
+    directory,
+    `.${fileName}.workbridge-${process.pid}-${randomUUID()}.tmp`,
+  );
   const handle = await open(
-    destination,
+    temporary,
     fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY | NO_FOLLOW,
     0o600,
   );
   try {
     await handle.writeFile(`${serialized}\n`, "utf8");
+    await handle.sync();
   } finally {
     await handle.close();
+  }
+  try {
+    await link(temporary, destination);
+  } finally {
+    await rm(temporary, { force: true });
   }
 }
 

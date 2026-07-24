@@ -7,6 +7,7 @@ import {
   compactClientKind,
   loggedCommandFields,
   logEvent,
+  sanitizeRequestUrlForLog,
   type LoggingConfig,
 } from "./logger.js";
 
@@ -23,6 +24,11 @@ assert.equal(classifyHttpRequest("/mcp", 403), "auth");
 assert.equal(classifyHttpRequest("/.well-known/openid-configuration", 404), "probe");
 assert.equal(classifyHttpRequest("/mcp", 404), "error");
 assert.equal(classifyHttpRequest("/mcp", 200), "request");
+assert.equal(
+  sanitizeRequestUrlForLog("https://example.test/authorize?state=secret#fragment"),
+  "https://example.test/authorize",
+);
+assert.equal(sanitizeRequestUrlForLog("/authorize?state=secret"), "/authorize");
 
 const logDir = mkdtempSync(join(tmpdir(), "devspace-logger-test-"));
 const logPath = join(logDir, "devspace.jsonl");

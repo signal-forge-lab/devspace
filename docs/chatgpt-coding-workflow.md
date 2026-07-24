@@ -92,9 +92,12 @@ returns the same evolving step state until completion or cancellation.
 
 Use `test_changed/exact` for Workbridge, Python, Node, or Chrome extension
 projects when an exact mapping and a supported runner are available. Node and
-Chrome support explicit `node --test`, Vitest, and Jest test scripts. Paths are
-passed as process arguments, including paths with spaces or Unicode characters.
+Chrome support direct `node --test`, Vitest, and Jest test scripts without shell
+chaining. The existing test script is preserved, including fixed Node options,
+and the exact test path is appended as a process argument. Paths with spaces or
+Unicode characters are supported.
 Use `project_report/profile` to generate a downloadable JSON description of the
 detected profile and standard verification plan under `.workbridge/reports/`.
+Git workspaces must ignore `.workbridge/` before the report action will run.
 Action resolution checks every required executable first and returns
 `required_executable_missing` before starting when a binary is unavailable.

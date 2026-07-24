@@ -31,6 +31,7 @@ import {
 import {
   classifyHttpRequest,
   logEvent,
+  sanitizeRequestUrlForLog,
   requestIp,
   requestPath,
   loggedCommandFields,
@@ -357,8 +358,8 @@ function requestLogFields(req: Request, config: ServerConfig): Record<string, un
     ip: requestIp(req, config.logging.trustProxy),
     host: req.header("host"),
     userAgent: req.header("user-agent"),
-    origin: req.header("origin"),
-    referer: req.header("referer"),
+    origin: sanitizeRequestUrlForLog(req.header("origin")),
+    referer: sanitizeRequestUrlForLog(req.header("referer")),
     contentLength: req.header("content-length"),
   };
 }
@@ -906,7 +907,7 @@ function registerCodexProcessTools(
       const workspace = workspaces.getWorkspace(workspaceId);
       const redactions = workspacePathRedactions(workspace.root);
       const displayCommand = redactPathsInText(cmd, redactions);
-      const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
+      const cwd = await workspaces.resolveWorkingDirectory(workspace, workingDirectory);
       const snapshot = await processSessions.start({
         workspaceId,
         command: cmd,
@@ -1815,7 +1816,7 @@ export function createMcpServer(
       const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
       const redactions = workspacePathRedactions(workspace.root);
-      const cwd = workspaces.resolveWorkingDirectory(
+      const cwd = await workspaces.resolveWorkingDirectory(
         workspace,
         workingDirectory,
       );
@@ -1913,7 +1914,7 @@ export function createMcpServer(
       const workspace = workspaces.getWorkspace(workspaceId);
       let cwd: string;
       try {
-        cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
+        cwd = await workspaces.resolveWorkingDirectory(workspace, workingDirectory);
         if (action === "workspace_verify" && cwd !== workspace.root) {
           throw new Error(
             "workspace_verify is restricted to the workspace root. Use project_verify for a nested workingDirectory.",

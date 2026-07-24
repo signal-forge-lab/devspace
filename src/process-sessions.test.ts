@@ -7,7 +7,6 @@ import { workspacePathRedactions } from "./path-redaction.js";
 import {
   pendingWorkspaceActionSteps,
   processStep,
-  shellSteps,
   workspaceActionSteps,
   writeJsonStep,
 } from "./workspace-action-plans.js";
@@ -186,17 +185,15 @@ assert.equal(completed.running, false);
 assert.equal(completed.exitCode, 0);
 assert.match(completed.output, /finished/);
 
-const actionPlan = shellSteps([
-  {
-    id: "first",
-    label: "First action step",
-    command: `${node} -e "setTimeout(() => console.log('action-first'), 100)"`,
-  },
-  {
-    id: "second",
-    label: "Second action step",
-    command: `${node} -e "console.log('action-second')"`,
-  },
+const actionPlan = workspaceActionSteps([
+  processStep("first", "First action step", process.execPath, [
+    "-e",
+    "setTimeout(() => console.log('action-first'), 100)",
+  ]),
+  processStep("second", "Second action step", process.execPath, [
+    "-e",
+    "console.log('action-second')",
+  ]),
 ]);
 const actionBackground = await manager.startPlan({
   workspaceId: "workspace-a",
@@ -250,22 +247,10 @@ assert.match(actionOutput, /<== \[first\] completed in \d+ms/);
 assert.match(actionOutput, /==> \[second\] Second action step/);
 assert.match(actionOutput, /<== \[second\] completed in \d+ms/);
 
-const failingPlan = shellSteps([
-  {
-    id: "pass",
-    label: "Passing step",
-    command: `${node} -e "console.log('pass')"`,
-  },
-  {
-    id: "fail",
-    label: "Failing step",
-    command: `${node} -e "process.exit(7)"`,
-  },
-  {
-    id: "after",
-    label: "Skipped step",
-    command: `${node} -e "console.log('should-not-run')"`,
-  },
+const failingPlan = workspaceActionSteps([
+  processStep("pass", "Passing step", process.execPath, ["-e", "console.log('pass')"]),
+  processStep("fail", "Failing step", process.execPath, ["-e", "process.exit(7)"]),
+  processStep("after", "Skipped step", process.execPath, ["-e", "console.log('should-not-run')"]),
 ]);
 const failedAction = await manager.startPlan({
   workspaceId: "workspace-a",
@@ -294,17 +279,15 @@ assert.equal(failedAction.context?.steps[1]?.exitCode, 7);
 assert.doesNotMatch(failedAction.output, /should-not-run/);
 assert.match(failedAction.output, /<== \[fail\] failed with exit code 7 in \d+ms/);
 
-const cancellablePlan = shellSteps([
-  {
-    id: "wait",
-    label: "Waiting step",
-    command: `${node} -e "setInterval(() => console.log('action-tick'), 10)"`,
-  },
-  {
-    id: "after-cancel",
-    label: "Step after cancellation",
-    command: `${node} -e "console.log('after-cancel')"`,
-  },
+const cancellablePlan = workspaceActionSteps([
+  processStep("wait", "Waiting step", process.execPath, [
+    "-e",
+    "setInterval(() => console.log('action-tick'), 10)",
+  ]),
+  processStep("after-cancel", "Step after cancellation", process.execPath, [
+    "-e",
+    "console.log('after-cancel')",
+  ]),
 ]);
 const cancellableAction = await manager.startPlan({
   workspaceId: "workspace-a",

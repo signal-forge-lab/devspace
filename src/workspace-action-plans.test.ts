@@ -6,18 +6,17 @@ import {
   compileWorkspaceActionPlan,
   pendingWorkspaceActionSteps,
   processStep,
-  shellSteps,
   workspaceActionSteps,
   writeJsonStep,
 } from "./workspace-action-plans.js";
 
-const plan = shellSteps([
-  { id: "first", label: "First", command: "echo first" },
-  { id: "second", label: "Second", command: "echo second" },
+const plan = workspaceActionSteps([
+  processStep("first", "First", "node", ["--version"]),
+  processStep("second", "Second", "git", ["--version"]),
 ]);
-assert.equal(plan.kind, "shell_steps");
+assert.equal(plan.kind, "steps");
 assert.deepEqual(plan.steps.map((step) => step.id), ["first", "second"]);
-assert.equal(compileWorkspaceActionPlan(plan), "echo first && echo second");
+assert.equal(compileWorkspaceActionPlan(plan), "node --version && git --version");
 assert.deepEqual(pendingWorkspaceActionSteps(plan), [
   { id: "first", label: "First", status: "pending" },
   { id: "second", label: "Second", status: "pending" },
@@ -33,23 +32,22 @@ assert.equal(
 );
 
 assert.throws(
-  () => shellSteps([]),
+  () => workspaceActionSteps([]),
   /at least one step/,
 );
 assert.throws(
-  () => shellSteps([
-    { id: "duplicate", label: "One", command: "echo one" },
-    { id: "duplicate", label: "Two", command: "echo two" },
+  () => workspaceActionSteps([
+    processStep("duplicate", "One", "node", ["--version"]),
+    processStep("duplicate", "Two", "git", ["--version"]),
   ]),
   /Duplicate workspace action step id/,
 );
 
 assert.throws(
-  () => shellSteps(Array.from({ length: MAX_WORKSPACE_ACTION_STEPS + 1 }, (_, index) => ({
-    id: `step-${index}`,
-    label: `Step ${index}`,
-    command: "echo step",
-  }))),
+  () => workspaceActionSteps(Array.from(
+    { length: MAX_WORKSPACE_ACTION_STEPS + 1 },
+    (_, index) => processStep(`step-${index}`, `Step ${index}`, "node", ["--version"]),
+  )),
   (error: unknown) => {
     assert.ok(error instanceof WorkspaceActionPlanResolutionError);
     assert.equal(error.kind, "action_plan_too_large");
@@ -58,12 +56,13 @@ assert.throws(
 );
 
 assert.throws(
-  () => compileWorkspaceActionPlan(shellSteps([
-    {
-      id: "oversized",
-      label: "Oversized",
-      command: "x".repeat(MAX_WORKSPACE_ACTION_COMMAND_PREVIEW_CHARACTERS + 1),
-    },
+  () => compileWorkspaceActionPlan(workspaceActionSteps([
+    processStep(
+      "oversized",
+      "Oversized",
+      "node",
+      ["x".repeat(MAX_WORKSPACE_ACTION_COMMAND_PREVIEW_CHARACTERS + 1)],
+    ),
   ])),
   (error: unknown) => {
     assert.ok(error instanceof WorkspaceActionPlanResolutionError);

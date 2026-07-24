@@ -61,6 +61,16 @@ export function shouldLog(config: LoggingConfig, level: Exclude<LogLevel, "silen
   return LEVEL_WEIGHT[config.level] >= LEVEL_WEIGHT[level];
 }
 
+export function sanitizeRequestUrlForLog(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return value.split(/[?#]/, 1)[0];
+  }
+}
+
 export function logEvent(
   config: LoggingConfig,
   level: Exclude<LogLevel, "silent">,

@@ -459,7 +459,7 @@ export class ProcessSessionManager {
     input: StartActionPlanInput,
     step: WorkspaceActionPlanStep,
   ): Promise<{ exitCode?: number; signal?: string }> {
-    if ("kind" in step && step.kind === "write_json") {
+    if (step.kind === "write_json") {
       return writeWorkspaceJsonArtifact(input.cwd, step.path, step.value).then(() => {
         const context = session.context;
         const artifact = input.plannedArtifacts?.find((candidate) => candidate.path === step.path);
@@ -475,37 +475,7 @@ export class ProcessSessionManager {
       });
     }
 
-    if ("kind" in step && step.kind === "process") {
-      return this.runProcessPlanStep(session, input, step);
-    }
-
-    return new Promise((resolve, reject) => {
-      const commandInput: StartCommandInput = {
-        workspaceId: input.workspaceId,
-        command: step.command,
-        cwd: input.cwd,
-        workspaceRoot: input.workspaceRoot,
-        outputRedactions: input.outputRedactions,
-        outputMode: input.outputMode,
-        tty: input.tty,
-        columns: session.columns,
-        rows: session.rows,
-      };
-
-      try {
-        if (input.tty && process.platform !== "win32") {
-          void this.startPty(session, commandInput, (exitCode, signal) => {
-            resolve({ exitCode, signal });
-          }).catch(reject);
-        } else {
-          this.startPipe(session, commandInput, (exitCode, signal) => {
-            resolve({ exitCode, signal });
-          });
-        }
-      } catch (error) {
-        reject(error);
-      }
-    });
+    return this.runProcessPlanStep(session, input, step);
   }
 
   private async runProcessPlanStep(

@@ -72,6 +72,14 @@ try {
     "~/.codex/AGENTS.md",
   );
   assert.deepEqual(workspace.agentProfiles, []);
+  assert.equal(
+    await registry.resolveWorkingDirectory(workspace, "nested"),
+    join(root, "nested"),
+  );
+  await assert.rejects(
+    () => registry.resolveWorkingDirectory(workspace, "nested/file.txt"),
+    /must be a directory/,
+  );
 
   if (platform() !== "win32") {
     const unsafeAgentDir = join(root, ".pi", "unsafe-agent");

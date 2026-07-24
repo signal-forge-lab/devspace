@@ -1,9 +1,3 @@
-export interface WorkspaceActionStep {
-  id: string;
-  label: string;
-  command: string;
-}
-
 export interface WorkspaceActionProcessStep {
   id: string;
   label: string;
@@ -21,7 +15,6 @@ export interface WorkspaceActionWriteJsonStep {
 }
 
 export type WorkspaceActionPlanStep =
-  | WorkspaceActionStep
   | WorkspaceActionProcessStep
   | WorkspaceActionWriteJsonStep;
 
@@ -53,7 +46,7 @@ export interface WorkspaceActionArtifact {
 }
 
 export interface WorkspaceActionExecutionPlan {
-  kind: "shell_steps";
+  kind: "steps";
   steps: WorkspaceActionPlanStep[];
 }
 
@@ -67,12 +60,6 @@ export class WorkspaceActionPlanResolutionError extends Error {
     super(message);
     this.name = "WorkspaceActionPlanResolutionError";
   }
-}
-
-export function shellSteps(
-  steps: readonly WorkspaceActionStep[],
-): WorkspaceActionExecutionPlan {
-  return workspaceActionSteps(steps);
 }
 
 export function workspaceActionSteps(
@@ -99,7 +86,7 @@ export function workspaceActionSteps(
     }
     ids.add(id);
 
-    if ("kind" in step && step.kind === "process") {
+    if (step.kind === "process") {
       const executable = step.executable.trim();
       if (!executable) {
         throw new Error("Workspace action process steps require a non-empty executable.");
@@ -110,22 +97,14 @@ export function workspaceActionSteps(
       return { id, label, kind: "process" as const, executable, args: [...step.args] };
     }
 
-    if ("kind" in step && step.kind === "write_json") {
-      const path = step.path.trim();
-      if (!path) {
-        throw new Error("Workspace action write_json steps require a non-empty path.");
-      }
-      return { id, label, kind: "write_json" as const, path, value: step.value };
+    const path = step.path.trim();
+    if (!path) {
+      throw new Error("Workspace action write_json steps require a non-empty path.");
     }
-
-    const command = step.command.trim();
-    if (!command) {
-      throw new Error("Workspace action shell steps require a non-empty command.");
-    }
-    return { id, label, command };
+    return { id, label, kind: "write_json" as const, path, value: step.value };
   });
 
-  return { kind: "shell_steps", steps: normalized };
+  return { kind: "steps", steps: normalized };
 }
 
 export function compileWorkspaceActionPlan(
@@ -159,13 +138,10 @@ export function writeJsonStep(
 }
 
 export function workspaceActionStepPreview(step: WorkspaceActionPlanStep): string {
-  if ("kind" in step && step.kind === "process") {
+  if (step.kind === "process") {
     return [step.executable, ...step.args].map(displayArgument).join(" ");
   }
-  if ("kind" in step && step.kind === "write_json") {
-    return `write-json ${displayArgument(step.path)}`;
-  }
-  return step.command;
+  return `write-json ${displayArgument(step.path)}`;
 }
 
 export function pendingWorkspaceActionSteps(

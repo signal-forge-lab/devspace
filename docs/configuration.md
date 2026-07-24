@@ -182,18 +182,28 @@ only test files with an exact mapping. Workbridge maps `src/name.ts` to an
 existing `src/name.test.ts` or `src/name.spec.ts`. Python maps modules to
 existing `test_name.py` or `name_test.py` files and requires configured Pytest.
 Node and Chrome extension profiles support test scripts that explicitly select
-`node --test`, Vitest, or Jest. A changed test file is run directly; otherwise
-only an existing same-basename `.test.*` or `.spec.*` file is selected. Unknown
-or multiple runners are rejected. Test paths are passed as process arguments,
-so spaces and Unicode names are supported; traversal, control characters, and
-Windows command-expansion metacharacters remain rejected. When no mapping
-exists, use `project_verify/quick`.
+`node --test`, Vitest, or Jest as the direct command. Shell chaining,
+redirection, command substitution, and wrapper commands such as `echo vitest`
+are rejected. Workbridge executes the existing package test script and appends
+only the exact selected path, preserving fixed options such as
+`node --test --import tsx`. A changed test file is run directly; otherwise only
+an existing same-basename `.test.*` or `.spec.*` file is selected. Python uses
+same-directory or directory-mirrored mappings and does not map a nested module
+to a root-level `tests/test_<basename>.py` by basename alone. Test paths are
+passed as process arguments, so spaces and Unicode names are supported;
+traversal, control characters, and Windows command-expansion metacharacters
+remain rejected. When no mapping exists, use `project_verify/quick`.
 
 `project_report/profile` writes one new JSON file beneath
 `.workbridge/reports/`. The report records the selected profile, confidence,
 evidence, and the standard verification plan. The action returns the generated
 path in `artifacts[]`; it never overwrites an existing destination and rejects
-unsafe or symlinked parent directories.
+unsafe or symlinked parent directories. In a Git working tree, `.workbridge/`
+must already be ignored through repository or global Git ignore configuration;
+otherwise the action is rejected with `artifact_path_not_ignored` instead of
+making the working tree dirty. Report writes use a flushed temporary file and
+an exclusive final hard link, and concurrent parent-directory creation is
+supported.
 
 ### Compatibility policy
 

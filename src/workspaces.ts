@@ -6,7 +6,12 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { loadProjectContextFiles } from "@earendil-works/pi-coding-agent";
 import type { ServerConfig } from "./config.js";
 import { createManagedWorktree } from "./git-worktrees.js";
-import { assertAllowedPath, isPathInsideRoot, resolveAllowedPath } from "./roots.js";
+import {
+  assertAllowedPath,
+  isPathInsideRoot,
+  resolveAllowedPath,
+  resolveAllowedRealPath,
+} from "./roots.js";
 import {
   loadWorkspaceSkills,
   formatPathForPrompt,
@@ -169,9 +174,17 @@ export class WorkspaceRegistry {
     }
   }
 
-  resolveWorkingDirectory(workspace: Workspace, workingDirectory: string | undefined): string {
+  async resolveWorkingDirectory(
+    workspace: Workspace,
+    workingDirectory: string | undefined,
+  ): Promise<string> {
     const directory = workingDirectory ? this.resolvePath(workspace, workingDirectory) : workspace.root;
-    return assertAllowedPath(directory, [workspace.root]);
+    const resolvedDirectory = await resolveAllowedRealPath(directory, workspace.root, [workspace.root]);
+    const metadata = await stat(resolvedDirectory);
+    if (!metadata.isDirectory()) {
+      throw new Error(`Working directory must be a directory: ${workingDirectory ?? "."}`);
+    }
+    return resolvedDirectory;
   }
 
   private async openCheckoutWorkspace(path: string): Promise<WorkspaceContext> {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeWorkspaceJsonArtifact } from "./workspace-json-artifact.js";
@@ -13,6 +13,10 @@ try {
     await readFile(join(root, ".workbridge", "reports", "profile.json"), "utf8"),
   ) as { profile?: unknown };
   assert.equal(contents.profile, "node");
+
+  await Promise.all(Array.from({ length: 64 }, (_, index) =>
+    writeWorkspaceJsonArtifact(root, `.workbridge/concurrent/report-${index}.json`, { index })));
+  assert.equal((await readdir(join(root, ".workbridge", "concurrent"))).length, 64);
 
   await assert.rejects(
     () => writeWorkspaceJsonArtifact(root, ".workbridge/reports/profile.json", {}),

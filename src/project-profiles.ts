@@ -28,7 +28,7 @@ export type ProjectProfileResolutionErrorKind =
   | "no_changed_files"
   | "no_exact_test_mapping"
   | "action_plan_too_large"
-  | "ambiguous_test_runner"
+  | "artifact_path_not_ignored"
   | "unsafe_changed_path"
   | "unsupported_package_manager"
   | "ambiguous_package_manager";
@@ -90,6 +90,9 @@ const MAX_CHANGED_PATH_CHARACTERS = 512;
 
 type NodePackageManager = "npm" | "pnpm" | "yarn" | "bun";
 type NodeTestRunner = "node_test" | "vitest" | "jest";
+interface NodeTestRunnerResolution {
+  runner: NodeTestRunner;
+}
 type PythonRunner = "uv" | "poetry" | "system";
 
 interface PythonProjectDetection {
@@ -104,6 +107,20 @@ const PACKAGE_MANAGER_LOCKFILES: Record<NodePackageManager, readonly string[]> =
   yarn: ["yarn.lock"],
   bun: ["bun.lock", "bun.lockb"],
 };
+
+const NODE_TEST_OPTIONS_WITH_VALUES = new Set([
+  "--conditions",
+  "--env-file",
+  "--import",
+  "--loader",
+  "--require",
+  "--test-name-pattern",
+  "--test-reporter",
+  "--test-reporter-destination",
+  "--test-shard",
+  "-C",
+  "-r",
+]);
 
 export async function resolveProjectVerifyProfile(input: {
   workspaceRoot: string;
@@ -282,9 +299,9 @@ export async function resolveChangedTestsProfile(input: {
   const packageManager = await resolveNodePackageManager(input.workspaceRoot, manifest);
   const tests = await mapNodeChangedTests(input.workspaceRoot, changedFiles);
   return changedTestsResolution(profile, changedFiles, tests, (path, index) => {
-    const invocation = nodeTestPathInvocation(testRunner, packageManager, path);
+    const invocation = nodeTestPathInvocation(packageManager, path);
     return processStep(`test-${index + 1}`, `Changed-file test: ${path}`, invocation.executable, invocation.args);
-  }, [`test runner: ${testRunner}`, `package manager: ${packageManager}`]);
+  }, [`test runner: ${testRunner.runner}`, `package manager: ${packageManager}`]);
 }
 
 export async function resolveProjectReportProfile(input: {
@@ -298,6 +315,7 @@ export async function resolveProjectReportProfile(input: {
   });
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const artifactPath = `.workbridge/reports/project-profile-${timestamp}-${randomUUID().slice(0, 8)}.json`;
+  await assertProjectReportPathIgnored(input.workspaceRoot, artifactPath);
   const report = {
     formatVersion: 1,
     reportType: "workbridge_project_profile",
@@ -659,7 +677,7 @@ function packageScriptCommand(manifest: PackageManifest, name: string): string |
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function detectNodeTestRunner(manifest: PackageManifest): NodeTestRunner {
+function detectNodeTestRunner(manifest: PackageManifest): NodeTestRunnerResolution {
   const testScript = packageScriptCommand(manifest, "test");
   if (!testScript) {
     throw new ProjectProfileResolutionError(
@@ -668,23 +686,114 @@ function detectNodeTestRunner(manifest: PackageManifest): NodeTestRunner {
     );
   }
 
-  const detected: NodeTestRunner[] = [];
-  if (/(?:^|[\s;&|])node(?:\.exe)?\s+--test(?:\s|$)/i.test(testScript)) detected.push("node_test");
-  if (/(?:^|[\s;&|])vitest(?:\s|$)/i.test(testScript)) detected.push("vitest");
-  if (/(?:^|[\s;&|])jest(?:\s|$)/i.test(testScript)) detected.push("jest");
-  if (detected.length === 0) {
+  const tokens = tokenizeFixedPackageScript(testScript);
+  const executable = tokens[0]?.toLowerCase();
+  let runner: NodeTestRunner | undefined;
+  if ((executable === "node" || executable === "node.exe") && tokens.includes("--test")) {
+    runner = "node_test";
+  } else if (executable === "vitest" || executable === "vitest.cmd") {
+    runner = "vitest";
+  } else if (executable === "jest" || executable === "jest.cmd") {
+    runner = "jest";
+  }
+  if (!runner) {
     throw new ProjectProfileResolutionError(
       "unsupported_action_for_profile",
-      "The test script must explicitly use node --test, Vitest, or Jest for test_changed.",
+      "The test script must be a direct node --test, Vitest, or Jest command without shell chaining for test_changed.",
     );
   }
-  if (detected.length > 1) {
+  assertNoFixedTestTargets(runner, tokens);
+  return { runner };
+}
+
+function assertNoFixedTestTargets(runner: NodeTestRunner, tokens: readonly string[]): void {
+  let index = 1;
+  if (runner === "vitest" && tokens[index]?.toLowerCase() === "run") index += 1;
+
+  while (index < tokens.length) {
+    const token = tokens[index]!;
+    if (runner === "node_test" && token === "--test") {
+      index += 1;
+      continue;
+    }
+    if (token.startsWith("--") && token.includes("=")) {
+      index += 1;
+      continue;
+    }
+    if (runner === "node_test" && NODE_TEST_OPTIONS_WITH_VALUES.has(token)) {
+      if (!tokens[index + 1]) {
+        throw new ProjectProfileResolutionError(
+          "unsupported_action_for_profile",
+          `The test script option requires a fixed value: ${token}.`,
+        );
+      }
+      index += 2;
+      continue;
+    }
+    if (token.startsWith("-")) {
+      index += 1;
+      continue;
+    }
     throw new ProjectProfileResolutionError(
-      "ambiguous_test_runner",
-      `Multiple supported test runners were detected in the test script: ${detected.join(", ")}.`,
+      "unsupported_action_for_profile",
+      `The test script already selects a positional target (${token}); test_changed requires the exact changed-test path to be the only test target.`,
     );
   }
-  return detected[0]!;
+}
+
+function tokenizeFixedPackageScript(script: string): string[] {
+  if (/\r|\n|`|\$\(/.test(script)) {
+    throw new ProjectProfileResolutionError(
+      "unsupported_action_for_profile",
+      "The test script contains shell expansion or multiple lines and cannot be used for exact changed-test execution.",
+    );
+  }
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  for (const character of script) {
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+    if (character === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = undefined;
+      else current += character;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+    if (/[;&|<>]/.test(character)) {
+      throw new ProjectProfileResolutionError(
+        "unsupported_action_for_profile",
+        "The test script uses shell chaining or redirection and cannot be used for exact changed-test execution.",
+      );
+    }
+    if (/\s/.test(character)) {
+      if (current) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += character;
+  }
+  if (escaped || quote) {
+    throw new ProjectProfileResolutionError(
+      "unsupported_action_for_profile",
+      "The test script contains an incomplete escape or quote and cannot be used for exact changed-test execution.",
+    );
+  }
+  if (current) tokens.push(current);
+  return tokens;
 }
 
 async function detectPythonProject(
@@ -874,7 +983,6 @@ async function mapPythonChangedTests(
     const candidates = [
       directory ? `${directory}/test_${stem}.py` : `test_${stem}.py`,
       directory ? `${directory}/${stem}_test.py` : `${stem}_test.py`,
-      `tests/test_${stem}.py`,
       directory ? `tests/${directory}/test_${stem}.py` : `tests/test_${stem}.py`,
     ];
     for (const candidate of candidates) {
@@ -958,15 +1066,32 @@ function pythonPytestPathInvocation(
 }
 
 function nodeTestPathInvocation(
-  runner: NodeTestRunner,
   packageManager: NodePackageManager,
   path: string,
 ): { executable: string; args: string[] } {
-  if (runner === "node_test") return { executable: "node", args: ["--test", path] };
   if (packageManager === "yarn") {
     return { executable: packageManager, args: ["run", "test", path] };
   }
   return { executable: packageManager, args: ["run", "test", "--", path] };
+}
+
+async function assertProjectReportPathIgnored(
+  workspaceRoot: string,
+  artifactPath: string,
+): Promise<void> {
+  if (!(await isGitWorkTree(workspaceRoot))) return;
+  try {
+    await execFileAsync(
+      "git",
+      ["-C", workspaceRoot, "check-ignore", "--quiet", "--no-index", "--", artifactPath],
+      { windowsHide: true },
+    );
+  } catch {
+    throw new ProjectProfileResolutionError(
+      "artifact_path_not_ignored",
+      "project_report requires .workbridge/ to be ignored by Git before it writes a report.",
+    );
+  }
 }
 
 function assertSafeActionPath(path: string): void {
