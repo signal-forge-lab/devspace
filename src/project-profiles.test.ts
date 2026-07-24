@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import {
   ProjectProfileResolutionError,
   resolveChangedTestsProfile,
+  resolveProjectReportProfile,
   resolveProjectVerifyProfile,
 } from "./project-profiles.js";
 
@@ -266,7 +267,7 @@ try {
   await writeFile(join(changedWorkbridgeRoot, "src", "sample.ts"), "export const value = 2;\n");
   const changedWorkbridge = await resolveChangedTestsProfile({ workspaceRoot: changedWorkbridgeRoot });
   assert.equal(changedWorkbridge.profile, "workbridge");
-  assert.equal(changedWorkbridge.command, "node --import tsx \"src/sample.test.ts\"");
+  assert.equal(changedWorkbridge.command, "node --import tsx src/sample.test.ts");
   assert.match(changedWorkbridge.evidence[0] ?? "", /^changed files \(1\):/);
 
   const nestedGitRoot = join(root, "nested-git-workspace");
@@ -288,7 +289,7 @@ try {
   });
   assert.equal(
     nestedChangedWorkbridge.command,
-    "node --import tsx \"src/sample.test.ts\"",
+    "node --import tsx src/sample.test.ts",
   );
   assert.doesNotMatch(nestedChangedWorkbridge.evidence.join("\n"), /outside\.ts/);
 
@@ -305,7 +306,7 @@ try {
   await writeFile(join(changedPythonRoot, "alpha.py"), "VALUE = 2\n");
   const changedPython = await resolveChangedTestsProfile({ workspaceRoot: changedPythonRoot });
   assert.equal(changedPython.profile, "python");
-  assert.equal(changedPython.command, "uv run pytest \"tests/test_alpha.py\"");
+  assert.equal(changedPython.command, "uv run pytest tests/test_alpha.py");
 
   const changedNodeRoot = join(root, "changed-node");
   await mkdir(join(changedNodeRoot, "src"), { recursive: true });
@@ -317,14 +318,66 @@ try {
   await writeFile(join(changedNodeRoot, "src", "sample.test.ts"), "export {};\n");
   await initializeGitRepository(changedNodeRoot);
   await writeFile(join(changedNodeRoot, "src", "sample.ts"), "export const value = 2;\n");
+  const changedNode = await resolveChangedTestsProfile({ workspaceRoot: changedNodeRoot });
+  assert.equal(changedNode.profile, "node");
+  assert.equal(changedNode.command, "npm run test -- src/sample.test.ts");
+  assert.match(changedNode.evidence.join("\n"), /test runner: vitest/);
+
+  const changedChromeRoot = join(root, "changed-chrome");
+  await mkdir(join(changedChromeRoot, "src"), { recursive: true });
+  await writeFile(join(changedChromeRoot, "manifest.json"), JSON.stringify({ manifest_version: 3, name: "Test", version: "1" }));
+  await writeFile(join(changedChromeRoot, "package.json"), JSON.stringify({ scripts: { test: "jest" } }));
+  await writeFile(join(changedChromeRoot, "src", "content.js"), "export const value = 1;\n");
+  await writeFile(join(changedChromeRoot, "src", "content.test.js"), "test('ok',()=>{});\n");
+  await initializeGitRepository(changedChromeRoot);
+  await writeFile(join(changedChromeRoot, "src", "content.js"), "export const value = 2;\n");
+  const changedChrome = await resolveChangedTestsProfile({ workspaceRoot: changedChromeRoot });
+  assert.equal(changedChrome.profile, "chrome_extension");
+  assert.equal(changedChrome.command, "npm run test -- src/content.test.js");
+  assert.match(changedChrome.evidence.join("\n"), /test runner: jest/);
+
+  const changedNodeTestRoot = join(root, "changed-node-test");
+  await mkdir(join(changedNodeTestRoot, "src"), { recursive: true });
+  await writeFile(join(changedNodeTestRoot, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));
+  await writeFile(join(changedNodeTestRoot, "src", "value.js"), "export const value = 1;\n");
+  await writeFile(join(changedNodeTestRoot, "src", "value.test.js"), "import test from 'node:test';test('ok',()=>{});\n");
+  await initializeGitRepository(changedNodeTestRoot);
+  await writeFile(join(changedNodeTestRoot, "src", "value.js"), "export const value = 2;\n");
+  const changedNodeTest = await resolveChangedTestsProfile({ workspaceRoot: changedNodeTestRoot });
+  assert.equal(changedNodeTest.command, "node --test src/value.test.js");
+
+  const ambiguousRunnerRoot = join(root, "ambiguous-runner");
+  await mkdir(join(ambiguousRunnerRoot, "src"), { recursive: true });
+  await writeFile(join(ambiguousRunnerRoot, "package.json"), JSON.stringify({ scripts: { test: "vitest run && jest" } }));
+  await writeFile(join(ambiguousRunnerRoot, "src", "value.test.ts"), "export {};\n");
+  await initializeGitRepository(ambiguousRunnerRoot);
+  await writeFile(join(ambiguousRunnerRoot, "src", "value.test.ts"), "export const changed = true;\n");
   await assert.rejects(
-    () => resolveChangedTestsProfile({ workspaceRoot: changedNodeRoot }),
+    () => resolveChangedTestsProfile({ workspaceRoot: ambiguousRunnerRoot }),
     (error: unknown) => {
       assert.ok(error instanceof ProjectProfileResolutionError);
-      assert.equal(error.kind, "unsupported_action_for_profile");
+      assert.equal(error.kind, "ambiguous_test_runner");
       return true;
     },
   );
+
+  const unicodePathRoot = join(root, "unicode-path");
+  await mkdir(join(unicodePathRoot, "src"), { recursive: true });
+  await writeFile(join(unicodePathRoot, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));
+  await writeFile(join(unicodePathRoot, "src", "日本 語.js"), "export const value = 1;\n");
+  await writeFile(join(unicodePathRoot, "src", "日本 語.test.js"), "import test from 'node:test';test('ok',()=>{});\n");
+  await initializeGitRepository(unicodePathRoot);
+  await writeFile(join(unicodePathRoot, "src", "日本 語.js"), "export const value = 2;\n");
+  const unicodePath = await resolveChangedTestsProfile({ workspaceRoot: unicodePathRoot });
+  assert.equal(unicodePath.command, "node --test \"src/日本 語.test.js\"");
+  const unicodeStep = unicodePath.plan.steps[0];
+  assert.ok(unicodeStep && "kind" in unicodeStep && unicodeStep.kind === "process");
+  assert.deepEqual(unicodeStep.args, ["--test", "src/日本 語.test.js"]);
+
+  const projectReport = await resolveProjectReportProfile({ workspaceRoot: changedNodeRoot });
+  assert.equal(projectReport.profile, "node");
+  assert.match(projectReport.artifactPath, /^\.workbridge\/reports\/project-profile-/);
+  assert.equal(projectReport.plan.steps[0]?.id, "write-report");
 
   const unmappedWorkbridgeRoot = join(root, "unmapped-workbridge");
   await mkdir(join(unmappedWorkbridgeRoot, "src"), { recursive: true });

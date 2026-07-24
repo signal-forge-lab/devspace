@@ -78,6 +78,9 @@ preset: quick | standard
 
 action: test_changed
 preset: exact
+
+action: project_report
+preset: profile
 ```
 
 It runs this fixed fail-fast sequence:
@@ -139,6 +142,11 @@ test suite. `project_verify/standard` remains the default complete verification.
 Actions are stored internally as ordered step plans. Starting in 1.1, the action
 process runtime executes those steps sequentially inside one Workbridge session
 and records completion, failure, cancellation, and skipped follow-up steps.
+Fixed actions use explicit executable-and-argument steps rather than embedding
+dynamic file paths in shell command strings. Required executables are resolved
+before execution; a missing binary returns `required_executable_missing`
+without starting a partial plan. Windows `.cmd` and `.bat` shims are invoked
+through `cmd.exe /d /c call` with separated arguments.
 Each step emits concise start and finish markers around its ordinary process
 output, for example `==> [typecheck] TypeScript typecheck` and
 `<== [typecheck] completed in 4120ms`.
@@ -173,8 +181,19 @@ files or a `tests` directory.
 only test files with an exact mapping. Workbridge maps `src/name.ts` to an
 existing `src/name.test.ts` or `src/name.spec.ts`. Python maps modules to
 existing `test_name.py` or `name_test.py` files and requires configured Pytest.
-Generic Node and Chrome extension profiles are rejected until a runner-specific
-exact mapping is available. When no mapping exists, use `project_verify/quick`.
+Node and Chrome extension profiles support test scripts that explicitly select
+`node --test`, Vitest, or Jest. A changed test file is run directly; otherwise
+only an existing same-basename `.test.*` or `.spec.*` file is selected. Unknown
+or multiple runners are rejected. Test paths are passed as process arguments,
+so spaces and Unicode names are supported; traversal, control characters, and
+Windows command-expansion metacharacters remain rejected. When no mapping
+exists, use `project_verify/quick`.
+
+`project_report/profile` writes one new JSON file beneath
+`.workbridge/reports/`. The report records the selected profile, confidence,
+evidence, and the standard verification plan. The action returns the generated
+path in `artifacts[]`; it never overwrites an existing destination and rejects
+unsafe or symlinked parent directories.
 
 ### Compatibility policy
 

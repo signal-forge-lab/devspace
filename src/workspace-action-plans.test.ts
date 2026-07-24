@@ -5,7 +5,10 @@ import {
   WorkspaceActionPlanResolutionError,
   compileWorkspaceActionPlan,
   pendingWorkspaceActionSteps,
+  processStep,
   shellSteps,
+  workspaceActionSteps,
+  writeJsonStep,
 } from "./workspace-action-plans.js";
 
 const plan = shellSteps([
@@ -19,6 +22,15 @@ assert.deepEqual(pendingWorkspaceActionSteps(plan), [
   { id: "first", label: "First", status: "pending" },
   { id: "second", label: "Second", status: "pending" },
 ]);
+
+const structuredPlan = workspaceActionSteps([
+  processStep("process", "Process", "node", ["--test", "tests/日本 語.test.js"]),
+  writeJsonStep("report", "Report", ".workbridge/reports/result.json", { ok: true }),
+]);
+assert.equal(
+  compileWorkspaceActionPlan(structuredPlan),
+  "node --test \"tests/日本 語.test.js\" && write-json .workbridge/reports/result.json",
+);
 
 assert.throws(
   () => shellSteps([]),

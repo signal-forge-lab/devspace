@@ -1,12 +1,20 @@
 import { spawn } from "node:child_process";
 import { buildChildProcessEnvironment } from "./child-environment.js";
+import {
+  isWindowsCommandShim,
+  RequiredExecutableMissingError,
+  resolveExecutablePath,
+} from "./executable-resolution.js";
 import { resolveShellCommand, terminateProcessTree } from "./process-platform.js";
 import { redactPathsInText, type PathRedaction } from "./path-redaction.js";
 import type {
   WorkspaceActionArtifact,
   WorkspaceActionExecutionPlan,
+  WorkspaceActionPlanStep,
+  WorkspaceActionProcessStep,
   WorkspaceActionStepResult,
 } from "./workspace-action-plans.js";
+import { writeWorkspaceJsonArtifact } from "./workspace-json-artifact.js";
 
 const DEFAULT_EXEC_YIELD_MS = 10_000;
 const DEFAULT_INTERACTIVE_YIELD_MS = 250;
@@ -37,6 +45,7 @@ export interface StartCommandInput {
 export interface StartActionPlanInput {
   workspaceId: string;
   plan: WorkspaceActionExecutionPlan;
+  plannedArtifacts?: WorkspaceActionArtifact[];
   cwd: string;
   workspaceRoot?: string;
   outputRedactions?: PathRedaction[];
@@ -404,7 +413,7 @@ export class ProcessSessionManager {
       const stepStartedAt = Date.now();
       let outcome: { exitCode?: number; signal?: string };
       try {
-        outcome = await this.runPlanStep(session, input, planStep.command);
+        outcome = await this.runPlanStep(session, input, planStep);
       } catch (error) {
         resultStep.durationMs = Date.now() - stepStartedAt;
         resultStep.exitCode = 1;
@@ -448,12 +457,32 @@ export class ProcessSessionManager {
   private runPlanStep(
     session: ProcessSession,
     input: StartActionPlanInput,
-    command: string,
+    step: WorkspaceActionPlanStep,
   ): Promise<{ exitCode?: number; signal?: string }> {
+    if ("kind" in step && step.kind === "write_json") {
+      return writeWorkspaceJsonArtifact(input.cwd, step.path, step.value).then(() => {
+        const context = session.context;
+        const artifact = input.plannedArtifacts?.find((candidate) => candidate.path === step.path);
+        if (
+          context?.kind === "workspace_action"
+          && artifact
+          && !context.artifacts.some((candidate) => candidate.path === artifact.path)
+        ) {
+          context.artifacts.push({ ...artifact });
+        }
+        this.append(session, `Generated artifact: ${step.path}\n`);
+        return { exitCode: 0 };
+      });
+    }
+
+    if ("kind" in step && step.kind === "process") {
+      return this.runProcessPlanStep(session, input, step);
+    }
+
     return new Promise((resolve, reject) => {
       const commandInput: StartCommandInput = {
         workspaceId: input.workspaceId,
-        command,
+        command: step.command,
         cwd: input.cwd,
         workspaceRoot: input.workspaceRoot,
         outputRedactions: input.outputRedactions,
@@ -472,6 +501,48 @@ export class ProcessSessionManager {
           this.startPipe(session, commandInput, (exitCode, signal) => {
             resolve({ exitCode, signal });
           });
+        }
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  private async runProcessPlanStep(
+    session: ProcessSession,
+    input: StartActionPlanInput,
+    step: WorkspaceActionProcessStep,
+  ): Promise<{ exitCode?: number; signal?: string }> {
+    const childEnvironment = buildChildProcessEnvironment({
+      workspaceId: input.workspaceId,
+      workspaceRoot: input.workspaceRoot,
+    });
+    const executable = await resolveExecutablePath(step.executable, {
+      cwd: input.cwd,
+      env: childEnvironment,
+    });
+    if (!executable) throw new RequiredExecutableMissingError(step.executable);
+
+    return new Promise((resolve, reject) => {
+      try {
+        if (input.tty && process.platform !== "win32") {
+          void this.startProcessPty(
+            session,
+            input,
+            executable,
+            step.args,
+            childEnvironment,
+            (exitCode, signal) => resolve({ exitCode, signal }),
+          ).catch(reject);
+        } else {
+          this.startProcessPipe(
+            session,
+            input,
+            executable,
+            step.args,
+            childEnvironment,
+            (exitCode, signal) => resolve({ exitCode, signal }),
+          );
         }
       } catch (error) {
         reject(error);
@@ -518,6 +589,83 @@ export class ProcessSessionManager {
     child.stderr.on("data", (data: Buffer) => this.append(session, data.toString("utf8")));
     child.on("error", (error) => this.append(session, `${error.message}\n`));
     child.on("close", (code, signal) => onExit(code ?? undefined, signal ?? undefined));
+  }
+
+  private startProcessPipe(
+    session: ProcessSession,
+    input: StartActionPlanInput,
+    executable: string,
+    args: readonly string[],
+    childEnvironment: NodeJS.ProcessEnv,
+    onExit: (exitCode?: number, signal?: string) => void,
+  ): void {
+    const detached = process.platform !== "win32";
+    const invocation = process.platform === "win32" && isWindowsCommandShim(executable)
+      ? {
+          executable: childEnvironment.ComSpec ?? process.env.ComSpec ?? "cmd.exe",
+          args: ["/d", "/c", "call", executable, ...args],
+        }
+      : { executable, args: [...args] };
+    const child = spawn(invocation.executable, invocation.args, {
+      cwd: input.cwd,
+      env: childEnvironment,
+      stdio: "pipe",
+      windowsHide: true,
+      detached,
+      shell: false,
+    });
+
+    session.process = {
+      write: (data) => child.stdin.write(data),
+      kill: (signal = "SIGTERM") => terminateProcessTree(child, signal, detached),
+      resize: input.tty ? () => undefined : undefined,
+    };
+    child.stdout.on("data", (data: Buffer) => this.append(session, data.toString("utf8")));
+    child.stderr.on("data", (data: Buffer) => this.append(session, data.toString("utf8")));
+    let settled = false;
+    const finish = (exitCode?: number, signal?: string): void => {
+      if (settled) return;
+      settled = true;
+      onExit(exitCode, signal);
+    };
+    child.once("error", (error) => {
+      this.append(session, `${error.message}\n`);
+      finish(1);
+    });
+    child.once("close", (code, signal) => finish(code ?? undefined, signal ?? undefined));
+  }
+
+  private async startProcessPty(
+    session: ProcessSession,
+    input: StartActionPlanInput,
+    executable: string,
+    args: readonly string[],
+    childEnvironment: NodeJS.ProcessEnv,
+    onExit: (exitCode?: number, signal?: string) => void,
+  ): Promise<void> {
+    let nodePty: typeof import("node-pty");
+    try {
+      nodePty = await import("node-pty");
+    } catch {
+      throw new Error("PTY support requires the optional node-pty dependency.");
+    }
+
+    const pty = nodePty.spawn(executable, [...args], {
+      cwd: input.cwd,
+      env: childEnvironment,
+      name: "xterm-256color",
+      cols: session.columns,
+      rows: session.rows,
+    });
+    session.process = {
+      write: (data) => pty.write(data),
+      kill: (signal) => pty.kill(signal),
+      resize: (columns, rows) => pty.resize(columns, rows),
+    };
+    pty.onData((data) => this.append(session, data));
+    pty.onExit(({ exitCode, signal }) => {
+      onExit(exitCode, signal === 0 ? undefined : String(signal));
+    });
   }
 
   private async startPty(

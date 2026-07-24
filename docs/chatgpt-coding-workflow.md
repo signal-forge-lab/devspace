@@ -89,3 +89,12 @@ Action result contract v2 includes ordered `steps`, `profileEvidence`,
 `warnings`, and `artifacts`. A failed step stops the plan and marks later steps
 as `skipped`. When an action returns a `sessionId`, polling with `write_stdin`
 returns the same evolving step state until completion or cancellation.
+
+Use `test_changed/exact` for Workbridge, Python, Node, or Chrome extension
+projects when an exact mapping and a supported runner are available. Node and
+Chrome support explicit `node --test`, Vitest, and Jest test scripts. Paths are
+passed as process arguments, including paths with spaces or Unicode characters.
+Use `project_report/profile` to generate a downloadable JSON description of the
+detected profile and standard verification plan under `.workbridge/reports/`.
+Action resolution checks every required executable first and returns
+`required_executable_missing` before starting when a binary is unavailable.

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -22,6 +22,12 @@ await writeFile(
       build: "node -e \"console.log('should-not-build')\"",
     },
   }),
+);
+const reportProjectRoot = join(temporaryRoot, "report-node-project");
+await mkdir(reportProjectRoot, { recursive: true });
+await writeFile(
+  join(reportProjectRoot, "package.json"),
+  JSON.stringify({ scripts: { test: "node --test" } }),
 );
 const stateDir = join(temporaryRoot, "state");
 const workspaceStore = createWorkspaceStore(stateDir);
@@ -155,7 +161,7 @@ try {
   assert.equal(record(rejected.error).code, "unsupported_action");
   assert.deepEqual(
     (rejected.catalog as Array<Record<string, unknown>>).map((entry) => entry.action),
-    ["workspace_verify", "workspace_review", "project_verify", "test_changed"],
+    ["workspace_verify", "workspace_review", "project_verify", "test_changed", "project_report"],
   );
 
   const invalidWorkingDirectory = structured(await client.callTool({
@@ -197,6 +203,31 @@ try {
     ["failed", "skipped"],
   );
   assert.equal((failed.steps as Array<Record<string, unknown>>)[0]?.exitCode, 7);
+
+  const reportOpened = await client.callTool({
+    name: "open_workspace",
+    arguments: { path: reportProjectRoot },
+  });
+  const reportWorkspaceId = requiredString(structured(reportOpened), "workspaceId");
+  const reportResult = structured(await client.callTool({
+    name: "run_workspace_action",
+    arguments: {
+      workspaceId: reportWorkspaceId,
+      action: "project_report",
+      yieldTimeMs: 30_000,
+    },
+  }));
+  assert.equal(reportResult.status, "completed");
+  assert.equal(reportResult.profile, "node");
+  const reportArtifacts = reportResult.artifacts as Array<Record<string, unknown>>;
+  assert.equal(reportArtifacts.length, 1);
+  const reportPath = requiredString(reportArtifacts[0] ?? {}, "path");
+  const report = JSON.parse(await readFile(join(reportProjectRoot, reportPath), "utf8")) as {
+    profile?: unknown;
+    reportType?: unknown;
+  };
+  assert.equal(report.profile, "node");
+  assert.equal(report.reportType, "workbridge_project_profile");
 } finally {
   await client.close().catch(() => undefined);
   await server.close().catch(() => undefined);

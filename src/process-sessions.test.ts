@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { HeadTailBuffer, ProcessSessionManager } from "./process-sessions.js";
 import { workspacePathRedactions } from "./path-redaction.js";
-import { pendingWorkspaceActionSteps, shellSteps } from "./workspace-action-plans.js";
+import {
+  pendingWorkspaceActionSteps,
+  processStep,
+  shellSteps,
+  workspaceActionSteps,
+  writeJsonStep,
+} from "./workspace-action-plans.js";
 
 const smallBuffer = new HeadTailBuffer(100);
 smallBuffer.append("hello\n");
@@ -328,6 +337,63 @@ assert.deepEqual(
   cancelledAction.context?.steps.map((step) => step.status),
   ["cancelled", "skipped"],
 );
+
+const directProcessRoot = await mkdtemp(join(tmpdir(), "workbridge-process-step-test-"));
+try {
+  const scriptDirectory = join(directProcessRoot, "scripts");
+  await mkdir(scriptDirectory);
+  const relativeScript = "scripts/日本 語.js";
+  await writeFile(join(directProcessRoot, relativeScript), "console.log('unicode-process-ok');\n");
+  const directPlan = workspaceActionSteps([
+    processStep("unicode", "Unicode process path", process.execPath, [relativeScript]),
+    writeJsonStep(
+      "artifact",
+      "Write JSON artifact",
+      ".workbridge/reports/process-step.json",
+      { status: "ok" },
+    ),
+  ]);
+  const directResult = await manager.startPlan({
+    workspaceId: "workspace-a",
+    cwd: directProcessRoot,
+    plan: directPlan,
+    plannedArtifacts: [{
+      path: ".workbridge/reports/process-step.json",
+      kind: "report",
+      description: "Process step test report.",
+    }],
+    yieldTimeMs: 2_000,
+    context: {
+      kind: "workspace_action",
+      contractVersion: 2,
+      action: "direct_process_test",
+      preset: "standard",
+      policy: ["workspace_modify"],
+      profileEvidence: [],
+      warnings: [],
+      artifacts: [],
+      steps: pendingWorkspaceActionSteps(directPlan),
+    },
+  });
+  assert.equal(directResult.exitCode, 0);
+  assert.match(directResult.output, /unicode-process-ok/);
+  assert.match(directResult.output, /Generated artifact/);
+  assert.deepEqual(
+    directResult.context?.steps.map((step) => step.status),
+    ["completed", "completed"],
+  );
+  assert.deepEqual(directResult.context?.artifacts, [{
+    path: ".workbridge/reports/process-step.json",
+    kind: "report",
+    description: "Process step test report.",
+  }]);
+  const generated = JSON.parse(
+    await readFile(join(directProcessRoot, ".workbridge", "reports", "process-step.json"), "utf8"),
+  ) as { status?: unknown };
+  assert.equal(generated.status, "ok");
+} finally {
+  await rm(directProcessRoot, { recursive: true, force: true });
+}
 assert.match(
   `${cancellableAction.output}${cancelledAction.output}`,
   /<== \[wait\] cancelled in \d+ms/,

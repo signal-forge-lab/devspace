@@ -1,12 +1,16 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   compileWorkspaceActionPlan,
-  shellSteps,
+  processStep,
+  workspaceActionSteps,
+  writeJsonStep,
   type WorkspaceActionExecutionPlan,
-  type WorkspaceActionStep,
+  type WorkspaceActionPlanStep,
+  type WorkspaceActionProcessStep,
 } from "./workspace-action-plans.js";
 
 export const PROJECT_PROFILE_NAMES = ["workbridge", "chrome_extension", "python", "node"] as const;
@@ -24,6 +28,7 @@ export type ProjectProfileResolutionErrorKind =
   | "no_changed_files"
   | "no_exact_test_mapping"
   | "action_plan_too_large"
+  | "ambiguous_test_runner"
   | "unsafe_changed_path"
   | "unsupported_package_manager"
   | "ambiguous_package_manager";
@@ -50,6 +55,10 @@ export interface ProjectVerifyProfileResolution {
 }
 
 export interface ChangedTestsProfileResolution extends ProjectVerifyProfileResolution {}
+
+export interface ProjectReportProfileResolution extends ProjectVerifyProfileResolution {
+  artifactPath: string;
+}
 
 interface PackageManifest {
   name?: unknown;
@@ -80,6 +89,7 @@ const MAX_EVIDENCE_PATHS = 20;
 const MAX_CHANGED_PATH_CHARACTERS = 512;
 
 type NodePackageManager = "npm" | "pnpm" | "yarn" | "bun";
+type NodeTestRunner = "node_test" | "vitest" | "jest";
 type PythonRunner = "uv" | "poetry" | "system";
 
 interface PythonProjectDetection {
@@ -223,12 +233,6 @@ export async function resolveChangedTestsProfile(input: {
     );
   }
 
-  if (profile !== "workbridge" && profile !== "python") {
-    throw new ProjectProfileResolutionError(
-      "unsupported_action_for_profile",
-      `The test_changed action is not available for the ${profile} profile because no exact test-runner mapping is defined.`,
-    );
-  }
   if (!(await isGitWorkTree(input.workspaceRoot))) {
     throw new ProjectProfileResolutionError(
       "not_git_workspace",
@@ -247,20 +251,80 @@ export async function resolveChangedTestsProfile(input: {
 
   if (profile === "workbridge") {
     const tests = await mapWorkbridgeChangedTests(input.workspaceRoot, changedFiles);
-    return changedTestsResolution(profile, changedFiles, tests, (path) => `node --import tsx \"${path}\"`);
+    return changedTestsResolution(profile, changedFiles, tests, (path, index) =>
+      processStep(`test-${index + 1}`, `Changed-file test: ${path}`, "node", ["--import", "tsx", path]));
   }
 
-  const detection = pythonDetection!;
-  const configuredTools = await configuredPythonTools(input.workspaceRoot, detection);
-  if (!configuredTools.has("pytest")) {
+  if (profile === "python") {
+    const detection = pythonDetection!;
+    const configuredTools = await configuredPythonTools(input.workspaceRoot, detection);
+    if (!configuredTools.has("pytest")) {
+      throw new ProjectProfileResolutionError(
+        "unsupported_action_for_profile",
+        "The Python profile requires explicit Pytest configuration or a tests directory for test_changed.",
+      );
+    }
+    const runner = await resolvePythonRunner(input.workspaceRoot, detection.pyproject);
+    const tests = await mapPythonChangedTests(input.workspaceRoot, changedFiles);
+    return changedTestsResolution(profile, changedFiles, tests, (path, index) => {
+      const invocation = pythonPytestPathInvocation(runner, path);
+      return processStep(`test-${index + 1}`, `Changed-file test: ${path}`, invocation.executable, invocation.args);
+    });
+  }
+
+  if (!manifest) {
     throw new ProjectProfileResolutionError(
       "unsupported_action_for_profile",
-      "The Python profile requires explicit Pytest configuration or a tests directory for test_changed.",
+      `The ${profile} profile requires package.json with a supported test script for test_changed.`,
     );
   }
-  const runner = await resolvePythonRunner(input.workspaceRoot, detection.pyproject);
-  const tests = await mapPythonChangedTests(input.workspaceRoot, changedFiles);
-  return changedTestsResolution(profile, changedFiles, tests, (path) => pythonPytestPathCommand(runner, path));
+  const testRunner = detectNodeTestRunner(manifest);
+  const packageManager = await resolveNodePackageManager(input.workspaceRoot, manifest);
+  const tests = await mapNodeChangedTests(input.workspaceRoot, changedFiles);
+  return changedTestsResolution(profile, changedFiles, tests, (path, index) => {
+    const invocation = nodeTestPathInvocation(testRunner, packageManager, path);
+    return processStep(`test-${index + 1}`, `Changed-file test: ${path}`, invocation.executable, invocation.args);
+  }, [`test runner: ${testRunner}`, `package manager: ${packageManager}`]);
+}
+
+export async function resolveProjectReportProfile(input: {
+  workspaceRoot: string;
+  requestedProfile?: string;
+}): Promise<ProjectReportProfileResolution> {
+  const verification = await resolveProjectVerifyProfile({
+    workspaceRoot: input.workspaceRoot,
+    requestedProfile: input.requestedProfile,
+    preset: "standard",
+  });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const artifactPath = `.workbridge/reports/project-profile-${timestamp}-${randomUUID().slice(0, 8)}.json`;
+  const report = {
+    formatVersion: 1,
+    reportType: "workbridge_project_profile",
+    profile: verification.profile,
+    confidence: verification.confidence,
+    evidence: verification.evidence,
+    verification: {
+      preset: "standard",
+      commandPreview: verification.displayCommand,
+      steps: verification.plan.steps.map((step) => ({ id: step.id, label: step.label })),
+    },
+  };
+  const plan = workspaceActionSteps([
+    writeJsonStep("write-report", "Write project profile report", artifactPath, report),
+  ]);
+  const command = compileWorkspaceActionPlan(plan);
+  return {
+    profile: verification.profile,
+    confidence: verification.confidence,
+    evidence: verification.evidence,
+    plan,
+    command,
+    displayCommand: command,
+    description: "Write a JSON report describing the detected project profile and standard verification plan.",
+    policy: ["workspace_modify"],
+    artifactPath,
+  };
 }
 
 function normalizeRequestedProfile(value: string | undefined): ProjectProfileName | undefined {
@@ -339,18 +403,18 @@ async function matchesWorkbridgeProfile(
 
 function workbridgeProfile(preset: "quick" | "standard"): ProjectVerifyProfileResolution {
   const steps = [
-    { id: "typecheck", label: "TypeScript typecheck", command: "npm run typecheck" },
-    { id: "tool-contract", label: "Tool contract baseline", command: "npm run baseline:tools:check" },
+    processStep("typecheck", "TypeScript typecheck", "npm", ["run", "typecheck"]),
+    processStep("tool-contract", "Tool contract baseline", "npm", ["run", "baseline:tools:check"]),
     ...(preset === "standard"
       ? [
-          { id: "tests", label: "Test suite", command: "npm test" },
-          { id: "build", label: "Production build", command: "npm run build" },
+          processStep("tests", "Test suite", "npm", ["test"]),
+          processStep("build", "Production build", "npm", ["run", "build"]),
         ]
       : []),
-    { id: "diff-check", label: "Git diff validation", command: "git diff --check" },
-    { id: "status", label: "Git status", command: "git status --short" },
+    processStep("diff-check", "Git diff validation", "git", ["diff", "--check"]),
+    processStep("status", "Git status", "git", ["status", "--short"]),
   ];
-  const plan = shellSteps(steps);
+  const plan = workspaceActionSteps(steps);
   const command = compileWorkspaceActionPlan(plan);
   return {
     profile: "workbridge",
@@ -376,12 +440,13 @@ async function chromeExtensionProfile(
   const referencedResources = extensionResourcePaths(extensionManifest);
   await validateExtensionResources(workspaceRoot, referencedResources);
 
-  const steps: WorkspaceActionStep[] = [
-    {
-      id: "manifest",
-      label: "Chrome extension manifest validation",
-      command: "node -e \"const fs=require('fs');const m=JSON.parse(fs.readFileSync('manifest.json','utf8'));if(m.manifest_version!==2&&m.manifest_version!==3)throw new Error('Unsupported manifest_version');console.log('Chrome extension manifest valid')\"",
-    },
+  const steps: WorkspaceActionPlanStep[] = [
+    processStep(
+      "manifest",
+      "Chrome extension manifest validation",
+      "node",
+      ["-e", "const fs=require('fs');const m=JSON.parse(fs.readFileSync('manifest.json','utf8'));if(m.manifest_version!==2&&m.manifest_version!==3)throw new Error('Unsupported manifest_version');console.log('Chrome extension manifest valid')"],
+    ),
   ];
   const evidence = [
     `manifest.json version: ${String(extensionManifest.manifest_version)}`,
@@ -396,11 +461,8 @@ async function chromeExtensionProfile(
     const selectedScripts = allowedScripts.filter((name) => scripts.has(name));
     if (selectedScripts.length > 0) {
       const packageManager = await resolveNodePackageManager(workspaceRoot, packageManifest);
-      steps.push(...selectedScripts.map((name) => ({
-        id: name,
-        label: `Package script: ${name}`,
-        command: packageManagerRunCommand(packageManager, name),
-      })));
+      steps.push(...selectedScripts.map((name) =>
+        processStep(name, `Package script: ${name}`, packageManager, ["run", name])));
       evidence.push(
         `package manager: ${packageManager}`,
         `supported scripts: ${selectedScripts.join(", ")}`,
@@ -410,12 +472,12 @@ async function chromeExtensionProfile(
 
   if (await isGitWorkTree(workspaceRoot)) {
     steps.push(
-      { id: "diff-check", label: "Git diff validation", command: "git diff --check" },
-      { id: "status", label: "Git status", command: "git status --short" },
+      processStep("diff-check", "Git diff validation", "git", ["diff", "--check"]),
+      processStep("status", "Git status", "git", ["status", "--short"]),
     );
   }
 
-  const plan = shellSteps(steps);
+  const plan = workspaceActionSteps(steps);
   const command = compileWorkspaceActionPlan(plan);
   return {
     profile: "chrome_extension",
@@ -436,31 +498,31 @@ async function pythonProfile(
 ): Promise<ProjectVerifyProfileResolution> {
   const runner = await resolvePythonRunner(workspaceRoot, detection.pyproject);
   const tools = await configuredPythonTools(workspaceRoot, detection);
-  const steps: WorkspaceActionStep[] = [
-    {
-      id: "compileall",
-      label: "Python bytecode compilation",
-      command: pythonToolCommand(runner, "compileall"),
-    },
+  const compileall = pythonToolInvocation(runner, "compileall");
+  const steps: WorkspaceActionPlanStep[] = [
+    processStep("compileall", "Python bytecode compilation", compileall.executable, compileall.args),
   ];
 
   if (tools.has("ruff")) {
-    steps.push({ id: "ruff", label: "Ruff lint", command: pythonToolCommand(runner, "ruff") });
+    const invocation = pythonToolInvocation(runner, "ruff");
+    steps.push(processStep("ruff", "Ruff lint", invocation.executable, invocation.args));
   }
   if (preset === "standard" && tools.has("mypy")) {
-    steps.push({ id: "mypy", label: "Mypy typecheck", command: pythonToolCommand(runner, "mypy") });
+    const invocation = pythonToolInvocation(runner, "mypy");
+    steps.push(processStep("mypy", "Mypy typecheck", invocation.executable, invocation.args));
   }
   if (preset === "standard" && tools.has("pytest")) {
-    steps.push({ id: "pytest", label: "Pytest suite", command: pythonToolCommand(runner, "pytest") });
+    const invocation = pythonToolInvocation(runner, "pytest");
+    steps.push(processStep("pytest", "Pytest suite", invocation.executable, invocation.args));
   }
   if (await isGitWorkTree(workspaceRoot)) {
     steps.push(
-      { id: "diff-check", label: "Git diff validation", command: "git diff --check" },
-      { id: "status", label: "Git status", command: "git status --short" },
+      processStep("diff-check", "Git diff validation", "git", ["diff", "--check"]),
+      processStep("status", "Git status", "git", ["status", "--short"]),
     );
   }
 
-  const plan = shellSteps(steps);
+  const plan = workspaceActionSteps(steps);
   const command = compileWorkspaceActionPlan(plan);
   return {
     profile: "python",
@@ -496,18 +558,15 @@ async function nodeProfile(
   }
 
   const packageManager = await resolveNodePackageManager(workspaceRoot, manifest);
-  const steps: WorkspaceActionStep[] = selectedScripts.map((name) => ({
-    id: name,
-    label: `Package script: ${name}`,
-    command: packageManagerRunCommand(packageManager, name),
-  }));
+  const steps: WorkspaceActionPlanStep[] = selectedScripts.map((name) =>
+    processStep(name, `Package script: ${name}`, packageManager, ["run", name]));
   if (await isGitWorkTree(workspaceRoot)) {
     steps.push(
-      { id: "diff-check", label: "Git diff validation", command: "git diff --check" },
-      { id: "status", label: "Git status", command: "git status --short" },
+      processStep("diff-check", "Git diff validation", "git", ["diff", "--check"]),
+      processStep("status", "Git status", "git", ["status", "--short"]),
     );
   }
-  const plan = shellSteps(steps);
+  const plan = workspaceActionSteps(steps);
   const command = compileWorkspaceActionPlan(plan);
   return {
     profile: "node",
@@ -568,10 +627,6 @@ function declaredPackageManager(value: unknown): NodePackageManager | undefined 
   );
 }
 
-function packageManagerRunCommand(manager: NodePackageManager, script: string): string {
-  return `${manager} run ${script}`;
-}
-
 async function isGitWorkTree(workspaceRoot: string): Promise<boolean> {
   try {
     const { stdout } = await execFileAsync(
@@ -594,6 +649,42 @@ function packageScripts(manifest: PackageManifest): Set<string> {
       .filter(([, command]) => typeof command === "string" && command.trim() !== "")
       .map(([name]) => name),
   );
+}
+
+function packageScriptCommand(manifest: PackageManifest, name: string): string | undefined {
+  if (!manifest.scripts || typeof manifest.scripts !== "object" || Array.isArray(manifest.scripts)) {
+    return undefined;
+  }
+  const value = (manifest.scripts as Record<string, unknown>)[name];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function detectNodeTestRunner(manifest: PackageManifest): NodeTestRunner {
+  const testScript = packageScriptCommand(manifest, "test");
+  if (!testScript) {
+    throw new ProjectProfileResolutionError(
+      "unsupported_action_for_profile",
+      "The Node or Chrome extension profile requires a non-empty test script for test_changed.",
+    );
+  }
+
+  const detected: NodeTestRunner[] = [];
+  if (/(?:^|[\s;&|])node(?:\.exe)?\s+--test(?:\s|$)/i.test(testScript)) detected.push("node_test");
+  if (/(?:^|[\s;&|])vitest(?:\s|$)/i.test(testScript)) detected.push("vitest");
+  if (/(?:^|[\s;&|])jest(?:\s|$)/i.test(testScript)) detected.push("jest");
+  if (detected.length === 0) {
+    throw new ProjectProfileResolutionError(
+      "unsupported_action_for_profile",
+      "The test script must explicitly use node --test, Vitest, or Jest for test_changed.",
+    );
+  }
+  if (detected.length > 1) {
+    throw new ProjectProfileResolutionError(
+      "ambiguous_test_runner",
+      `Multiple supported test runners were detected in the test script: ${detected.join(", ")}.`,
+    );
+  }
+  return detected[0]!;
 }
 
 async function detectPythonProject(
@@ -672,28 +763,28 @@ async function configuredPythonTools(
   return tools;
 }
 
-function pythonToolCommand(
+function pythonToolInvocation(
   runner: PythonRunner,
   tool: "compileall" | "ruff" | "mypy" | "pytest",
-): string {
+): { executable: string; args: string[] } {
   if (runner === "uv") {
-    if (tool === "compileall") return "uv run python -m compileall -q .";
-    if (tool === "ruff") return "uv run ruff check .";
-    if (tool === "mypy") return "uv run mypy .";
-    return "uv run pytest";
+    if (tool === "compileall") return { executable: "uv", args: ["run", "python", "-m", "compileall", "-q", "."] };
+    if (tool === "ruff") return { executable: "uv", args: ["run", "ruff", "check", "."] };
+    if (tool === "mypy") return { executable: "uv", args: ["run", "mypy", "."] };
+    return { executable: "uv", args: ["run", "pytest"] };
   }
   if (runner === "poetry") {
-    if (tool === "compileall") return "poetry run python -m compileall -q .";
-    if (tool === "ruff") return "poetry run ruff check .";
-    if (tool === "mypy") return "poetry run mypy .";
-    return "poetry run pytest";
+    if (tool === "compileall") return { executable: "poetry", args: ["run", "python", "-m", "compileall", "-q", "."] };
+    if (tool === "ruff") return { executable: "poetry", args: ["run", "ruff", "check", "."] };
+    if (tool === "mypy") return { executable: "poetry", args: ["run", "mypy", "."] };
+    return { executable: "poetry", args: ["run", "pytest"] };
   }
 
   const python = systemPythonCommand();
-  if (tool === "compileall") return `${python} -m compileall -q .`;
-  if (tool === "ruff") return `${python} -m ruff check .`;
-  if (tool === "mypy") return `${python} -m mypy .`;
-  return `${python} -m pytest`;
+  if (tool === "compileall") return { executable: python, args: ["-m", "compileall", "-q", "."] };
+  if (tool === "ruff") return { executable: python, args: ["-m", "ruff", "check", "."] };
+  if (tool === "mypy") return { executable: python, args: ["-m", "mypy", "."] };
+  return { executable: python, args: ["-m", "pytest"] };
 }
 
 function systemPythonCommand(): "py" | "python3" {
@@ -715,7 +806,11 @@ async function gitChangedFiles(workspaceRoot: string): Promise<string[]> {
   ] as const;
   const changed = new Set<string>();
   for (const args of commands) {
-    const { stdout } = await execFileAsync("git", ["-C", workspaceRoot, ...args], { windowsHide: true });
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-c", "core.quotepath=false", "-C", workspaceRoot, ...args],
+      { windowsHide: true },
+    );
     for (const line of stdout.split(/\r?\n/)) {
       const repositoryPath = line.trim().replaceAll("\\", "/");
       const path = projectRelativeGitPath(repositoryPath, projectPrefix);
@@ -789,6 +884,27 @@ async function mapPythonChangedTests(
   return requireExactTestMappings(tests);
 }
 
+async function mapNodeChangedTests(
+  workspaceRoot: string,
+  changedFiles: readonly string[],
+): Promise<string[]> {
+  const tests = new Set<string>();
+  for (const path of changedFiles) {
+    if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path) && await pathExists(join(workspaceRoot, path))) {
+      tests.add(path);
+      continue;
+    }
+    const match = /^(.*)\.([cm]?[jt]sx?)$/.exec(path);
+    if (!match) continue;
+    const base = match[1];
+    const extension = match[2];
+    for (const candidate of [`${base}.test.${extension}`, `${base}.spec.${extension}`]) {
+      if (await pathExists(join(workspaceRoot, candidate))) tests.add(candidate);
+    }
+  }
+  return requireExactTestMappings(tests);
+}
+
 function requireExactTestMappings(tests: Set<string>): string[] {
   const result = [...tests].sort();
   if (result.length === 0) {
@@ -807,17 +923,14 @@ function requireExactTestMappings(tests: Set<string>): string[] {
 }
 
 function changedTestsResolution(
-  profile: "workbridge" | "python",
+  profile: ProjectProfileName,
   changedFiles: readonly string[],
   tests: readonly string[],
-  commandForPath: (path: string) => string,
+  stepForPath: (path: string, index: number) => WorkspaceActionProcessStep,
+  extraEvidence: readonly string[] = [],
 ): ChangedTestsProfileResolution {
-  const steps = tests.map((path, index) => ({
-    id: `test-${index + 1}`,
-    label: `Changed-file test: ${path}`,
-    command: commandForPath(path),
-  }));
-  const plan = shellSteps(steps);
+  const steps = tests.map(stepForPath);
+  const plan = workspaceActionSteps(steps);
   const command = compileWorkspaceActionPlan(plan);
   return {
     profile,
@@ -825,6 +938,7 @@ function changedTestsResolution(
     evidence: [
       summarizeEvidencePaths("changed files", changedFiles),
       summarizeEvidencePaths("mapped tests", tests),
+      ...extraEvidence,
     ],
     plan,
     command,
@@ -834,18 +948,33 @@ function changedTestsResolution(
   };
 }
 
-function pythonPytestPathCommand(runner: PythonRunner, path: string): string {
-  if (runner === "uv") return `uv run pytest \"${path}\"`;
-  if (runner === "poetry") return `poetry run pytest \"${path}\"`;
-  return `${systemPythonCommand()} -m pytest \"${path}\"`;
+function pythonPytestPathInvocation(
+  runner: PythonRunner,
+  path: string,
+): { executable: string; args: string[] } {
+  if (runner === "uv") return { executable: "uv", args: ["run", "pytest", path] };
+  if (runner === "poetry") return { executable: "poetry", args: ["run", "pytest", path] };
+  return { executable: systemPythonCommand(), args: ["-m", "pytest", path] };
+}
+
+function nodeTestPathInvocation(
+  runner: NodeTestRunner,
+  packageManager: NodePackageManager,
+  path: string,
+): { executable: string; args: string[] } {
+  if (runner === "node_test") return { executable: "node", args: ["--test", path] };
+  if (packageManager === "yarn") {
+    return { executable: packageManager, args: ["run", "test", path] };
+  }
+  return { executable: packageManager, args: ["run", "test", "--", path] };
 }
 
 function assertSafeActionPath(path: string): void {
   if (
     path.length > MAX_CHANGED_PATH_CHARACTERS
-    || !/^[A-Za-z0-9_./-]+$/.test(path)
-    || path.startsWith("/")
-    || path.includes("../")
+    || /[\u0000-\u001f\u007f%!?"<>|&^()]/.test(path)
+    || isAbsolute(path)
+    || path.split("/").some((part) => part === "" || part === "." || part === "..")
   ) {
     throw new ProjectProfileResolutionError(
       "unsafe_changed_path",

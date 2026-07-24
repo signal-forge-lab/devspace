@@ -11,6 +11,7 @@ assert.deepEqual(catalog.map((entry) => entry.action), [
   "workspace_review",
   "project_verify",
   "test_changed",
+  "project_report",
 ]);
 assert.equal(catalog[0]?.defaultPreset, "standard");
 assert.deepEqual(catalog[0]?.policy, ["workspace_modify", "long_running"]);
@@ -19,6 +20,7 @@ assert.deepEqual(catalog[1]?.policy, ["read_only"]);
 assert.deepEqual(catalog[1]?.presets.map((preset) => preset.name), ["summary", "integrity"]);
 assert.deepEqual(catalog[2]?.presets.map((preset) => preset.name), ["quick", "standard"]);
 assert.deepEqual(catalog[3]?.presets.map((preset) => preset.name), ["exact"]);
+assert.deepEqual(catalog[4]?.presets.map((preset) => preset.name), ["profile"]);
 
 const resolved = await resolveWorkspaceAction({
   workspaceRoot: process.cwd(),
@@ -27,7 +29,6 @@ const resolved = await resolveWorkspaceAction({
 assert.equal(resolved.action, "workspace_verify");
 assert.equal(resolved.preset, "standard");
 assert.equal(resolved.profile, "workbridge");
-assert.equal(resolved.executable, "shell");
 assert.match(resolved.command, /npm run typecheck/);
 assert.match(resolved.command, /npm run baseline:tools:check/);
 assert.match(resolved.command, /npm test/);
@@ -92,6 +93,31 @@ const projectVerifyNode = await resolveWorkspaceAction({
 assert.equal(projectVerifyNode.profile, "node");
 assert.match(projectVerifyNode.command, /npm run typecheck/);
 
+const projectReport = await resolveWorkspaceAction({
+  workspaceRoot: process.cwd(),
+  action: "project_report",
+});
+assert.equal(projectReport.profile, "workbridge");
+assert.equal(projectReport.preset, "profile");
+assert.deepEqual(projectReport.policy, ["workspace_modify"]);
+assert.equal(projectReport.artifacts.length, 1);
+assert.match(projectReport.artifacts[0]?.path ?? "", /^\.workbridge\/reports\/project-profile-/);
+assert.match(projectReport.command, /^write-json /);
+
+await assert.rejects(
+  () => resolveWorkspaceAction({
+    workspaceRoot: process.cwd(),
+    action: "workspace_verify",
+    executableEnvironment: { PATH: "", PATHEXT: ".COM;.EXE;.BAT;.CMD" },
+  }),
+  (error: unknown) => {
+    assert.ok(error instanceof WorkspaceActionResolutionError);
+    assert.equal(error.kind, "required_executable_missing");
+    assert.match(error.message, /npm/);
+    return true;
+  },
+);
+
 await assert.rejects(
   () => resolveWorkspaceAction({
     workspaceRoot: process.cwd(),
@@ -106,6 +132,7 @@ await assert.rejects(
       "workspace_review",
       "project_verify",
       "test_changed",
+      "project_report",
     ]);
     return true;
   },

@@ -1,12 +1,18 @@
 import {
+  assertWorkspaceActionExecutablesAvailable,
+  RequiredExecutableMissingError,
+} from "./executable-resolution.js";
+import {
   ProjectProfileResolutionError,
   resolveChangedTestsProfile,
+  resolveProjectReportProfile,
   resolveProjectVerifyProfile,
   type ProjectProfileName,
 } from "./project-profiles.js";
 import {
   compileWorkspaceActionPlan,
-  shellSteps,
+  processStep,
+  workspaceActionSteps,
   WorkspaceActionPlanResolutionError,
   type WorkspaceActionArtifact,
   type WorkspaceActionExecutionPlan,
@@ -17,6 +23,7 @@ export const WORKSPACE_ACTION_NAMES = [
   "workspace_review",
   "project_verify",
   "test_changed",
+  "project_report",
 ] as const;
 export type WorkspaceActionName = (typeof WORKSPACE_ACTION_NAMES)[number];
 
@@ -34,6 +41,7 @@ export interface ResolveWorkspaceActionInput {
   action: string;
   preset?: string;
   parameters?: Record<string, unknown>;
+  executableEnvironment?: NodeJS.ProcessEnv;
 }
 
 export type WorkspaceActionResolutionErrorKind =
@@ -51,6 +59,8 @@ export type WorkspaceActionResolutionErrorKind =
   | "no_changed_files"
   | "no_exact_test_mapping"
   | "action_plan_too_large"
+  | "ambiguous_test_runner"
+  | "required_executable_missing"
   | "unsafe_changed_path"
   | "unsupported_package_manager"
   | "ambiguous_package_manager";
@@ -80,8 +90,6 @@ export interface ResolvedWorkspaceAction {
   action: WorkspaceActionName;
   preset: string;
   parameters: Record<string, unknown>;
-  executable: "shell";
-  args: [];
   command: string;
   displayCommand: string;
   description: string;
@@ -129,18 +137,18 @@ const WORKSPACE_ACTIONS: Record<WorkspaceActionName, WorkspaceActionDefinition> 
     presets: {
       summary: {
         description: "Show concise working-tree status plus unstaged and staged diff statistics.",
-        plan: shellSteps([
-          { id: "status", label: "Git status", command: "git status --short" },
-          { id: "unstaged-stat", label: "Unstaged diff statistics", command: "git diff --stat" },
-          { id: "staged-stat", label: "Staged diff statistics", command: "git diff --cached --stat" },
+        plan: workspaceActionSteps([
+          processStep("status", "Git status", "git", ["status", "--short"]),
+          processStep("unstaged-stat", "Unstaged diff statistics", "git", ["diff", "--stat"]),
+          processStep("staged-stat", "Staged diff statistics", "git", ["diff", "--cached", "--stat"]),
         ]),
         validateParameters: requireNoParameters,
       },
       integrity: {
         description: "Validate diff whitespace and show concise working-tree status.",
-        plan: shellSteps([
-          { id: "diff-check", label: "Git diff validation", command: "git diff --check" },
-          { id: "status", label: "Git status", command: "git status --short" },
+        plan: workspaceActionSteps([
+          processStep("diff-check", "Git diff validation", "git", ["diff", "--check"]),
+          processStep("status", "Git status", "git", ["status", "--short"]),
         ]),
         validateParameters: requireNoParameters,
       },
@@ -168,6 +176,17 @@ const WORKSPACE_ACTIONS: Record<WorkspaceActionName, WorkspaceActionDefinition> 
     presets: {
       exact: {
         description: "Run exact changed-file test mappings without heuristic runner selection.",
+        validateParameters: validateProjectVerifyParameters,
+      },
+    },
+  },
+  project_report: {
+    description: "Write a JSON report describing the detected project profile and standard verification plan.",
+    defaultPreset: "profile",
+    policy: ["workspace_modify"],
+    presets: {
+      profile: {
+        description: "Generate a project profile report under .workbridge/reports.",
         validateParameters: validateProjectVerifyParameters,
       },
     },
@@ -244,12 +263,10 @@ export async function resolveWorkspaceAction(
         preset: presetName as "quick" | "standard",
       });
       const command = compileWorkspaceActionPlan(profileResolution.plan);
-      return {
+      return await finalizeResolvedAction(input.workspaceRoot, {
         action: input.action,
         preset: presetName,
         parameters: { ...parameters },
-        executable: "shell",
-        args: [],
         command,
         displayCommand: command,
         description: profileResolution.description,
@@ -259,8 +276,9 @@ export async function resolveWorkspaceAction(
         warnings: [],
         artifacts: [],
         plan: profileResolution.plan,
-      };
+      }, input.executableEnvironment);
     } catch (error) {
+      if (error instanceof WorkspaceActionResolutionError) throw error;
       if (
         !(error instanceof ProjectProfileResolutionError)
         && !(error instanceof WorkspaceActionPlanResolutionError)
@@ -282,12 +300,10 @@ export async function resolveWorkspaceAction(
         preset: "standard",
       });
       const command = compileWorkspaceActionPlan(profileResolution.plan);
-      return {
+      return await finalizeResolvedAction(input.workspaceRoot, {
         action: input.action,
         preset: presetName,
         parameters: { ...parameters },
-        executable: "shell",
-        args: [],
         command,
         displayCommand: command,
         description: "Compatibility alias for project_verify/standard with profile=workbridge.",
@@ -297,8 +313,9 @@ export async function resolveWorkspaceAction(
         warnings: ["workspace_verify is a compatibility alias; prefer project_verify."],
         artifacts: [],
         plan: profileResolution.plan,
-      };
+      }, input.executableEnvironment);
     } catch (error) {
+      if (error instanceof WorkspaceActionResolutionError) throw error;
       if (
         !(error instanceof ProjectProfileResolutionError)
         && !(error instanceof WorkspaceActionPlanResolutionError)
@@ -319,12 +336,10 @@ export async function resolveWorkspaceAction(
         requestedProfile: projectVerifyProfileParameter(parameters),
       });
       const command = compileWorkspaceActionPlan(profileResolution.plan);
-      return {
+      return await finalizeResolvedAction(input.workspaceRoot, {
         action: input.action,
         preset: presetName,
         parameters: { ...parameters },
-        executable: "shell",
-        args: [],
         command,
         displayCommand: command,
         description: profileResolution.description,
@@ -334,8 +349,49 @@ export async function resolveWorkspaceAction(
         warnings: [],
         artifacts: [],
         plan: profileResolution.plan,
-      };
+      }, input.executableEnvironment);
     } catch (error) {
+      if (error instanceof WorkspaceActionResolutionError) throw error;
+      if (
+        !(error instanceof ProjectProfileResolutionError)
+        && !(error instanceof WorkspaceActionPlanResolutionError)
+      ) throw error;
+      throw new WorkspaceActionResolutionError({
+        kind: error.kind,
+        message: error.message,
+        requestedAction: input.action,
+        requestedPreset: presetName,
+      });
+    }
+  }
+
+  if (input.action === "project_report") {
+    try {
+      const profileResolution = await resolveProjectReportProfile({
+        workspaceRoot: input.workspaceRoot,
+        requestedProfile: projectVerifyProfileParameter(parameters),
+      });
+      const command = compileWorkspaceActionPlan(profileResolution.plan);
+      return await finalizeResolvedAction(input.workspaceRoot, {
+        action: input.action,
+        preset: presetName,
+        parameters: { ...parameters },
+        command,
+        displayCommand: command,
+        description: profileResolution.description,
+        policy: ["workspace_modify"],
+        profile: profileResolution.profile,
+        profileEvidence: boundedProfileEvidence(profileResolution.evidence),
+        warnings: [],
+        artifacts: [{
+          path: profileResolution.artifactPath,
+          kind: "report",
+          description: "Detected project profile and standard verification plan.",
+        }],
+        plan: profileResolution.plan,
+      }, input.executableEnvironment);
+    } catch (error) {
+      if (error instanceof WorkspaceActionResolutionError) throw error;
       if (
         !(error instanceof ProjectProfileResolutionError)
         && !(error instanceof WorkspaceActionPlanResolutionError)
@@ -353,12 +409,10 @@ export async function resolveWorkspaceAction(
     throw new Error(`Workspace action preset has no execution plan: ${input.action}/${presetName}`);
   }
   const command = compileWorkspaceActionPlan(preset.plan);
-  return {
+  return await finalizeResolvedAction(input.workspaceRoot, {
     action: input.action,
     preset: presetName,
     parameters: { ...parameters },
-    executable: "shell",
-    args: [],
     command,
     displayCommand: command,
     description: preset.description,
@@ -367,7 +421,7 @@ export async function resolveWorkspaceAction(
     warnings: [],
     artifacts: [],
     plan: preset.plan,
-  };
+  }, input.executableEnvironment);
 }
 
 function requireNoParameters(parameters: Record<string, unknown>): void {
@@ -404,4 +458,26 @@ function boundedProfileEvidence(evidence: readonly string[]): string[] {
     );
   }
   return [...evidence];
+}
+
+async function finalizeResolvedAction(
+  workspaceRoot: string,
+  resolved: ResolvedWorkspaceAction,
+  executableEnvironment: NodeJS.ProcessEnv | undefined,
+): Promise<ResolvedWorkspaceAction> {
+  try {
+    await assertWorkspaceActionExecutablesAvailable(resolved.plan, {
+      cwd: workspaceRoot,
+      env: executableEnvironment,
+    });
+    return resolved;
+  } catch (error) {
+    if (!(error instanceof RequiredExecutableMissingError)) throw error;
+    throw new WorkspaceActionResolutionError({
+      kind: error.kind,
+      message: error.message,
+      requestedAction: resolved.action,
+      requestedPreset: resolved.preset,
+    });
+  }
 }

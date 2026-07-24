@@ -2079,6 +2079,7 @@ export function createMcpServer(
         snapshot = await processSessions.startPlan({
           workspaceId,
           plan: resolved.plan,
+          plannedArtifacts: resolved.artifacts,
           cwd,
           workspaceRoot: cwd,
           outputMode: "full",
@@ -2097,7 +2098,7 @@ export function createMcpServer(
             commandPreview: resolved.displayCommand,
             profileEvidence: resolved.profileEvidence,
             warnings: resolved.warnings,
-            artifacts: resolved.artifacts,
+            artifacts: [],
             steps: pendingWorkspaceActionSteps(resolved.plan),
           },
         });
@@ -2134,7 +2135,7 @@ export function createMcpServer(
             steps: pendingWorkspaceActionSteps(resolved.plan),
             profileEvidence: resolved.profileEvidence,
             warnings: resolved.warnings,
-            artifacts: resolved.artifacts,
+            artifacts: [],
             result,
             running: false,
             wallTimeMs: 0,
