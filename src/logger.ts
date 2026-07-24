@@ -244,11 +244,13 @@ function compactMcpSessionConsoleLine(event: string, fields: LogFields): string 
   }
 
   const active = numberField(fields.active) ?? 0;
+  const activeRequests = numberField(fields.activeRequests) ?? 0;
   const initializedOnly = numberField(fields.initializedOnly) ?? 0;
   const handshakeOnly = numberField(fields.handshakeOnly) ?? 0;
   const discoveryOnly = numberField(fields.discoveryOnly) ?? 0;
   const operational = numberField(fields.operational) ?? 0;
   const toolCallSessions = numberField(fields.toolCallSessions) ?? 0;
+  const oneShotCleanupCandidates = numberField(fields.oneShotCleanupCandidates) ?? 0;
   const reusedToolCallSessions = numberField(fields.reusedToolCallSessions) ?? 0;
   const maxToolCallsPerSession = numberField(fields.maxToolCallsPerSession) ?? 0;
   const rss = formatMemoryBytes(numberField(fields.rssBytes));
@@ -257,11 +259,13 @@ function compactMcpSessionConsoleLine(event: string, fields: LogFields): string 
   const status = event === "mcp_session_pressure" ? "warning" : "ok";
   const details = [
     `active=${active}`,
+    `requests=${activeRequests}`,
     `init=${initializedOnly}`,
     `handshake=${handshakeOnly}`,
     `discovery=${discoveryOnly}`,
     `operational=${operational}`,
     `toolSessions=${toolCallSessions}`,
+    `oneShot=${oneShotCleanupCandidates}`,
     `reused=${reusedToolCallSessions}`,
     `maxCalls=${maxToolCallsPerSession}`,
     rss ? `rss=${rss}` : undefined,

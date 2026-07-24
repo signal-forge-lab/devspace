@@ -16,11 +16,13 @@ export interface McpSessionMetadata {
 
 export interface McpSessionStats {
   active: number;
+  activeRequests: number;
   initializedOnly: number;
   handshakeOnly: number;
   discoveryOnly: number;
   operational: number;
   toolCallSessions: number;
+  oneShotCleanupCandidates: number;
   reusedToolCallSessions: number;
   maxToolCallsPerSession: number;
   totalCreated: number;
@@ -37,6 +39,8 @@ interface McpSessionEntry<TTransport> {
   transport: TTransport;
   createdAt: number;
   lastActivityAt: number;
+  activeRequestCount: number;
+  oneShotCleanupEligible: boolean;
   subsequentRequestCount: number;
   handshakeRequestCount: number;
   discoveryRequestCount: number;
@@ -46,6 +50,11 @@ interface McpSessionEntry<TTransport> {
 
 export interface McpSessionRegistryOptions {
   now?: () => number;
+}
+
+export interface McpSessionRegistrationOptions {
+  requestActive?: boolean;
+  oneShotCleanupEligible?: boolean;
 }
 
 export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
@@ -66,12 +75,19 @@ export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
     return this.sessions.size;
   }
 
-  register(sessionId: string, transport: TTransport, metadata: McpSessionMetadata = {}): void {
+  register(
+    sessionId: string,
+    transport: TTransport,
+    metadata: McpSessionMetadata = {},
+    options: McpSessionRegistrationOptions = {},
+  ): void {
     const timestamp = this.now();
     this.sessions.set(sessionId, {
       transport,
       createdAt: timestamp,
       lastActivityAt: timestamp,
+      activeRequestCount: options.requestActive ? 1 : 0,
+      oneShotCleanupEligible: options.oneShotCleanupEligible ?? false,
       subsequentRequestCount: 0,
       handshakeRequestCount: 0,
       discoveryRequestCount: 0,
@@ -83,11 +99,12 @@ export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
     incrementCounter(this.protocolVersions, metadata.protocolVersion ?? "unknown", 16);
   }
 
-  get(sessionId: string, methods: readonly string[] = []): TTransport | undefined {
+  beginRequest(sessionId: string, methods: readonly string[] = []): TTransport | undefined {
     const entry = this.sessions.get(sessionId);
     if (!entry) return undefined;
 
     entry.lastActivityAt = this.now();
+    entry.activeRequestCount += 1;
     entry.subsequentRequestCount += 1;
     this.totalSubsequentRequests += 1;
 
@@ -103,6 +120,14 @@ export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
     return entry.transport;
   }
 
+  endRequest(sessionId: string): boolean {
+    const entry = this.sessions.get(sessionId);
+    if (!entry || entry.activeRequestCount === 0) return false;
+    entry.activeRequestCount -= 1;
+    entry.lastActivityAt = this.now();
+    return true;
+  }
+
   remove(sessionId: string): boolean {
     const removed = this.sessions.delete(sessionId);
     if (removed) this.totalClosed += 1;
@@ -111,17 +136,20 @@ export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
 
   stats(): McpSessionStats {
     const now = this.now();
+    let activeRequests = 0;
     let initializedOnly = 0;
     let handshakeOnly = 0;
     let discoveryOnly = 0;
     let operational = 0;
     let toolCallSessions = 0;
+    let oneShotCleanupCandidates = 0;
     let reusedToolCallSessions = 0;
     let maxToolCallsPerSession = 0;
     let oldestAgeMs = 0;
     let longestIdleMs = 0;
 
     for (const entry of this.sessions.values()) {
+      activeRequests += entry.activeRequestCount;
       oldestAgeMs = Math.max(oldestAgeMs, now - entry.createdAt);
       longestIdleMs = Math.max(longestIdleMs, now - entry.lastActivityAt);
       if (entry.subsequentRequestCount === 0) initializedOnly += 1;
@@ -129,17 +157,20 @@ export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
       else if (entry.discoveryRequestCount > 0) discoveryOnly += 1;
       else handshakeOnly += 1;
       if (entry.toolCallCount > 0) toolCallSessions += 1;
+      if (entry.oneShotCleanupEligible && entry.toolCallCount === 1) oneShotCleanupCandidates += 1;
       if (entry.toolCallCount > 1) reusedToolCallSessions += 1;
       maxToolCallsPerSession = Math.max(maxToolCallsPerSession, entry.toolCallCount);
     }
 
     return {
       active: this.sessions.size,
+      activeRequests,
       initializedOnly,
       handshakeOnly,
       discoveryOnly,
       operational,
       toolCallSessions,
+      oneShotCleanupCandidates,
       reusedToolCallSessions,
       maxToolCallsPerSession,
       totalCreated: this.totalCreated,
@@ -159,8 +190,9 @@ export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
 
     for (const [sessionId, entry] of this.sessions) {
       if (
-        entry.discoveryRequestCount > 0
+        entry.activeRequestCount > 0
         || entry.operationalRequestCount > 0
+        || (entry.discoveryRequestCount > 0 && !entry.oneShotCleanupEligible)
         || entry.lastActivityAt > cutoff
       ) {
         continue;
@@ -174,12 +206,34 @@ export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
     return closeSessions(unusedSessions);
   }
 
+  async closeOneShot(idleTimeoutMs: number): Promise<McpSessionCloseResult[]> {
+    const cutoff = this.now() - idleTimeoutMs;
+    const oneShotSessions: Array<{ sessionId: string; transport: TTransport }> = [];
+
+    for (const [sessionId, entry] of this.sessions) {
+      if (
+        entry.activeRequestCount > 0
+        || !entry.oneShotCleanupEligible
+        || entry.toolCallCount !== 1
+        || entry.lastActivityAt > cutoff
+      ) {
+        continue;
+      }
+
+      this.sessions.delete(sessionId);
+      oneShotSessions.push({ sessionId, transport: entry.transport });
+    }
+
+    this.totalClosed += oneShotSessions.length;
+    return closeSessions(oneShotSessions);
+  }
+
   async closeIdle(idleTimeoutMs: number): Promise<McpSessionCloseResult[]> {
     const cutoff = this.now() - idleTimeoutMs;
     const idleSessions: Array<{ sessionId: string; transport: TTransport }> = [];
 
     for (const [sessionId, entry] of this.sessions) {
-      if (entry.lastActivityAt > cutoff) continue;
+      if (entry.activeRequestCount > 0 || entry.lastActivityAt > cutoff) continue;
 
       this.sessions.delete(sessionId);
       idleSessions.push({ sessionId, transport: entry.transport });

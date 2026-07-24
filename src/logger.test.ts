@@ -97,11 +97,13 @@ console.warn = (line?: unknown) => sessionConsoleLines.push(String(line));
 try {
   logEvent({ ...config, file: false }, "info", "mcp_session_metrics", {
     active: 12,
+    activeRequests: 2,
     initializedOnly: 3,
     handshakeOnly: 2,
     discoveryOnly: 4,
     operational: 3,
     toolCallSessions: 3,
+    oneShotCleanupCandidates: 2,
     reusedToolCallSessions: 1,
     maxToolCallsPerSession: 2,
     rssBytes: 128 * 1024 * 1024,
@@ -110,11 +112,13 @@ try {
   logEvent({ ...config, file: false }, "warn", "mcp_session_pressure", {
     threshold: 128,
     active: 128,
+    activeRequests: 1,
     initializedOnly: 100,
     handshakeOnly: 8,
     discoveryOnly: 10,
     operational: 10,
     toolCallSessions: 10,
+    oneShotCleanupCandidates: 10,
     reusedToolCallSessions: 0,
     maxToolCallsPerSession: 1,
     rssBytes: 256 * 1024 * 1024,
@@ -129,7 +133,9 @@ assert.match(sessionConsoleLines[0] ?? "", /MCPSESS/);
 assert.equal((sessionConsoleLines[0] ?? "").split(" | ")[2], "MCPSESS");
 assert.equal((sessionConsoleLines[1] ?? "").split(" | ")[2], "MCPWARN");
 assert.match(sessionConsoleLines[0] ?? "", /active=12/);
+assert.match(sessionConsoleLines[0] ?? "", /requests=2/);
 assert.match(sessionConsoleLines[0] ?? "", /toolSessions=3/);
+assert.match(sessionConsoleLines[0] ?? "", /oneShot=2/);
 assert.match(sessionConsoleLines[0] ?? "", /reused=1/);
 assert.match(sessionConsoleLines[0] ?? "", /maxCalls=2/);
 assert.match(sessionConsoleLines[0] ?? "", /rss=128\.0MiB/);
@@ -150,11 +156,13 @@ try {
   });
   logEvent({ ...config, file: false }, "info", "mcp_session_metrics", {
     active: 5,
+    activeRequests: 0,
     initializedOnly: 0,
     handshakeOnly: 0,
     discoveryOnly: 0,
     operational: 5,
     toolCallSessions: 5,
+    oneShotCleanupCandidates: 5,
     reusedToolCallSessions: 0,
     maxToolCallsPerSession: 1,
     rssBytes: 0,

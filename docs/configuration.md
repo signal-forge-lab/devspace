@@ -334,9 +334,15 @@ Workspace IDs are persisted and may be restored after a server restart while
 their configured retention window remains valid. Running process session IDs do
 not survive a restart.
 
-MCP transports idle for 24 hours are closed by periodic cleanup. Initialization-
-only sessions are closed after 15 minutes. Remaining transports are closed
-during server shutdown. Compact `MCPSESS` rows report current session metrics;
+MCP transports idle for 24 hours are closed by periodic cleanup. Initialization,
+handshake, and discovery-only sessions are closed after 15 minutes. Sessions
+from the OpenAI MCP connector that execute exactly one tool call and are not
+reused are closed after a five-minute grace period. Sessions reused for two or
+more tool calls remain under the normal 24-hour idle policy. Operational sessions
+from other MCP clients also retain the 24-hour policy. Periodic cleanup never
+closes a session while an HTTP request is active. Remaining transports are closed
+during server shutdown.
+Compact `MCPSESS` rows report current session and active-request metrics;
 `MCPWARN` is emitted when active-session warning thresholds are crossed.
 
 ## Commands

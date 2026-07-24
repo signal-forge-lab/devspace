@@ -55,6 +55,7 @@ import {
 import {
   McpSessionRegistry,
   type McpSessionCloseResult,
+  type McpSessionMetadata,
 } from "./mcp-sessions.js";
 import {
   redactPathsInText,
@@ -90,7 +91,8 @@ type Transport = StreamableHTTPServerTransport;
 // session retention so abandoned MCP servers do not accumulate for the life of the process.
 const MCP_SESSION_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const MCP_PRE_USE_IDLE_TIMEOUT_MS = 15 * 60 * 1_000;
-const MCP_SESSION_CLEANUP_INTERVAL_MS = 5 * 60 * 1_000;
+const MCP_ONE_SHOT_GRACE_MS = 5 * 60 * 1_000;
+const MCP_SESSION_CLEANUP_INTERVAL_MS = 60 * 1_000;
 const MCP_SESSION_WARNING_THRESHOLDS = [128, 512] as const;
 const WORKSPACE_APP_URI = "ui://devspace/workspace-app.html";
 const WORKSPACE_APP_MANIFEST_ENTRY = "workspace-app.html";
@@ -2259,7 +2261,7 @@ export function createServer(
   };
 
   const logSessionCloseResults = (
-    reason: "pre_use_timeout" | "idle_timeout" | "server_shutdown",
+    reason: "pre_use_timeout" | "one_shot_timeout" | "idle_timeout" | "server_shutdown",
     results: McpSessionCloseResult[],
   ) => {
     for (const result of results) {
@@ -2292,6 +2294,10 @@ export function createServer(
         MCP_PRE_USE_IDLE_TIMEOUT_MS,
       );
       logSessionCloseResults("pre_use_timeout", preUseResults);
+      const oneShotResults = await transports.closeOneShot(
+        MCP_ONE_SHOT_GRACE_MS,
+      );
+      logSessionCloseResults("one_shot_timeout", oneShotResults);
       const idleResults = await transports.closeIdle(MCP_SESSION_IDLE_TIMEOUT_MS);
       logSessionCloseResults("idle_timeout", idleResults);
       logSessionMetrics();
@@ -2384,21 +2390,43 @@ export function createServer(
       isInitialize: initializeRequest,
     });
 
+    const releaseRequestOnResponseEnd = (trackedSessionId: string) => {
+      if (res.writableEnded || res.destroyed) {
+        transports.endRequest(trackedSessionId);
+        return;
+      }
+      let released = false;
+      const release = () => {
+        if (released) return;
+        released = true;
+        transports.endRequest(trackedSessionId);
+      };
+      res.once("finish", release);
+      res.once("close", release);
+    };
+
     try {
       let transport: Transport | undefined;
 
       if (sessionId) {
-        transport = transports.get(sessionId, requestMethods);
+        transport = transports.beginRequest(sessionId, requestMethods);
         if (!transport) {
           sendJsonRpcError(res, 404, -32000, "Unknown MCP session");
           return;
         }
+        releaseRequestOnResponseEnd(sessionId);
       } else if (initializeRequest) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (newSessionId) => {
             const metadata = mcpInitializeMetadata(req);
-            if (transport) transports.register(newSessionId, transport, metadata);
+            if (transport) {
+              transports.register(newSessionId, transport, metadata, {
+                requestActive: true,
+                oneShotCleanupEligible: isOpenAiMcpClient(metadata),
+              });
+              releaseRequestOnResponseEnd(newSessionId);
+            }
             logEvent(config.logging, "info", "mcp_session_created", {
               requestId,
               sessionIdPrefix: sessionIdPrefix(newSessionId),
@@ -2501,6 +2529,11 @@ function mcpInitializeMetadata(req: Request): {
     protocolVersion: stringProperty(params, "protocolVersion"),
     userAgent: req.get("user-agent"),
   };
+}
+
+function isOpenAiMcpClient(metadata: McpSessionMetadata): boolean {
+  return metadata.clientName?.trim().toLowerCase() === "openai-mcp"
+    || metadata.userAgent?.trim().toLowerCase().startsWith("openai-mcp/") === true;
 }
 
 function stringProperty(value: unknown, property: string): string | undefined {
