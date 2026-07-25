@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { access, realpath } from "node:fs/promises";
-import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
@@ -85,7 +84,8 @@ import { summarizeLocalAgentProfile } from "./local-agent-profiles.js";
 import { PACKAGE_VERSION } from "./version.js";
 import {
   SessionMonitor,
-  workspaceLabelFromPath,
+  workspaceDisplayInfo,
+  type SessionMonitorWorkspaceIdentity,
   type SessionMonitorToolReference,
 } from "./session-monitor.js";
 import { sessionMonitorHtml } from "./session-monitor-ui.js";
@@ -282,20 +282,33 @@ function createSessionMonitorToolRegistrar(
     const monitoredHandler = (async (...args: unknown[]) => {
       const input = monitorObjectValue(args[0]);
       const workspaceId = monitorStringValue(input?.workspaceId);
-      const workspaceLabel = name === "open_workspace"
-        ? workspaceLabelFromPath(input?.path)
-        : monitorWorkspaceLabelForId(workspaces, workspaceId);
+      const workspaceIdentity = workspaceId
+        ? monitorWorkspaceIdentityForId(workspaces, workspaceId)
+        : undefined;
+      const pendingWorkspace = name === "open_workspace"
+        ? workspaceDisplayInfo(input?.path)
+        : undefined;
       const reference: SessionMonitorToolReference = context.monitor.beginTool({
-        sessionId: context.sessionId() ?? `unbound-${randomUUID()}`,
+        transportSessionId: context.sessionId() ?? `unbound-${randomUUID()}`,
         tool: name,
         input,
         workspaceId,
-        workspaceLabel,
+        workspaceStartedAt: workspaceIdentity?.startedAt,
+        workspaceLabel: workspaceIdentity?.workspaceLabel ?? pendingWorkspace?.label,
+        workspaceDetail: workspaceIdentity?.workspaceDetail ?? pendingWorkspace?.detail,
+        workspacePath: workspaceIdentity?.workspacePath ?? pendingWorkspace?.path,
       });
 
       try {
         const result = await (handler as (...handlerArgs: unknown[]) => Promise<unknown> | unknown)(...args);
-        context.monitor.completeTool(reference, result);
+        const resultWorkspaceId = monitorResultWorkspaceId(result);
+        context.monitor.completeTool(
+          reference,
+          result,
+          resultWorkspaceId
+            ? monitorWorkspaceIdentityForId(workspaces, resultWorkspaceId)
+            : undefined,
+        );
         return result;
       } catch (error) {
         context.monitor.failTool(reference);
@@ -306,16 +319,29 @@ function createSessionMonitorToolRegistrar(
   }) as AppToolRegistrar;
 }
 
-function monitorWorkspaceLabelForId(
+function monitorWorkspaceIdentityForId(
   workspaces: WorkspaceRegistry,
   workspaceId: string | undefined,
-): string | undefined {
+): SessionMonitorWorkspaceIdentity | undefined {
   if (!workspaceId) return undefined;
   try {
-    return basename(workspaces.getWorkspace(workspaceId).root);
+    const workspace = workspaces.getWorkspace(workspaceId);
+    const display = workspaceDisplayInfo(workspace.root, workspace.sourceRoot);
+    return {
+      workspaceId,
+      workspaceLabel: display.label,
+      workspaceDetail: display.detail,
+      workspacePath: display.path,
+      startedAt: workspaces.getWorkspaceStartedAt(workspaceId),
+    };
   } catch {
     return undefined;
   }
+}
+
+function monitorResultWorkspaceId(result: unknown): string | undefined {
+  const structuredContent = monitorObjectValue(monitorObjectValue(result)?.structuredContent);
+  return monitorStringValue(structuredContent?.workspaceId);
 }
 
 function monitorObjectValue(value: unknown): Record<string, unknown> | undefined {
@@ -2417,7 +2443,6 @@ export function createServer(
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (newSessionId) => {
             const metadata = mcpInitializeMetadata(req);
-            sessionMonitor.createSession(newSessionId);
             if (transport) {
               sessionLifecycle.register(newSessionId, transport, metadata, {
                 requestActive: true,
@@ -2440,7 +2465,6 @@ export function createServer(
         transport.onclose = () => {
           const closedSessionId = transport?.sessionId;
           if (closedSessionId) {
-            sessionMonitor.closeSession(closedSessionId);
             sessionLifecycle.remove(closedSessionId, "transport_close");
           }
         };

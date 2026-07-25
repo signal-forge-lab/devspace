@@ -139,6 +139,13 @@ export class WorkspaceRegistry {
     return restoredWorkspace;
   }
 
+  getWorkspaceStartedAt(workspaceId: string): number | undefined {
+    const createdAt = this.store?.getSession(workspaceId)?.createdAt;
+    if (!createdAt) return undefined;
+    const timestamp = Date.parse(createdAt);
+    return Number.isFinite(timestamp) ? timestamp : undefined;
+  }
+
   resolvePath(workspace: Workspace, inputPath: string): string {
     const absolutePath = resolveAllowedPath(inputPath, workspace.root, [workspace.root]);
     if (!isPathInsideRoot(absolutePath, workspace.root)) {

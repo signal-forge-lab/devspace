@@ -3,36 +3,64 @@ import {
   classifyToolResult,
   SessionMonitor,
   summarizeToolTarget,
+  workspaceDisplayInfo,
+  workspaceIdCompactPrefix,
   workspaceLabelFromPath,
 } from "./session-monitor.js";
 
 const monitor = new SessionMonitor({ maxSessions: 10, maxNodesPerSession: 10 });
-monitor.createSession("older-session", 1000);
-monitor.createSession("newer-session", 2000);
 
-const first = monitor.beginTool({
-  sessionId: "older-session",
+const openWorkspace = monitor.beginTool({
+  transportSessionId: "transport-open",
   tool: "open_workspace",
   input: { path: "C:\\projects\\arcaia" },
   workspaceLabel: "arcaia",
 });
-monitor.completeTool(first, { structuredContent: { workspaceId: "ws-1" } });
+monitor.completeTool(
+  openWorkspace,
+  { structuredContent: { workspaceId: "ws_1234567890-aaaa-bbbb-cccc-1234567890ab" } },
+  {
+    workspaceId: "ws_1234567890-aaaa-bbbb-cccc-1234567890ab",
+    workspaceLabel: "arcaia",
+    workspacePath: "C:\\projects\\arcaia",
+    startedAt: 1000,
+  },
+);
 
-const second = monitor.beginTool({
-  sessionId: "older-session",
+const command = monitor.beginTool({
+  transportSessionId: "different-mcp-session",
+  workspaceId: "ws_1234567890-aaaa-bbbb-cccc-1234567890ab",
+  workspaceStartedAt: 1000,
   tool: "exec_command",
-  input: { workspaceId: "ws-1", cmd: "npm test" },
-  workspaceId: "ws-1",
+  input: { workspaceId: "ws_1234567890-aaaa-bbbb-cccc-1234567890ab", cmd: "npm test" },
   workspaceLabel: "arcaia",
 });
-monitor.completeTool(second, { structuredContent: { running: false, exitCode: 0 } });
+monitor.completeTool(command, { structuredContent: { running: false, exitCode: 0 } });
+
+const newer = monitor.beginTool({
+  transportSessionId: "third-mcp-session",
+  workspaceId: "ws_abcdefghij-aaaa-bbbb-cccc-1234567890ab",
+  workspaceStartedAt: 2000,
+  tool: "read",
+  input: { path: "README.md" },
+  workspaceLabel: "workbridge",
+});
+monitor.completeTool(newer, { structuredContent: {} });
 
 const snapshot = monitor.snapshot();
-assert.deepEqual(snapshot.sessions.map((session) => session.sessionIdPrefix), ["newer-se", "older-se"]);
+assert.equal(snapshot.version, 2);
+assert.equal(snapshot.sessions.length, 2);
+assert.deepEqual(snapshot.sessions.map((session) => session.sessionIdPrefix), [
+  "abcdefghij",
+  "1234567890",
+]);
 assert.equal(snapshot.sessions[1]?.totalCalls, 2);
 assert.deepEqual(snapshot.sessions[1]?.nodes.map((node) => node.number), [1, 2]);
+assert.deepEqual(snapshot.sessions[1]?.nodes.map((node) => node.tool), ["open_workspace", "exec_command"]);
 assert.equal(snapshot.sessions[1]?.state, "idle");
 assert.equal(snapshot.sessions[1]?.workspaceLabel, "arcaia");
+assert.equal(snapshot.sessions[1]?.workspacePath, "C:\\projects\\arcaia");
+
 assert.deepEqual(classifyToolResult({ structuredContent: { running: true } }), {
   nodeState: "waiting", sessionState: "waiting", exitCode: undefined,
 });
@@ -42,3 +70,24 @@ assert.deepEqual(classifyToolResult({ structuredContent: { exitCode: 1 } }), {
 assert.equal(summarizeToolTarget("read", { path: "src/main.ts" }), "src/main.ts");
 assert.equal(summarizeToolTarget("write_stdin", { chars: "" }), "poll");
 assert.equal(workspaceLabelFromPath("C:\\projects\\workbridge\\"), "workbridge");
+assert.equal(workspaceIdCompactPrefix("ws_d2bbd5eb-67eb-40dc-9394-80eefd5750e2"), "d2bbd5eb-6");
+
+assert.deepEqual(
+  workspaceDisplayInfo("C:\\devops\\aegis_gate_worktrees\\next"),
+  {
+    label: "aegis_gate",
+    detail: "worktree: next",
+    path: "C:\\devops\\aegis_gate_worktrees\\next",
+  },
+);
+assert.deepEqual(
+  workspaceDisplayInfo(
+    "C:\\temp\\managed-worktree-1234",
+    "C:\\devops\\aegis_gate",
+  ),
+  {
+    label: "aegis_gate",
+    detail: "worktree: managed-worktree-1234",
+    path: "C:\\temp\\managed-worktree-1234",
+  },
+);

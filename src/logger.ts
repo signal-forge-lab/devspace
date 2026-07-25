@@ -378,7 +378,7 @@ function compactTimestamp(date = new Date()): string {
   return `${month}/${day} ${hours}:${minutes}:${seconds}`;
 }
 
-function workspaceIdCompactPrefix(value: unknown): string {
+export function workspaceIdCompactPrefix(value: unknown): string {
   if (typeof value !== "string" || value.trim() === "") return "----------";
   const normalized = value.startsWith("ws_") ? value.slice(3) : value;
   return normalized.slice(0, 10);

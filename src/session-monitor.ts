@@ -1,3 +1,8 @@
+import { posix, win32 } from "node:path";
+import { workspaceIdCompactPrefix } from "./logger.js";
+
+export { workspaceIdCompactPrefix } from "./logger.js";
+
 export type SessionMonitorState = "running" | "waiting" | "idle" | "error";
 export type SessionMonitorNodeState = "running" | "waiting" | "success" | "error";
 
@@ -19,37 +24,56 @@ export interface SessionMonitorSessionSnapshot {
   lastActivityAt: number;
   workspaceId?: string;
   workspaceLabel?: string;
+  workspaceDetail?: string;
+  workspacePath?: string;
   totalCalls: number;
   state: SessionMonitorState;
   nodes: SessionMonitorNodeSnapshot[];
 }
 
 export interface SessionMonitorSnapshot {
-  version: 1;
+  version: 2;
   generatedAt: number;
   sessions: SessionMonitorSessionSnapshot[];
 }
 
 export interface SessionMonitorToolReference {
-  sessionId: string;
-  nodeNumber: number;
+  sessionKey: string;
+  nodeId: string;
+}
+
+export interface SessionMonitorWorkspaceIdentity {
+  workspaceId: string;
+  workspaceLabel?: string;
+  workspaceDetail?: string;
+  workspacePath?: string;
+  startedAt?: number;
+}
+
+export interface WorkspaceDisplayInfo {
+  label?: string;
+  detail?: string;
+  path?: string;
 }
 
 interface InternalNode extends SessionMonitorNodeSnapshot {
+  id: string;
   startedMonotonic: number;
 }
 
 interface InternalSession {
-  sessionId: string;
+  key: string;
+  transportSessionId?: string;
+  workspaceId?: string;
   displayNumber: number;
   startedAt: number;
   lastActivityAt: number;
-  workspaceId?: string;
   workspaceLabel?: string;
+  workspaceDetail?: string;
+  workspacePath?: string;
   state: SessionMonitorState;
   nextNodeNumber: number;
   nodes: InternalNode[];
-  closedAt?: number;
 }
 
 interface SessionMonitorOptions {
@@ -58,11 +82,14 @@ interface SessionMonitorOptions {
 }
 
 interface BeginToolOptions {
-  sessionId: string;
+  transportSessionId?: string;
+  workspaceId?: string;
+  workspaceStartedAt?: number;
   tool: string;
   input?: unknown;
-  workspaceId?: string;
   workspaceLabel?: string;
+  workspaceDetail?: string;
+  workspacePath?: string;
 }
 
 interface ToolOutcome {
@@ -72,47 +99,50 @@ interface ToolOutcome {
 }
 
 const FAILED_STATUSES = new Set(["failed", "error", "cancelled", "rejected"]);
+const GENERIC_WORKTREE_NAMES = new Set([
+  "next",
+  "current",
+  "main",
+  "master",
+  "develop",
+  "development",
+  "dev",
+  "stage",
+  "staging",
+  "production",
+  "prod",
+]);
 
 export class SessionMonitor {
   private readonly sessions = new Map<string, InternalSession>();
   private readonly maxSessions: number;
   private readonly maxNodesPerSession: number;
   private nextDisplayNumber = 1;
+  private nextNodeId = 1;
 
   constructor(options: SessionMonitorOptions = {}) {
     this.maxSessions = Math.max(1, options.maxSessions ?? 200);
     this.maxNodesPerSession = Math.max(1, options.maxNodesPerSession ?? 200);
   }
 
-  createSession(sessionId: string, startedAt = Date.now()): void {
-    if (!sessionId || this.sessions.has(sessionId)) return;
-    this.sessions.set(sessionId, {
-      sessionId,
-      displayNumber: this.nextDisplayNumber++,
-      startedAt,
-      lastActivityAt: startedAt,
-      state: "idle",
-      nextNodeNumber: 1,
-      nodes: [],
-    });
-    this.pruneSessions();
-  }
-
-  closeSession(sessionId: string, closedAt = Date.now()): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) return;
-    session.closedAt = closedAt;
-    session.lastActivityAt = Math.max(session.lastActivityAt, closedAt);
-  }
-
   beginTool(options: BeginToolOptions): SessionMonitorToolReference {
-    this.createSession(options.sessionId);
-    const session = this.sessions.get(options.sessionId);
-    if (!session) throw new Error("Unable to create session monitor entry.");
-
     const now = Date.now();
+    const sessionKey = options.workspaceId
+      ? workspaceSessionKey(options.workspaceId)
+      : transportSessionKey(options.transportSessionId ?? `unbound-${now}-${this.nextNodeId}`);
+    const session = this.ensureSession(sessionKey, {
+      transportSessionId: options.transportSessionId,
+      workspaceId: options.workspaceId,
+      startedAt: options.workspaceStartedAt ?? now,
+      workspaceLabel: options.workspaceLabel,
+      workspaceDetail: options.workspaceDetail,
+      workspacePath: options.workspacePath,
+    });
+
     const number = session.nextNodeNumber++;
+    const nodeId = `node-${this.nextNodeId++}`;
     const node: InternalNode = {
+      id: nodeId,
       number,
       tool: options.tool,
       target: summarizeToolTarget(options.tool, options.input),
@@ -124,17 +154,19 @@ export class SessionMonitor {
     if (session.nodes.length > this.maxNodesPerSession) {
       session.nodes.splice(0, session.nodes.length - this.maxNodesPerSession);
     }
-    session.workspaceId = options.workspaceId ?? session.workspaceId;
-    session.workspaceLabel = options.workspaceLabel ?? session.workspaceLabel;
     session.state = "running";
     session.lastActivityAt = now;
-    session.closedAt = undefined;
-    return { sessionId: options.sessionId, nodeNumber: number };
+    this.pruneSessions();
+    return { sessionKey, nodeId };
   }
 
-  completeTool(reference: SessionMonitorToolReference, result: unknown): void {
-    const session = this.sessions.get(reference.sessionId);
-    const node = session?.nodes.find((candidate) => candidate.number === reference.nodeNumber);
+  completeTool(
+    reference: SessionMonitorToolReference,
+    result: unknown,
+    workspaceIdentity?: SessionMonitorWorkspaceIdentity,
+  ): void {
+    const session = this.sessions.get(reference.sessionKey);
+    const node = session?.nodes.find((candidate) => candidate.id === reference.nodeId);
     if (!session || !node) return;
 
     const now = Date.now();
@@ -143,15 +175,25 @@ export class SessionMonitor {
     node.exitCode = outcome.exitCode;
     node.completedAt = now;
     node.durationMs = Math.max(0, Math.round(performance.now() - node.startedMonotonic));
-    const resultWorkspaceId = readString(readRecord(result)?.structuredContent, "workspaceId");
-    if (resultWorkspaceId) session.workspaceId = resultWorkspaceId;
     if (node.number === session.nextNodeNumber - 1) session.state = outcome.sessionState;
     session.lastActivityAt = now;
+
+    const resultWorkspaceId = workspaceIdentity?.workspaceId
+      ?? readString(readRecord(result)?.structuredContent, "workspaceId");
+    if (resultWorkspaceId) {
+      this.promoteToWorkspace(reference.sessionKey, {
+        workspaceId: resultWorkspaceId,
+        workspaceLabel: workspaceIdentity?.workspaceLabel,
+        workspaceDetail: workspaceIdentity?.workspaceDetail,
+        workspacePath: workspaceIdentity?.workspacePath,
+        startedAt: workspaceIdentity?.startedAt,
+      });
+    }
   }
 
   failTool(reference: SessionMonitorToolReference): void {
-    const session = this.sessions.get(reference.sessionId);
-    const node = session?.nodes.find((candidate) => candidate.number === reference.nodeNumber);
+    const session = this.sessions.get(reference.sessionKey);
+    const node = session?.nodes.find((candidate) => candidate.id === reference.nodeId);
     if (!session || !node) return;
 
     const now = Date.now();
@@ -168,18 +210,96 @@ export class SessionMonitor {
       .slice(0, Math.max(1, maxSessions))
       .map((session): SessionMonitorSessionSnapshot => ({
         displayNumber: session.displayNumber,
-        sessionIdPrefix: session.sessionId.slice(0, 8),
+        sessionIdPrefix: session.workspaceId
+          ? workspaceIdCompactPrefix(session.workspaceId)
+          : transportIdCompactPrefix(session.transportSessionId),
         startedAt: session.startedAt,
         lastActivityAt: session.lastActivityAt,
         workspaceId: session.workspaceId,
         workspaceLabel: session.workspaceLabel,
+        workspaceDetail: session.workspaceDetail,
+        workspacePath: session.workspacePath,
         totalCalls: session.nextNodeNumber - 1,
         state: session.state,
         nodes: session.nodes.slice(-Math.max(1, maxNodesPerSession)).map(
-          ({ startedMonotonic: _startedMonotonic, ...node }) => ({ ...node }),
+          ({ id: _id, startedMonotonic: _startedMonotonic, ...node }) => ({ ...node }),
         ),
       }));
-    return { version: 1, generatedAt: Date.now(), sessions };
+    return { version: 2, generatedAt: Date.now(), sessions };
+  }
+
+  private ensureSession(
+    key: string,
+    identity: {
+      transportSessionId?: string;
+      workspaceId?: string;
+      startedAt: number;
+      workspaceLabel?: string;
+      workspaceDetail?: string;
+      workspacePath?: string;
+    },
+  ): InternalSession {
+    const existing = this.sessions.get(key);
+    if (existing) {
+      existing.workspaceId = identity.workspaceId ?? existing.workspaceId;
+      existing.workspaceLabel = identity.workspaceLabel ?? existing.workspaceLabel;
+      existing.workspaceDetail = identity.workspaceDetail ?? existing.workspaceDetail;
+      existing.workspacePath = identity.workspacePath ?? existing.workspacePath;
+      existing.startedAt = Math.min(existing.startedAt, identity.startedAt);
+      return existing;
+    }
+
+    const session: InternalSession = {
+      key,
+      transportSessionId: identity.transportSessionId,
+      workspaceId: identity.workspaceId,
+      displayNumber: this.nextDisplayNumber++,
+      startedAt: identity.startedAt,
+      lastActivityAt: identity.startedAt,
+      workspaceLabel: identity.workspaceLabel,
+      workspaceDetail: identity.workspaceDetail,
+      workspacePath: identity.workspacePath,
+      state: "idle",
+      nextNodeNumber: 1,
+      nodes: [],
+    };
+    this.sessions.set(key, session);
+    return session;
+  }
+
+  private promoteToWorkspace(
+    sourceKey: string,
+    identity: SessionMonitorWorkspaceIdentity,
+  ): void {
+    const source = this.sessions.get(sourceKey);
+    if (!source) return;
+    const targetKey = workspaceSessionKey(identity.workspaceId);
+    const target = this.sessions.get(targetKey);
+
+    if (!target || target === source) {
+      if (sourceKey !== targetKey) {
+        this.sessions.delete(sourceKey);
+        source.key = targetKey;
+        this.sessions.set(targetKey, source);
+      }
+      applyWorkspaceIdentity(source, identity);
+      return;
+    }
+
+    target.nodes.push(...source.nodes);
+    target.nodes.sort((left, right) => left.startedAt - right.startedAt || left.id.localeCompare(right.id));
+    target.nodes.forEach((node, index) => {
+      node.number = index + 1;
+    });
+    if (target.nodes.length > this.maxNodesPerSession) {
+      target.nodes.splice(0, target.nodes.length - this.maxNodesPerSession);
+    }
+    target.nextNodeNumber = target.nodes.reduce((maximum, node) => Math.max(maximum, node.number), 0) + 1;
+    target.startedAt = Math.min(target.startedAt, source.startedAt, identity.startedAt ?? Number.POSITIVE_INFINITY);
+    target.lastActivityAt = Math.max(target.lastActivityAt, source.lastActivityAt);
+    target.state = currentSessionState(target.nodes);
+    applyWorkspaceIdentity(target, identity);
+    this.sessions.delete(sourceKey);
   }
 
   private pruneSessions(): void {
@@ -189,16 +309,48 @@ export class SessionMonitor {
       .sort((left, right) => left.startedAt - right.startedAt);
     for (const candidate of candidates) {
       if (this.sessions.size <= this.maxSessions) break;
-      this.sessions.delete(candidate.sessionId);
+      this.sessions.delete(candidate.key);
     }
   }
 }
 
+export function workspaceDisplayInfo(root: unknown, sourceRoot?: unknown): WorkspaceDisplayInfo {
+  const normalizedRoot = normalizeDisplayPath(root);
+  if (!normalizedRoot) return {};
+  const rootPath = displayPathApi(normalizedRoot);
+  const rootName = rootPath.basename(normalizedRoot);
+  const normalizedSourceRoot = normalizeDisplayPath(sourceRoot);
+  const sourceName = normalizedSourceRoot
+    ? displayPathApi(normalizedSourceRoot).basename(normalizedSourceRoot)
+    : undefined;
+
+  if (sourceName && sourceName !== rootName) {
+    return {
+      label: sourceName,
+      detail: `worktree: ${rootName}`,
+      path: normalizedRoot,
+    };
+  }
+
+  const parentName = rootPath.basename(rootPath.dirname(normalizedRoot));
+  const inferredProject = parentName.replace(/(?:[._-]?worktrees?)$/i, "");
+  if (
+    GENERIC_WORKTREE_NAMES.has(rootName.toLowerCase())
+    && inferredProject
+    && inferredProject !== parentName
+  ) {
+    return {
+      label: inferredProject,
+      detail: `worktree: ${rootName}`,
+      path: normalizedRoot,
+    };
+  }
+
+  return { label: rootName, path: normalizedRoot };
+}
+
 export function workspaceLabelFromPath(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const normalized = value.trim().replace(/[\\/]+$/, "");
-  if (!normalized) return undefined;
-  return compactText(normalized.split(/[\\/]/).filter(Boolean).at(-1), 40);
+  return workspaceDisplayInfo(value).label;
 }
 
 export function summarizeToolTarget(tool: string, input: unknown): string | undefined {
@@ -241,6 +393,50 @@ export function classifyToolResult(result: unknown): ToolOutcome {
     return { nodeState: "waiting", sessionState: "waiting", exitCode };
   }
   return { nodeState: "success", sessionState: "idle", exitCode };
+}
+
+function applyWorkspaceIdentity(
+  session: InternalSession,
+  identity: SessionMonitorWorkspaceIdentity,
+): void {
+  session.workspaceId = identity.workspaceId;
+  session.workspaceLabel = identity.workspaceLabel ?? session.workspaceLabel;
+  session.workspaceDetail = identity.workspaceDetail ?? session.workspaceDetail;
+  session.workspacePath = identity.workspacePath ?? session.workspacePath;
+  if (identity.startedAt !== undefined) {
+    session.startedAt = Math.min(session.startedAt, identity.startedAt);
+  }
+}
+
+function currentSessionState(nodes: InternalNode[]): SessionMonitorState {
+  const latest = nodes.at(-1);
+  if (!latest) return "idle";
+  if (latest.state === "running") return "running";
+  if (latest.state === "waiting") return "waiting";
+  if (latest.state === "error") return "error";
+  return "idle";
+}
+
+function workspaceSessionKey(workspaceId: string): string {
+  return `workspace:${workspaceId}`;
+}
+
+function transportSessionKey(transportSessionId: string): string {
+  return `transport:${transportSessionId}`;
+}
+
+function transportIdCompactPrefix(value: string | undefined): string {
+  return value ? value.slice(0, 8) : "opening";
+}
+
+function normalizeDisplayPath(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().replace(/[\\/]+$/, "");
+  return normalized || undefined;
+}
+
+function displayPathApi(value: string): typeof posix | typeof win32 {
+  return value.includes("\\") ? win32 : posix;
 }
 
 function summarizePatch(value: unknown): string | undefined {

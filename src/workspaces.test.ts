@@ -161,6 +161,10 @@ try {
   const firstStore = new SqliteWorkspaceStore(stateDir);
   const persistentRegistry = new WorkspaceRegistry(config, firstStore);
   const persistentWorkspace = await persistentRegistry.openWorkspace(root);
+  const persistentWorkspaceStartedAt = persistentRegistry.getWorkspaceStartedAt(
+    persistentWorkspace.workspace.id,
+  );
+  assert.equal(typeof persistentWorkspaceStartedAt, "number");
   const persistentWorktree = await persistentRegistry.openWorkspace({
     path: gitRoot,
     mode: "worktree",
@@ -172,6 +176,10 @@ try {
   const restoredWorkspace = restoredRegistry.getWorkspace(persistentWorkspace.workspace.id);
   assert.equal(restoredWorkspace.root, root);
   assert.equal(restoredWorkspace.mode, "checkout");
+  assert.equal(
+    restoredRegistry.getWorkspaceStartedAt(persistentWorkspace.workspace.id),
+    persistentWorkspaceStartedAt,
+  );
 
   const restoredWorktree = restoredRegistry.getWorkspace(persistentWorktree.workspace.id);
   assert.equal(restoredWorktree.mode, "worktree");

@@ -123,11 +123,14 @@ The local dark-theme session monitor is available while the server is running:
 http://127.0.0.1:7676/monitor
 ```
 
-The monitor is intentionally local-only. It shows one stable row per MCP
-session, tool calls in execution order, per-session call counts, per-node call
-numbers and durations, and the current Running, Waiting, Idle, or Error state.
-New sessions are inserted at the top by session start time; existing rows do not
-move when later activity occurs.
+The monitor is intentionally local-only. It shows one stable row per Workbridge
+workspace session (`workspaceId`), even when the MCP client creates a fresh
+transport session for each tool call. Tool calls appear in execution order with
+per-session call counts, per-node call numbers and durations, and the current
+Running, Waiting, Idle, or Error state. New workspace sessions are inserted at
+the top by workspace-session start time; existing rows do not move when later
+activity occurs. The compact ID shown beside each row matches the workspace ID
+column used by the compact console tool logs.
 
 Most users should connect through a public HTTPS tunnel:
 
