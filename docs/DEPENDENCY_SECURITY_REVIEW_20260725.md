@@ -85,3 +85,36 @@ Use the following release check:
 ```text
 npm run audit:prod:high
 ```
+
+## Follow-up advisory discovered after the 1.1.7 review
+
+`GHSA-mh99-v99m-4gvg` subsequently marked `brace-expansion <=5.0.7` as high
+severity. The fixed package is `5.0.8`, but Pi `0.82.0` still ships a generated
+shrinkwrap that pins `5.0.7`.
+
+The following Workbridge-side approaches were tested and rejected because the
+Pi shrinkwrap continued to install `5.0.7`:
+
+- a global npm override;
+- a Pi-scoped override;
+- a Pi/minimatch-scoped override;
+- adding a direct `brace-expansion 5.0.8` dependency followed by `npm dedupe`;
+- editing only the Workbridge root lockfile entry.
+
+The root-lockfile edit was specifically rejected because `npm ci` installed
+`5.0.7` while leaving the edited root lockfile at `5.0.8`, producing an invalid
+lock/runtime mismatch. Workbridge does not add a postinstall mutation or a
+custom audit exception merely to hide this result.
+
+Current status:
+
+```text
+critical: 0
+high:     1
+moderate: 8
+low:      0
+```
+
+The high finding remains an upstream dependency blocker until Pi publishes a
+shrinkwrap containing `brace-expansion >=5.0.8`, or Workbridge replaces the Pi
+backend through a separately reviewed architectural change.
