@@ -51,5 +51,9 @@ rebase compatibility as a primary design constraint.
 - Create a local backup ref before rebasing. Do not push, tag, publish, create a
   GitHub release, or add remote/publication work to the plan unless the user
   explicitly requests it.
+- Perform source-code modifications in a dedicated Git worktree by default.
+  Treat the primary checkout as the integration and observation surface. Direct
+  edits in the primary checkout require an explicit user instruction or a
+  narrowly scoped emergency correction with a documented reason.
 - Preserve the fixed seven-tool contract and other accepted Workbridge design
   decisions unless the user explicitly approves a change.

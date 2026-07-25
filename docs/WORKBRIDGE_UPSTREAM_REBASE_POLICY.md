@@ -120,6 +120,55 @@ over reducing the patch surface in upstream-owned files.
 5. Do not push the backup ref or any other branch unless the user explicitly
    requests a remote operation.
 
+## Mandatory worktree workflow for source changes
+
+Source-code modifications must be performed in a dedicated Git worktree by
+default.
+
+Use the primary checkout for:
+
+```text
+status inspection
+history review
+upstream fetch and comparison
+integration review
+final local branch position
+runtime observation when appropriate
+```
+
+Use a dedicated worktree for:
+
+```text
+source-code edits
+refactors
+dependency changes
+test additions or changes
+build-system changes
+conflict-heavy rebase repair
+experimental fixes
+```
+
+Required sequence:
+
+1. Confirm the primary checkout state and intended base commit.
+2. Create a dedicated worktree from that exact base.
+3. Make and verify the change in the worktree.
+4. Self-review the resulting commits and diff.
+5. Integrate the reviewed commit(s) into the local target branch.
+6. Re-run the relevant verification on the integrated branch.
+7. Remove or retain the worktree according to the current local maintenance
+   need; do not publish it by default.
+
+Direct source edits in the primary checkout are allowed only when the user
+explicitly requests them, or for a narrowly scoped emergency correction where
+creating a worktree would materially obstruct recovery. In the emergency case,
+record why the exception was necessary and restore a clean integration surface
+as soon as practical.
+
+Documentation-only changes that do not affect runtime or build behavior may be
+made in the primary checkout when the tree is clean and no concurrent work is
+present. When in doubt, use a worktree.
+
 ## Required workflow during conflict resolution
 
 - Resolve conflicts semantically, not by choosing all of `ours` or `theirs`.
