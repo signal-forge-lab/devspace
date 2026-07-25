@@ -10,6 +10,7 @@ import {
   sanitizeRequestUrlForLog,
   type LoggingConfig,
 } from "./logger.js";
+import { monitorLogStream } from "./monitor-log-stream.js";
 
 assert.equal(compactClientKind("OpenAI/ChatGPT"), "openai");
 assert.equal(compactClientKind("claude-ai"), "claude");
@@ -182,3 +183,25 @@ assert.equal(alignedConsoleLines[0]?.split(" | ")[2], "HTTP   ");
 assert.equal(alignedConsoleLines[0]?.split(" | ")[3], "http_request       ");
 assert.equal(alignedConsoleLines[1]?.split(" | ")[2], "MCPSESS");
 assert.equal(alignedConsoleLines[1]?.split(" | ")[3], "sessions           ");
+
+const beforeMonitorSequence = monitorLogStream.snapshot().latestSequence;
+const originalMonitorConsoleLog = console.log;
+console.log = () => undefined;
+try {
+  logEvent({ ...config, file: false }, "info", "tool_call", {
+    tool: "read",
+    workspaceId: "ws_1234567890-aaaa-bbbb-cccc-1234567890ab",
+    path: "README.md",
+    success: true,
+    durationMs: 3,
+  });
+} finally {
+  console.log = originalMonitorConsoleLog;
+}
+const monitorLogs = monitorLogStream.snapshot(beforeMonitorSequence).logs;
+assert.equal(monitorLogs.length, 1);
+assert.equal(monitorLogs[0]?.kind, "read");
+assert.equal(monitorLogs[0]?.error, false);
+assert.equal(monitorLogs[0]?.tool, "read");
+assert.equal(monitorLogs[0]?.workspaceId, "ws_1234567890-aaaa-bbbb-cccc-1234567890ab");
+assert.doesNotMatch(monitorLogs[0]?.line ?? "", /\x1b/);

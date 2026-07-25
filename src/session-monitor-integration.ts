@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import type { Express, Request, Response } from "express";
 import {
+  monitorLogStream,
+  type MonitorLogEntry,
+  type MonitorLogStream,
+} from "./monitor-log-stream.js";
+import {
   SessionMonitor,
   workspaceDisplayInfo,
   type SessionMonitorWorkspaceIdentity,
@@ -15,6 +20,10 @@ export type AppToolRegistrar = typeof registerAppTool;
 export interface SessionMonitorContext {
   monitor: SessionMonitor;
   sessionId(): string | undefined;
+}
+
+export interface SessionMonitorRouteController {
+  close(): void;
 }
 
 export function createSessionMonitorToolRegistrar(
@@ -63,7 +72,12 @@ export function createSessionMonitorToolRegistrar(
   }) as AppToolRegistrar;
 }
 
-export function registerSessionMonitorRoutes(app: Express, monitor: SessionMonitor): void {
+export function registerSessionMonitorRoutes(
+  app: Express,
+  monitor: SessionMonitor,
+  logs: MonitorLogStream = monitorLogStream,
+): SessionMonitorRouteController {
+  const streamResponses = new Set<Response>();
   const sendMonitorHtml = (req: Request, res: Response) => {
     if (!isLocalMonitorRequest(req)) {
       res.status(404).end();
@@ -90,6 +104,70 @@ export function registerSessionMonitorRoutes(app: Express, monitor: SessionMonit
     res.setHeader("Cache-Control", "no-store");
     res.json(monitor.snapshot());
   });
+  app.get("/monitor/api/logs", (req, res) => {
+    if (!isLocalMonitorRequest(req)) {
+      res.status(404).end();
+      return;
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json(logs.snapshot(queryInteger(req, "after"), queryInteger(req, "limit") ?? 300));
+  });
+  app.get("/monitor/api/logs/stream", (req, res) => {
+    if (!isLocalMonitorRequest(req)) {
+      res.status(404).end();
+      return;
+    }
+    const after = Math.max(
+      queryInteger(req, "after") ?? 0,
+      positiveInteger(req.header("last-event-id")) ?? 0,
+    );
+    res.status(200);
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+    res.write("retry: 1500\n\n");
+    streamResponses.add(res);
+    for (const entry of logs.snapshot(after).logs) writeSseLog(res, entry);
+    const unsubscribe = logs.subscribe((entry) => writeSseLog(res, entry));
+    const keepAlive = setInterval(() => res.write(": keepalive\n\n"), 15_000);
+    keepAlive.unref();
+    const cleanup = () => {
+      clearInterval(keepAlive);
+      unsubscribe();
+      streamResponses.delete(res);
+    };
+    req.once("close", cleanup);
+    res.once("finish", cleanup);
+  });
+  return {
+    close: () => {
+      for (const response of streamResponses) {
+        if (!response.writableEnded && !response.destroyed) {
+          response.write("event: close\ndata: {}\n\n");
+          response.end();
+        }
+      }
+      streamResponses.clear();
+    },
+  };
+}
+
+function writeSseLog(res: Response, entry: MonitorLogEntry): void {
+  if (res.writableEnded || res.destroyed) return;
+  res.write(`id: ${entry.sequence}\nevent: log\ndata: ${JSON.stringify(entry)}\n\n`);
+}
+
+function queryInteger(req: Request, name: string): number | undefined {
+  const value = req.query[name];
+  return positiveInteger(Array.isArray(value) ? value[0] : value);
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 function workspaceIdentityForId(

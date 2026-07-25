@@ -2,6 +2,10 @@ import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } f
 import { dirname } from "node:path";
 import type { Request } from "express";
 import { PRODUCT_DISPLAY_NAME } from "./branding.js";
+import {
+  monitorLogStream,
+  type MonitorLogKind,
+} from "./monitor-log-stream.js";
 
 export type LogLevel = "silent" | "error" | "warn" | "info" | "debug";
 export type LogFormat = "json" | "pretty";
@@ -89,25 +93,25 @@ export function logEvent(
 
   const compactToolLine = compactToolCallConsoleLine(fields);
   if (compactToolLine) {
-    writeConsoleLine(level, compactToolLine);
+    writeAndPublishConsoleLine(level, event, fields, entry, compactToolLine);
     return;
   }
 
   const compactHttpLine = compactHttpRequestConsoleLine(event, fields);
   if (compactHttpLine) {
-    writeConsoleLine(level, compactHttpLine);
+    writeAndPublishConsoleLine(level, event, fields, entry, compactHttpLine);
     return;
   }
 
   const compactMcpSessionLine = compactMcpSessionConsoleLine(event, fields);
   if (compactMcpSessionLine) {
-    writeConsoleLine(level, compactMcpSessionLine);
+    writeAndPublishConsoleLine(level, event, fields, entry, compactMcpSessionLine);
     return;
   }
 
   if (!config.consoleJson) return;
   const line = config.format === "pretty" ? formatPretty(entry) : JSON.stringify(entry);
-  writeConsoleLine(level, line);
+  writeAndPublishConsoleLine(level, event, fields, entry, line);
 }
 
 function writeJsonlLog(config: LoggingConfig, entry: LogFields): void {
@@ -162,6 +166,54 @@ function writeConsoleLine(level: Exclude<LogLevel, "silent">, line: string): voi
   } else {
     console.log(line);
   }
+}
+
+function writeAndPublishConsoleLine(
+  level: Exclude<LogLevel, "silent">,
+  event: string,
+  fields: LogFields,
+  entry: LogFields,
+  line: string,
+): void {
+  writeConsoleLine(level, line);
+  const classification = monitorLogClassification(level, event, fields);
+  monitorLogStream.publish({
+    ts: String(entry.ts),
+    level,
+    event,
+    kind: classification.kind,
+    error: classification.error,
+    line: stripAnsiCodes(line),
+    workspaceId: stringField(fields.workspaceId),
+    tool: stringField(fields.tool),
+    details: entry,
+  });
+}
+
+function monitorLogClassification(
+  level: Exclude<LogLevel, "silent">,
+  event: string,
+  fields: LogFields,
+): { kind: MonitorLogKind; error: boolean } {
+  const status = numberField(fields.status);
+  const error = (
+    level === "error"
+    || level === "warn"
+    || fields.success === false
+    || fields.executed === false
+    || (status !== undefined && status >= 400)
+  );
+  if (event === "http_request") return { kind: "http", error };
+  const tool = stringField(fields.tool);
+  if (tool === "read" || tool === "grep" || tool === "glob" || tool === "ls") return { kind: "read", error };
+  if (tool === "exec_command" || tool === "bash" || tool === "write_stdin" || tool === "run_workspace_action") return { kind: "run", error };
+  if (tool === "edit" || tool === "write" || tool === "apply_patch" || tool === "download_artifact") return { kind: "change", error };
+  if (event.startsWith("mcp_session_")) return { kind: "session", error };
+  return { kind: "other", error };
+}
+
+function stripAnsiCodes(value: string): string {
+  return value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
 function compactToolCallConsoleLine(fields: LogFields): string | undefined {

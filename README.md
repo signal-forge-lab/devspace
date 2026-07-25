@@ -132,6 +132,14 @@ the top by workspace-session start time; existing rows do not move when later
 activity occurs. The compact ID shown beside each row matches the workspace ID
 column used by the compact console tool logs.
 
+The same window also contains a resizable live console panel. Workbridge keeps
+the latest 300 console lines in memory, returns the initial history from
+`/monitor/api/logs`, and streams new lines over Server-Sent Events from
+`/monitor/api/logs/stream`. The panel supports ALL, HTTP, READ, RUN, CHANGE, and
+ERROR filters, optional automatic scrolling, display-only clearing, and
+expandable structured log details. The console APIs inherit the same local-only
+access restriction as the monitor page.
+
 Most users should connect through a public HTTPS tunnel:
 
 ```text

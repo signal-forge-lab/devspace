@@ -2280,7 +2280,7 @@ export function createServer(
     res.json({ ok: true, name: LEGACY_SERVICE_NAME });
   });
 
-  registerSessionMonitorRoutes(app, sessionMonitor);
+  const sessionMonitorRoutes = registerSessionMonitorRoutes(app, sessionMonitor);
 
   app.all("/mcp", async (req, res) => {
     const requestId = res.locals.requestId as string | undefined;
@@ -2396,6 +2396,7 @@ export function createServer(
     localAgentProviders,
     close: () => {
       closePromise ??= (async () => {
+        sessionMonitorRoutes.close();
         await sessionLifecycle.close();
         processSessions.shutdown();
         oauthProvider.close();
