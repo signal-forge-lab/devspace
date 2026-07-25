@@ -1,6 +1,6 @@
 {
   "formatVersion": 3,
-  "packageVersion": "1.2.2",
+  "packageVersion": "1.3.0",
   "source": "SHA-256 of canonical full in-memory MCP tools/list contracts",
   "configuration": {
     "toolSurface": "fixed",

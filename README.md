@@ -140,6 +140,39 @@ ERROR filters, optional automatic scrolling, display-only clearing, and
 expandable structured log details. The console APIs inherit the same local-only
 access restriction as the monitor page.
 
+### Desktop monitor window
+
+The monitor can run in a separate Electron window without browser tabs or an
+address bar. The desktop wrapper is isolated under `desktop/monitor`, so the
+published Workbridge server does not acquire Electron as a production
+dependency.
+
+Install the desktop-only dependencies once, start Workbridge normally, and then
+open the monitor window:
+
+```bash
+npm run monitor:desktop:install
+npm run monitor:desktop
+```
+
+The window loads `http://127.0.0.1:7676/monitor` by default. Override it with
+`WORKBRIDGE_MONITOR_URL` when Workbridge uses another local port. The wrapper
+remembers its size, position, maximized state, and the monitor's own console
+split height. If Workbridge is not running yet, the window remains open and
+switches to the monitor automatically when the local endpoint becomes ready.
+
+Create a Windows desktop app directory with:
+
+```bash
+npm run monitor:desktop:pack
+```
+
+Build output is written under `desktop/monitor/release` and is not committed.
+The generated directory contains `Workbridge Monitor.exe` and its required
+Electron runtime files. A signed installer or single-file portable package is
+intentionally deferred so the first version does not introduce a second,
+security-sensitive packaging stack.
+
 Most users should connect through a public HTTPS tunnel:
 
 ```text
