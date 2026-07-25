@@ -83,12 +83,11 @@ import {
 import { summarizeLocalAgentProfile } from "./local-agent-profiles.js";
 import { PACKAGE_VERSION } from "./version.js";
 import {
-  SessionMonitor,
-  workspaceDisplayInfo,
-  type SessionMonitorWorkspaceIdentity,
-  type SessionMonitorToolReference,
-} from "./session-monitor.js";
-import { sessionMonitorHtml } from "./session-monitor-ui.js";
+  createSessionMonitorToolRegistrar,
+  registerSessionMonitorRoutes,
+  type SessionMonitorContext,
+} from "./session-monitor-integration.js";
+import { SessionMonitor } from "./session-monitor.js";
 import {
   formatLocalAgentProviderAvailabilitySummary,
   getLocalAgentProviderAvailabilitySnapshot,
@@ -266,92 +265,6 @@ function createSoftPauseToolRegistrar(softPause: SoftPauseController): AppToolRe
       ),
     );
   }) as AppToolRegistrar;
-}
-
-interface SessionMonitorContext {
-  monitor: SessionMonitor;
-  sessionId(): string | undefined;
-}
-
-function createSessionMonitorToolRegistrar(
-  baseRegisterTool: AppToolRegistrar,
-  context: SessionMonitorContext,
-  workspaces: WorkspaceRegistry,
-): AppToolRegistrar {
-  return ((server, name, definition, handler) => {
-    const monitoredHandler = (async (...args: unknown[]) => {
-      const input = monitorObjectValue(args[0]);
-      const workspaceId = monitorStringValue(input?.workspaceId);
-      const workspaceIdentity = workspaceId
-        ? monitorWorkspaceIdentityForId(workspaces, workspaceId)
-        : undefined;
-      const pendingWorkspace = name === "open_workspace"
-        ? workspaceDisplayInfo(input?.path)
-        : undefined;
-      const reference: SessionMonitorToolReference = context.monitor.beginTool({
-        transportSessionId: context.sessionId() ?? `unbound-${randomUUID()}`,
-        tool: name,
-        input,
-        workspaceId,
-        workspaceStartedAt: workspaceIdentity?.startedAt,
-        workspaceLabel: workspaceIdentity?.workspaceLabel ?? pendingWorkspace?.label,
-        workspaceDetail: workspaceIdentity?.workspaceDetail ?? pendingWorkspace?.detail,
-        workspacePath: workspaceIdentity?.workspacePath ?? pendingWorkspace?.path,
-      });
-
-      try {
-        const result = await (handler as (...handlerArgs: unknown[]) => Promise<unknown> | unknown)(...args);
-        const resultWorkspaceId = monitorResultWorkspaceId(result);
-        context.monitor.completeTool(
-          reference,
-          result,
-          resultWorkspaceId
-            ? monitorWorkspaceIdentityForId(workspaces, resultWorkspaceId)
-            : undefined,
-        );
-        return result;
-      } catch (error) {
-        context.monitor.failTool(reference);
-        throw error;
-      }
-    }) as typeof handler;
-    return baseRegisterTool(server, name, definition, monitoredHandler);
-  }) as AppToolRegistrar;
-}
-
-function monitorWorkspaceIdentityForId(
-  workspaces: WorkspaceRegistry,
-  workspaceId: string | undefined,
-): SessionMonitorWorkspaceIdentity | undefined {
-  if (!workspaceId) return undefined;
-  try {
-    const workspace = workspaces.getWorkspace(workspaceId);
-    const display = workspaceDisplayInfo(workspace.root, workspace.sourceRoot);
-    return {
-      workspaceId,
-      workspaceLabel: display.label,
-      workspaceDetail: display.detail,
-      workspacePath: display.path,
-      startedAt: workspaces.getWorkspaceStartedAt(workspaceId),
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-function monitorResultWorkspaceId(result: unknown): string | undefined {
-  const structuredContent = monitorObjectValue(monitorObjectValue(result)?.structuredContent);
-  return monitorStringValue(structuredContent?.workspaceId);
-}
-
-function monitorObjectValue(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
-}
-
-function monitorStringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined;
 }
 
 function formatVisibleAgent(agent: {
@@ -2367,31 +2280,7 @@ export function createServer(
     res.json({ ok: true, name: LEGACY_SERVICE_NAME });
   });
 
-  const sendMonitorHtml = (req: Request, res: Response) => {
-    if (!isLocalMonitorRequest(req)) {
-      res.status(404).end();
-      return;
-    }
-    res.setHeader("Cache-Control", "no-store");
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Referrer-Policy", "no-referrer");
-    res.setHeader(
-      "Content-Security-Policy",
-      "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'",
-    );
-    res.send(sessionMonitorHtml());
-  };
-  app.get("/monitor", sendMonitorHtml);
-  app.get("/monitor/", sendMonitorHtml);
-  app.get("/monitor/api/snapshot", (req, res) => {
-    if (!isLocalMonitorRequest(req)) {
-      res.status(404).end();
-      return;
-    }
-    res.setHeader("Cache-Control", "no-store");
-    res.json(sessionMonitor.snapshot());
-  });
+  registerSessionMonitorRoutes(app, sessionMonitor);
 
   app.all("/mcp", async (req, res) => {
     const requestId = res.locals.requestId as string | undefined;
@@ -2515,19 +2404,6 @@ export function createServer(
       return closePromise;
     },
   };
-}
-
-function isLocalMonitorRequest(req: Request): boolean {
-  const forwarded = req.header("cf-connecting-ip")
-    ?? req.header("x-forwarded-for")?.split(",")[0]?.trim();
-  if (forwarded && !isLoopbackAddress(forwarded)) return false;
-  return isLoopbackAddress(req.socket.remoteAddress) || isLoopbackAddress(req.ip);
-}
-
-function isLoopbackAddress(value: string | undefined): boolean {
-  if (!value) return false;
-  const normalized = value.trim().replace(/^\[|\]$/g, "").replace(/^::ffff:/i, "");
-  return normalized === "::1" || normalized === "localhost" || normalized.startsWith("127.");
 }
 
 function mcpRequestMethods(httpMethod: string, body: unknown): string[] {

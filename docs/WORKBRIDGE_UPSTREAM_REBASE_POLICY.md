@@ -45,6 +45,7 @@ src/workspace-actions.ts
 src/workspace-action-plans.ts
 src/mcp-session-lifecycle.ts
 src/session-monitor.ts
+src/session-monitor-integration.ts
 src/session-monitor-ui.ts
 src/soft-pause.ts
 src/workspace-json-artifact.ts

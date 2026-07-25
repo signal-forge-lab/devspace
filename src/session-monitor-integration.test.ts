@@ -1,0 +1,144 @@
+import assert from "node:assert/strict";
+import type { AddressInfo } from "node:net";
+import express from "express";
+import {
+  createSessionMonitorToolRegistrar,
+  registerSessionMonitorRoutes,
+  type AppToolRegistrar,
+} from "./session-monitor-integration.js";
+import { SessionMonitor } from "./session-monitor.js";
+import type { WorkspaceRegistry } from "./workspaces.js";
+
+await testToolRegistrationTracksWorkspaceAndOutcome();
+await testMonitorRoutesRemainLocalOnly();
+
+console.log("session monitor integration tests passed");
+
+async function testToolRegistrationTracksWorkspaceAndOutcome(): Promise<void> {
+  const workbridgeWorkspaceId = "ws_1234567890-aaaa-bbbb-cccc-1234567890ab";
+  const arcaiaWorkspaceId = "ws_abcdefghij-aaaa-bbbb-cccc-1234567890ab";
+  const monitor = new SessionMonitor();
+  let capturedHandler: ((input: unknown) => Promise<unknown>) | undefined;
+  const baseRegisterTool = ((_server: unknown, _name: unknown, _definition: unknown, handler: unknown) => {
+    capturedHandler = handler as (input: unknown) => Promise<unknown>;
+    return undefined;
+  }) as unknown as AppToolRegistrar;
+  const workspaces = {
+    getWorkspace: (workspaceId: string) => {
+      if (workspaceId === workbridgeWorkspaceId) {
+        return { root: "C:\\projects\\workbridge" };
+      }
+      if (workspaceId === arcaiaWorkspaceId) {
+        return { root: "C:\\projects\\arcaia" };
+      }
+      throw new Error(`Unknown workspace: ${workspaceId}`);
+    },
+    getWorkspaceStartedAt: (workspaceId: string) => workspaceId === workbridgeWorkspaceId ? 1_000 : 2_000,
+  } as unknown as WorkspaceRegistry;
+  const registerTool = createSessionMonitorToolRegistrar(
+    baseRegisterTool,
+    { monitor, sessionId: () => "session-1" },
+    workspaces,
+  );
+
+  registerTool(
+    {} as never,
+    "read",
+    {} as never,
+    async () => ({ structuredContent: { result: "ok" } }) as never,
+  );
+  assert.ok(capturedHandler);
+  await capturedHandler({ workspaceId: workbridgeWorkspaceId, path: "src/server.ts" });
+
+  const snapshot = monitor.snapshot();
+  assert.equal(snapshot.version, 2);
+  assert.equal(snapshot.sessions.length, 1);
+  assert.equal(snapshot.sessions[0]?.workspaceId, workbridgeWorkspaceId);
+  assert.equal(snapshot.sessions[0]?.workspaceLabel, "workbridge");
+  assert.equal(snapshot.sessions[0]?.totalCalls, 1);
+  assert.equal(snapshot.sessions[0]?.nodes[0]?.tool, "read");
+  assert.equal(snapshot.sessions[0]?.nodes[0]?.target, "src/server.ts");
+  assert.equal(snapshot.sessions[0]?.nodes[0]?.state, "success");
+
+  registerTool(
+    {} as never,
+    "open_workspace",
+    {} as never,
+    async () => ({ structuredContent: { workspaceId: arcaiaWorkspaceId } }) as never,
+  );
+  assert.ok(capturedHandler);
+  await capturedHandler({ path: "C:\\projects\\arcaia" });
+
+  const promotedSnapshot = monitor.snapshot();
+  const arcaiaSession = promotedSnapshot.sessions.find(
+    (session) => session.workspaceId === arcaiaWorkspaceId,
+  );
+  assert.equal(arcaiaSession?.workspaceLabel, "arcaia");
+  assert.equal(arcaiaSession?.totalCalls, 1);
+  assert.equal(arcaiaSession?.nodes[0]?.tool, "open_workspace");
+  assert.equal(arcaiaSession?.nodes[0]?.state, "success");
+
+  registerTool(
+    {} as never,
+    "open_workspace",
+    {} as never,
+    async () => {
+      throw new Error("expected failure");
+    },
+  );
+  assert.ok(capturedHandler);
+  await assert.rejects(
+    capturedHandler({ path: "C:\\projects\\broken" }),
+    /expected failure/,
+  );
+
+  const failedSnapshot = monitor.snapshot();
+  const failedSession = failedSnapshot.sessions.find(
+    (session) => session.workspaceLabel === "broken",
+  );
+  assert.equal(failedSession?.totalCalls, 1);
+  assert.equal(failedSession?.nodes[0]?.tool, "open_workspace");
+  assert.equal(failedSession?.nodes[0]?.state, "error");
+  assert.equal(failedSession?.state, "error");
+}
+
+async function testMonitorRoutesRemainLocalOnly(): Promise<void> {
+  const monitor = new SessionMonitor();
+  const reference = monitor.beginTool({
+    transportSessionId: "session-2",
+    tool: "read",
+    input: { path: "README.md" },
+  });
+  monitor.completeTool(reference, { structuredContent: {} });
+  const app = express();
+  registerSessionMonitorRoutes(app, monitor);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+
+  try {
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const htmlResponse = await fetch(`${baseUrl}/monitor`);
+    assert.equal(htmlResponse.status, 200);
+    assert.match(htmlResponse.headers.get("content-type") ?? "", /^text\/html/);
+    assert.match(htmlResponse.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/);
+    assert.match(await htmlResponse.text(), /Workbridge Session Monitor/);
+
+    const snapshotResponse = await fetch(`${baseUrl}/monitor/api/snapshot`);
+    assert.equal(snapshotResponse.status, 200);
+    const snapshot = await snapshotResponse.json() as { sessions: Array<{ sessionIdPrefix: string }> };
+    assert.equal(snapshot.sessions[0]?.sessionIdPrefix, "session-");
+
+    const forwardedResponse = await fetch(`${baseUrl}/monitor`, {
+      headers: { "x-forwarded-for": "198.51.100.10" },
+    });
+    assert.equal(forwardedResponse.status, 404);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+}
