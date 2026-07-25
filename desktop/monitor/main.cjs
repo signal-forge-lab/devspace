@@ -129,9 +129,11 @@ async function loadMonitorWhenReady() {
   }
   if (!waitingPageVisible) {
     waitingPageVisible = true;
+    const waitingIcon = createApplicationIcon();
     const html = waitingPageHtml(
       monitorUrl,
       "Workbridgeがまだ応答していません。サーバーを起動したままお待ちください。",
+      waitingIcon.isEmpty() ? undefined : waitingIcon.toDataURL(),
     );
     await mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   }
@@ -195,8 +197,7 @@ function saveWindowState(window) {
 }
 
 function createApplicationIcon() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><rect width="256" height="256" rx="52" fill="#0b1016"/><path d="M45 61h37l24 101 22-72h31l22 72 24-101h37l-42 140h-35l-22-68-22 68H87z" fill="#32a8ff"/></svg>`;
-  return nativeImage.createFromDataURL(
-    `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`,
+  return nativeImage.createFromPath(
+    path.join(__dirname, "assets", "workbridge-monitor-icon.png"),
   );
 }

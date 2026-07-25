@@ -1,6 +1,6 @@
 {
   "name": "@waishnav/devspace",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Expose a secure local coding workspace through an MCP server.",
   "type": "module",
   "main": "dist/server.js",
@@ -19,6 +19,8 @@
     "desktop/monitor/package.json",
     "desktop/monitor/package-lock.json",
     "desktop/monitor/test.cjs",
+    "desktop/monitor/assets/workbridge-monitor-icon.png",
+    "assets/workbridge-monitor-icon.png",
     "examples",
     "scripts",
     "skills",

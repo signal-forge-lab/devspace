@@ -62,17 +62,23 @@ function windowStateIsVisible(state, displays) {
   });
 }
 
-function waitingPageHtml(monitorUrl, reason) {
+function waitingPageHtml(monitorUrl, reason, iconDataUrl) {
   const safeUrl = escapeHtml(monitorUrl);
   const safeReason = escapeHtml(reason || "Workbridgeの起動を待っています。");
+  const safeIcon = typeof iconDataUrl === "string" && iconDataUrl.startsWith("data:image/")
+    ? escapeHtml(iconDataUrl)
+    : undefined;
+  const brandIcon = safeIcon
+    ? `<img class="brand-icon" src="${safeIcon}" alt="">`
+    : `<div class="mark">W</div>`;
   return `<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Workbridge Monitor</title><style>
 :root{color-scheme:dark;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:#0b1016;color:#eef4fa}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 25% 0,#15304a 0,transparent 38%),#0b1016}
 .card{width:min(560px,calc(100vw - 48px));padding:34px;border:1px solid #263546;border-radius:16px;background:rgba(17,25,35,.96);box-shadow:0 22px 70px rgba(0,0,0,.35)}
-.brand{display:flex;align-items:center;gap:14px}.mark{color:#32a8ff;font-size:34px;font-weight:900;transform:skew(-8deg)}h1{font-size:21px;margin:0}.status{display:flex;align-items:center;gap:10px;margin-top:26px;color:#c4d0db}.dot{width:9px;height:9px;border-radius:50%;background:#f7b42c;box-shadow:0 0 12px rgba(247,180,44,.65);animation:pulse 1.4s infinite}.reason{margin-top:11px;color:#8fa0b2;font-size:13px;line-height:1.6}.url{margin-top:20px;padding:10px 12px;border:1px solid #263546;border-radius:8px;background:#0a1017;color:#73c9ff;font:12px ui-monospace,Consolas,monospace;overflow-wrap:anywhere}.note{margin-top:14px;color:#667b8f;font-size:11px}@keyframes pulse{0%,100%{opacity:.45;transform:scale(.82)}50%{opacity:1;transform:scale(1.2)}}</style></head>
-<body><main class="card"><div class="brand"><div class="mark">W</div><div><h1>Workbridge Monitor</h1></div></div><div class="status"><span class="dot"></span><strong>接続待機中</strong></div><div class="reason">${safeReason}</div><div class="url">${safeUrl}</div><div class="note">接続可能になると、このウィンドウ内で自動的にモニターへ切り替わります。</div></main></body></html>`;
+.brand{display:flex;align-items:center;gap:14px}.brand-icon{width:48px;height:48px;object-fit:contain}.mark{color:#32a8ff;font-size:34px;font-weight:900;transform:skew(-8deg)}h1{font-size:21px;margin:0}.status{display:flex;align-items:center;gap:10px;margin-top:26px;color:#c4d0db}.dot{width:9px;height:9px;border-radius:50%;background:#f7b42c;box-shadow:0 0 12px rgba(247,180,44,.65);animation:pulse 1.4s infinite}.reason{margin-top:11px;color:#8fa0b2;font-size:13px;line-height:1.6}.url{margin-top:20px;padding:10px 12px;border:1px solid #263546;border-radius:8px;background:#0a1017;color:#73c9ff;font:12px ui-monospace,Consolas,monospace;overflow-wrap:anywhere}.note{margin-top:14px;color:#667b8f;font-size:11px}@keyframes pulse{0%,100%{opacity:.45;transform:scale(.82)}50%{opacity:1;transform:scale(1.2)}}</style></head>
+<body><main class="card"><div class="brand">${brandIcon}<div><h1>Workbridge Monitor</h1></div></div><div class="status"><span class="dot"></span><strong>接続待機中</strong></div><div class="reason">${safeReason}</div><div class="url">${safeUrl}</div><div class="note">接続可能になると、このウィンドウ内で自動的にモニターへ切り替わります。</div></main></body></html>`;
 }
 
 function finiteInteger(value) {

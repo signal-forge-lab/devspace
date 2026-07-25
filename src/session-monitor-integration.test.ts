@@ -127,7 +127,21 @@ async function testMonitorRoutesRemainLocalOnly(): Promise<void> {
     assert.equal(htmlResponse.status, 200);
     assert.match(htmlResponse.headers.get("content-type") ?? "", /^text\/html/);
     assert.match(htmlResponse.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/);
-    assert.match(await htmlResponse.text(), /Workbridge Session Monitor/);
+    const html = await htmlResponse.text();
+    assert.match(html, /Workbridge Session Monitor/);
+    assert.match(html, /v1\.3\.1/);
+    assert.match(html, /workbridge-monitor-icon\.png/);
+    assert.match(html, /Polling/);
+    assert.match(html, /data-session-key/);
+    assert.doesNotMatch(html, /1行 = 1 workspace session/);
+    assert.doesNotMatch(html, /translateY\(-1px\)/);
+
+    const iconResponse = await fetch(
+      `${baseUrl}/monitor/assets/workbridge-monitor-icon.png`,
+    );
+    assert.equal(iconResponse.status, 200);
+    assert.equal(iconResponse.headers.get("content-type"), "image/png");
+    assert.ok((await iconResponse.arrayBuffer()).byteLength > 1_000);
 
     const snapshotResponse = await fetch(`${baseUrl}/monitor/api/snapshot`);
     assert.equal(snapshotResponse.status, 200);
@@ -174,6 +188,11 @@ async function testMonitorRoutesRemainLocalOnly(): Promise<void> {
       headers: { "x-forwarded-for": "198.51.100.10" },
     });
     assert.equal(forwardedLogsResponse.status, 404);
+    const forwardedIconResponse = await fetch(
+      `${baseUrl}/monitor/assets/workbridge-monitor-icon.png`,
+      { headers: { "x-forwarded-for": "198.51.100.10" } },
+    );
+    assert.equal(forwardedIconResponse.status, 404);
 
     const shutdownStreamResponse = await fetch(
       `${baseUrl}/monitor/api/logs/stream?after=${published.sequence}`,

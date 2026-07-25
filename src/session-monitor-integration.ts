@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import type { Express, Request, Response } from "express";
 import {
@@ -14,6 +16,11 @@ import {
 } from "./session-monitor.js";
 import { sessionMonitorHtml } from "./session-monitor-ui.js";
 import type { WorkspaceRegistry } from "./workspaces.js";
+
+const MONITOR_ICON_PATH = fileURLToPath(
+  new URL("../assets/workbridge-monitor-icon.png", import.meta.url),
+);
+const MONITOR_ICON_BYTES = readFileSync(MONITOR_ICON_PATH);
 
 export type AppToolRegistrar = typeof registerAppTool;
 
@@ -96,6 +103,16 @@ export function registerSessionMonitorRoutes(
 
   app.get("/monitor", sendMonitorHtml);
   app.get("/monitor/", sendMonitorHtml);
+  app.get("/monitor/assets/workbridge-monitor-icon.png", (req, res) => {
+    if (!isLocalMonitorRequest(req)) {
+      res.status(404).end();
+      return;
+    }
+    res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.end(MONITOR_ICON_BYTES);
+  });
   app.get("/monitor/api/snapshot", (req, res) => {
     if (!isLocalMonitorRequest(req)) {
       res.status(404).end();

@@ -55,6 +55,12 @@ const waiting = waitingPageHtml("http://127.0.0.1:7676/monitor?<unsafe>", "<wait
 assert.match(waiting, /Workbridge Monitor/);
 assert.doesNotMatch(waiting, /<unsafe>/);
 assert.doesNotMatch(waiting, /<waiting>/);
+const waitingWithIcon = waitingPageHtml(
+  "http://127.0.0.1:7676/monitor",
+  "waiting",
+  "data:image/png;base64,aGVsbG8=",
+);
+assert.match(waitingWithIcon, /class="brand-icon"/);
 
 const rootPackage = require(path.join(__dirname, "..", "..", "package.json"));
 const publishedDesktopFiles = rootPackage.files.filter((value) =>
@@ -66,6 +72,7 @@ assert.deepEqual(publishedDesktopFiles, [
   "desktop/monitor/package.json",
   "desktop/monitor/package-lock.json",
   "desktop/monitor/test.cjs",
+  "desktop/monitor/assets/workbridge-monitor-icon.png",
 ]);
 assert.equal(publishedDesktopFiles.includes("desktop/monitor"), false);
 
