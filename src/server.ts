@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { access, realpath } from "node:fs/promises";
+import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
@@ -53,10 +54,12 @@ import {
   SOFT_PAUSE_TOOL_DESCRIPTION,
 } from "./soft-pause.js";
 import {
-  McpSessionRegistry,
-  type McpSessionCloseResult,
   type McpSessionMetadata,
 } from "./mcp-sessions.js";
+import {
+  McpSessionLifecycle,
+  isOpenAiMcpClient,
+} from "./mcp-session-lifecycle.js";
 import {
   redactPathsInText,
   redactPathsInValue,
@@ -81,19 +84,18 @@ import {
 import { summarizeLocalAgentProfile } from "./local-agent-profiles.js";
 import { PACKAGE_VERSION } from "./version.js";
 import {
+  SessionMonitor,
+  workspaceLabelFromPath,
+  type SessionMonitorToolReference,
+} from "./session-monitor.js";
+import { sessionMonitorHtml } from "./session-monitor-ui.js";
+import {
   formatLocalAgentProviderAvailabilitySummary,
   getLocalAgentProviderAvailabilitySnapshot,
   type LocalAgentProviderAvailability,
 } from "./local-agent-availability.js";
 
 type Transport = StreamableHTTPServerTransport;
-// MCP clients can reconnect without closing the previous transport. Bound stale
-// session retention so abandoned MCP servers do not accumulate for the life of the process.
-const MCP_SESSION_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
-const MCP_PRE_USE_IDLE_TIMEOUT_MS = 15 * 60 * 1_000;
-const MCP_ONE_SHOT_GRACE_MS = 5 * 60 * 1_000;
-const MCP_SESSION_CLEANUP_INTERVAL_MS = 60 * 1_000;
-const MCP_SESSION_WARNING_THRESHOLDS = [128, 512] as const;
 const WORKSPACE_APP_URI = "ui://devspace/workspace-app.html";
 const WORKSPACE_APP_MANIFEST_ENTRY = "workspace-app.html";
 const WRITE_TOOL_ANNOTATIONS = {
@@ -264,6 +266,66 @@ function createSoftPauseToolRegistrar(softPause: SoftPauseController): AppToolRe
       ),
     );
   }) as AppToolRegistrar;
+}
+
+interface SessionMonitorContext {
+  monitor: SessionMonitor;
+  sessionId(): string | undefined;
+}
+
+function createSessionMonitorToolRegistrar(
+  baseRegisterTool: AppToolRegistrar,
+  context: SessionMonitorContext,
+  workspaces: WorkspaceRegistry,
+): AppToolRegistrar {
+  return ((server, name, definition, handler) => {
+    const monitoredHandler = (async (...args: unknown[]) => {
+      const input = monitorObjectValue(args[0]);
+      const workspaceId = monitorStringValue(input?.workspaceId);
+      const workspaceLabel = name === "open_workspace"
+        ? workspaceLabelFromPath(input?.path)
+        : monitorWorkspaceLabelForId(workspaces, workspaceId);
+      const reference: SessionMonitorToolReference = context.monitor.beginTool({
+        sessionId: context.sessionId() ?? `unbound-${randomUUID()}`,
+        tool: name,
+        input,
+        workspaceId,
+        workspaceLabel,
+      });
+
+      try {
+        const result = await (handler as (...handlerArgs: unknown[]) => Promise<unknown> | unknown)(...args);
+        context.monitor.completeTool(reference, result);
+        return result;
+      } catch (error) {
+        context.monitor.failTool(reference);
+        throw error;
+      }
+    }) as typeof handler;
+    return baseRegisterTool(server, name, definition, monitoredHandler);
+  }) as AppToolRegistrar;
+}
+
+function monitorWorkspaceLabelForId(
+  workspaces: WorkspaceRegistry,
+  workspaceId: string | undefined,
+): string | undefined {
+  if (!workspaceId) return undefined;
+  try {
+    return basename(workspaces.getWorkspace(workspaceId).root);
+  } catch {
+    return undefined;
+  }
+}
+
+function monitorObjectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function monitorStringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
 }
 
 function formatVisibleAgent(agent: {
@@ -1016,8 +1078,15 @@ export function createMcpServer(
   localAgentProviders: LocalAgentProviderAvailability[],
   incomingArtifactAdapters: readonly IncomingArtifactAdapter[],
   softPause = new SoftPauseController(config.stateDir),
+  monitorContext?: SessionMonitorContext,
 ): McpServer {
-  const registerTool = createSoftPauseToolRegistrar(softPause);
+  const softPauseRegisterTool = createSoftPauseToolRegistrar(softPause);
+  const registerTool = monitorContext
+    ? createSessionMonitorToolRegistrar(softPauseRegisterTool, monitorContext, workspaces)
+    : softPauseRegisterTool;
+  const artifactRegisterTool = monitorContext
+    ? createSessionMonitorToolRegistrar(registerAppTool, monitorContext, workspaces)
+    : registerAppTool;
   const server = new McpServer(
     {
       name: LEGACY_SERVICE_NAME,
@@ -2184,6 +2253,7 @@ export function createMcpServer(
     config,
     workspaces,
     incomingArtifactAdapters,
+    registerTool: artifactRegisterTool,
   });
 
   return server;
@@ -2206,7 +2276,9 @@ export function createServer(
     host: config.host,
     ...(allowedHosts ? { allowedHosts } : {}),
   });
-  const transports = new McpSessionRegistry<Transport>();
+  const sessionLifecycle = new McpSessionLifecycle<Transport>({
+    log: (level, event, fields) => logEvent(config.logging, level, event, fields),
+  });
   const mcpUrl = new URL("/mcp", config.publicBaseUrl);
   const resourceServerUrl = resourceUrlFromServerUrl(mcpUrl);
   const oauthProvider = new SingleUserOAuthProvider(config.oauth, mcpUrl, config.stateDir);
@@ -2220,97 +2292,11 @@ export function createServer(
   const reviewCheckpoints = createReviewCheckpointManager();
   const processSessions = new ProcessSessionManager();
   const softPause = new SoftPauseController(config.stateDir);
+  const sessionMonitor = new SessionMonitor();
   const localAgentProviders = config.subagents
     ? getLocalAgentProviderAvailabilitySnapshot()
     : [];
-  const warnedSessionThresholds = new Set<number>();
-
-  const warnSessionPressureIfNeeded = (
-    stats = transports.stats(),
-    memory = process.memoryUsage(),
-  ) => {
-    for (const threshold of MCP_SESSION_WARNING_THRESHOLDS) {
-      if (stats.active < threshold) {
-        warnedSessionThresholds.delete(threshold);
-        continue;
-      }
-      if (warnedSessionThresholds.has(threshold)) continue;
-      warnedSessionThresholds.add(threshold);
-      logEvent(config.logging, "warn", "mcp_session_pressure", {
-        threshold,
-        ...stats,
-        rssBytes: memory.rss,
-        heapUsedBytes: memory.heapUsed,
-      });
-    }
-  };
-
-  const logSessionMetrics = (event = "mcp_session_metrics") => {
-    const stats = transports.stats();
-    const memory = process.memoryUsage();
-    logEvent(config.logging, "info", event, {
-      ...stats,
-      rssBytes: memory.rss,
-      heapUsedBytes: memory.heapUsed,
-      heapTotalBytes: memory.heapTotal,
-      externalBytes: memory.external,
-      arrayBuffersBytes: memory.arrayBuffers,
-      uptimeSeconds: Math.round(process.uptime()),
-    });
-    warnSessionPressureIfNeeded(stats, memory);
-  };
-
-  const logSessionCloseResults = (
-    reason: "pre_use_timeout" | "one_shot_timeout" | "idle_timeout" | "server_shutdown",
-    results: McpSessionCloseResult[],
-  ) => {
-    for (const result of results) {
-      if (result.error) {
-        logEvent(config.logging, "warn", "mcp_session_close_failed", {
-          reason,
-          sessionIdPrefix: sessionIdPrefix(result.sessionId),
-          error:
-            result.error instanceof Error
-              ? result.error.message
-              : String(result.error),
-        });
-        continue;
-      }
-
-      logEvent(config.logging, "info", "mcp_session_closed", {
-        reason,
-        sessionIdPrefix: sessionIdPrefix(result.sessionId),
-        activeSessionCount: transports.size,
-      });
-    }
-  };
-
-  let sessionCleanupRunning = false;
-  const sessionCleanupTimer = setInterval(() => {
-    if (sessionCleanupRunning) return;
-    sessionCleanupRunning = true;
-    void (async () => {
-      const preUseResults = await transports.closePreUse(
-        MCP_PRE_USE_IDLE_TIMEOUT_MS,
-      );
-      logSessionCloseResults("pre_use_timeout", preUseResults);
-      const oneShotResults = await transports.closeOneShot(
-        MCP_ONE_SHOT_GRACE_MS,
-      );
-      logSessionCloseResults("one_shot_timeout", oneShotResults);
-      const idleResults = await transports.closeIdle(MCP_SESSION_IDLE_TIMEOUT_MS);
-      logSessionCloseResults("idle_timeout", idleResults);
-      logSessionMetrics();
-    })().catch((error) => {
-      logEvent(config.logging, "warn", "mcp_session_cleanup_failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }).finally(() => {
-      sessionCleanupRunning = false;
-    });
-  }, MCP_SESSION_CLEANUP_INTERVAL_MS);
-  sessionCleanupTimer.unref();
-  logSessionMetrics("mcp_session_metrics_startup");
+  sessionLifecycle.start();
 
   if (config.logging.trustProxy) {
     app.set("trust proxy", 1);
@@ -2355,6 +2341,32 @@ export function createServer(
     res.json({ ok: true, name: LEGACY_SERVICE_NAME });
   });
 
+  const sendMonitorHtml = (req: Request, res: Response) => {
+    if (!isLocalMonitorRequest(req)) {
+      res.status(404).end();
+      return;
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'",
+    );
+    res.send(sessionMonitorHtml());
+  };
+  app.get("/monitor", sendMonitorHtml);
+  app.get("/monitor/", sendMonitorHtml);
+  app.get("/monitor/api/snapshot", (req, res) => {
+    if (!isLocalMonitorRequest(req)) {
+      res.status(404).end();
+      return;
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json(sessionMonitor.snapshot());
+  });
+
   app.all("/mcp", async (req, res) => {
     const requestId = res.locals.requestId as string | undefined;
     const sessionId = req.header("mcp-session-id");
@@ -2390,64 +2402,46 @@ export function createServer(
       isInitialize: initializeRequest,
     });
 
-    const releaseRequestOnResponseEnd = (trackedSessionId: string) => {
-      if (res.writableEnded || res.destroyed) {
-        transports.endRequest(trackedSessionId);
-        return;
-      }
-      let released = false;
-      const release = () => {
-        if (released) return;
-        released = true;
-        transports.endRequest(trackedSessionId);
-      };
-      res.once("finish", release);
-      res.once("close", release);
-    };
-
     try {
       let transport: Transport | undefined;
 
       if (sessionId) {
-        transport = transports.beginRequest(sessionId, requestMethods);
+        transport = sessionLifecycle.beginRequest(sessionId, requestMethods);
         if (!transport) {
           sendJsonRpcError(res, 404, -32000, "Unknown MCP session");
           return;
         }
-        releaseRequestOnResponseEnd(sessionId);
+        sessionLifecycle.trackRequestUntilResponseEnd(sessionId, res);
       } else if (initializeRequest) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (newSessionId) => {
             const metadata = mcpInitializeMetadata(req);
+            sessionMonitor.createSession(newSessionId);
             if (transport) {
-              transports.register(newSessionId, transport, metadata, {
+              sessionLifecycle.register(newSessionId, transport, metadata, {
                 requestActive: true,
                 oneShotCleanupEligible: isOpenAiMcpClient(metadata),
               });
-              releaseRequestOnResponseEnd(newSessionId);
+              sessionLifecycle.trackRequestUntilResponseEnd(newSessionId, res);
             }
             logEvent(config.logging, "info", "mcp_session_created", {
               requestId,
               sessionIdPrefix: sessionIdPrefix(newSessionId),
-              activeSessionCount: transports.size,
+              activeSessionCount: sessionLifecycle.size,
               clientName: metadata.clientName,
               clientVersion: metadata.clientVersion,
               protocolVersion: metadata.protocolVersion,
               ...requestLogFields(req, config),
             });
-            warnSessionPressureIfNeeded();
           },
         });
 
         transport.onclose = () => {
           const closedSessionId = transport?.sessionId;
-          if (closedSessionId && transports.remove(closedSessionId)) {
-            logEvent(config.logging, "info", "mcp_session_closed", {
-              reason: "transport_close",
-              sessionIdPrefix: sessionIdPrefix(closedSessionId),
-              activeSessionCount: transports.size,
-            });
+          if (closedSessionId) {
+            sessionMonitor.closeSession(closedSessionId);
+            sessionLifecycle.remove(closedSessionId, "transport_close");
           }
         };
 
@@ -2459,6 +2453,10 @@ export function createServer(
           localAgentProviders,
           incomingArtifactAdapters,
           softPause,
+          {
+            monitor: sessionMonitor,
+            sessionId: () => transport?.sessionId,
+          },
         );
         await server.connect(transport);
       } else {
@@ -2485,9 +2483,7 @@ export function createServer(
     localAgentProviders,
     close: () => {
       closePromise ??= (async () => {
-        clearInterval(sessionCleanupTimer);
-        const results = await transports.closeAll();
-        logSessionCloseResults("server_shutdown", results);
+        await sessionLifecycle.close();
         processSessions.shutdown();
         oauthProvider.close();
         workspaceStore.close?.();
@@ -2495,6 +2491,19 @@ export function createServer(
       return closePromise;
     },
   };
+}
+
+function isLocalMonitorRequest(req: Request): boolean {
+  const forwarded = req.header("cf-connecting-ip")
+    ?? req.header("x-forwarded-for")?.split(",")[0]?.trim();
+  if (forwarded && !isLoopbackAddress(forwarded)) return false;
+  return isLoopbackAddress(req.socket.remoteAddress) || isLoopbackAddress(req.ip);
+}
+
+function isLoopbackAddress(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim().replace(/^\[|\]$/g, "").replace(/^::ffff:/i, "");
+  return normalized === "::1" || normalized === "localhost" || normalized.startsWith("127.");
 }
 
 function mcpRequestMethods(httpMethod: string, body: unknown): string[] {
@@ -2531,11 +2540,6 @@ function mcpInitializeMetadata(req: Request): {
   };
 }
 
-function isOpenAiMcpClient(metadata: McpSessionMetadata): boolean {
-  return metadata.clientName?.trim().toLowerCase() === "openai-mcp"
-    || metadata.userAgent?.trim().toLowerCase().startsWith("openai-mcp/") === true;
-}
-
 function stringProperty(value: unknown, property: string): string | undefined {
   if (!value || typeof value !== "object") return undefined;
   const candidate = (value as Record<string, unknown>)[property];
@@ -2556,6 +2560,7 @@ if (await isMainModule()) {
     console.log(
       `${PRODUCT_DISPLAY_NAME} listening on http://${config.host}:${config.port}/mcp`,
     );
+    console.log(`session monitor: http://127.0.0.1:${config.port}/monitor`);
     console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log("auth: oauth owner-token flow required");
     console.log(`logging: ${config.logging.level} ${config.logging.format}`);

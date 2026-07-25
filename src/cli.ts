@@ -214,6 +214,7 @@ async function serve(): Promise<void> {
   const { app, close } = createServer(config);
   const httpServer = app.listen(config.port, config.host, () => {
     console.log(`${PRODUCT_DISPLAY_NAME} listening on http://${config.host}:${config.port}/mcp`);
+    console.log(`session monitor: http://127.0.0.1:${config.port}/monitor`);
     console.log(`version: ${PACKAGE_VERSION}`);
     console.log(`git commit: ${(() => {
       try {
