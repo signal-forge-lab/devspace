@@ -31,3 +31,25 @@ Core constraints:
 - Prefer explicit, inspectable tool calls over autonomous local agent loops.
 - Keep the first version small enough to validate with real ChatGPT/Claude MCP
   clients before adding UI or workflow features.
+
+## Mandatory downstream maintenance policy
+
+This repository is a downstream Workbridge extension that is expected to be
+rebased onto upstream regularly. All maintainers and coding agents must treat
+rebase compatibility as a primary design constraint.
+
+- Read and follow `docs/WORKBRIDGE_UPSTREAM_REBASE_POLICY.md` before changing
+  architecture, moving code, or editing upstream-owned files.
+- Keep Workbridge-specific behavior in Workbridge-owned modules whenever
+  practical. Leave only small, explicit integration hooks in upstream-owned
+  files.
+- Do not broadly reorganize, rename, split, or reformat upstream-owned code only
+  for cleanliness. Such changes increase future rebase conflicts.
+- A refactor is justified when it reduces the downstream patch surface,
+  isolates Workbridge behavior, fixes a concrete defect, or enables an approved
+  feature. File size alone is not sufficient justification.
+- Create a local backup ref before rebasing. Do not push, tag, publish, create a
+  GitHub release, or add remote/publication work to the plan unless the user
+  explicitly requests it.
+- Preserve the fixed seven-tool contract and other accepted Workbridge design
+  decisions unless the user explicitly approves a change.
