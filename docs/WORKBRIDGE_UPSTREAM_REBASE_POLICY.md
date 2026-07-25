@@ -46,6 +46,7 @@ src/workspace-action-plans.ts
 src/mcp-session-lifecycle.ts
 src/session-monitor.ts
 src/session-monitor-integration.ts
+src/workbridge-logging.ts
 src/workbridge-tool-registration.ts
 src/workspace-action-process-runner.ts
 src/session-monitor-ui.ts
