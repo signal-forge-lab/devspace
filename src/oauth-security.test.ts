@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   AuthorizationAttemptLimiter,
+  delay,
   isAllowedOAuthRedirectUri,
   requestAddress,
 } from "./oauth-security.js";
@@ -29,6 +30,23 @@ limiter.recordFailure("success", 10_000);
 limiter.recordSuccess("success");
 assert.equal(limiter.retryAfterMs("success", 10_001), 0);
 
+const pruningLimiter = new AuthorizationAttemptLimiter({
+  maxFailures: 3,
+  failureWindowMs: 1_000,
+  blockDurationMs: 5_000,
+  failureDelayMs: 0,
+});
+pruningLimiter.recordFailure("blocked", 0);
+pruningLimiter.recordFailure("blocked", 100);
+pruningLimiter.recordFailure("blocked", 200);
+pruningLimiter.prune(2_000);
+assert.equal(pruningLimiter.retryAfterMs("blocked", 2_000), 3_200);
+pruningLimiter.prune(5_201);
+assert.equal(pruningLimiter.retryAfterMs("blocked", 5_201), 0);
+
 assert.equal(requestAddress({ ip: "203.0.113.10" }), "203.0.113.10");
 assert.equal(requestAddress({ socket: { remoteAddress: "127.0.0.1" } }), "127.0.0.1");
 assert.equal(requestAddress({}), "unknown");
+
+await delay(0);
+await delay(1);

@@ -26,6 +26,8 @@ testAlreadyEndedResponseReleasesImmediately();
 await testStartAndShutdownOwnCleanupTimer();
 await testCleanupRunsOnlyOnceAtATime();
 await testShutdownWaitsForInFlightCleanup();
+await testCloseFailureIsLogged();
+await testPressureWarningCanReset();
 testOpenAiClientDetection();
 
 console.log("mcp session lifecycle tests passed");
@@ -186,6 +188,59 @@ async function testShutdownWaitsForInFlightCleanup(): Promise<void> {
   await Promise.all([cleanup, shutdown]);
   assert.equal(activeTransport.closeCalls, 1);
   assert.equal(lifecycle.size, 0);
+}
+
+async function testCloseFailureIsLogged(): Promise<void> {
+  let now = 0;
+  const transport = {
+    closeCalls: 0,
+    async close(): Promise<void> {
+      this.closeCalls += 1;
+      throw new Error("synthetic close failure");
+    },
+  };
+  const events: LoggedEvent[] = [];
+  const registry = new McpSessionRegistry<typeof transport>({ now: () => now });
+  registry.register("failing-session", transport);
+  now = 20 * 60 * 1_000;
+
+  const lifecycle = new McpSessionLifecycle({
+    registry,
+    preUseIdleTimeoutMs: 10 * 60 * 1_000,
+    log: (level, event, fields) => events.push({ level, event, fields }),
+  });
+  await lifecycle.cleanupNow();
+
+  assert.equal(transport.closeCalls, 1);
+  assert.equal(lifecycle.size, 0);
+  assert.equal(
+    events.some((entry) => (
+      entry.level === "warn"
+      && entry.event === "mcp_session_close_failed"
+      && entry.fields.reason === "pre_use_timeout"
+      && entry.fields.error === "synthetic close failure"
+    )),
+    true,
+  );
+  await lifecycle.close();
+}
+
+async function testPressureWarningCanReset(): Promise<void> {
+  const events: LoggedEvent[] = [];
+  const lifecycle = new McpSessionLifecycle<FakeTransport>({
+    warningThresholds: [2],
+    log: (level, event, fields) => events.push({ level, event, fields }),
+  });
+
+  lifecycle.register("pressure-a", new FakeTransport());
+  lifecycle.register("pressure-b", new FakeTransport());
+  assert.equal(events.filter((entry) => entry.event === "mcp_session_pressure").length, 1);
+
+  lifecycle.remove("pressure-a", "transport_close");
+  await lifecycle.cleanupNow();
+  lifecycle.register("pressure-c", new FakeTransport());
+  assert.equal(events.filter((entry) => entry.event === "mcp_session_pressure").length, 2);
+  await lifecycle.close();
 }
 
 function testOpenAiClientDetection(): void {

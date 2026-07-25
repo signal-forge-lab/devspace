@@ -197,11 +197,28 @@ It currently runs and requires all of the following to pass:
 
 ```text
 npm run typecheck
+npm run lint
 npm run baseline:tools:check
 npm test
 npm run build
 git diff --check
 ```
+
+The lint configuration is intentionally limited to defect-oriented checks for
+unhandled or misused promises, async `forEach` callbacks, unreachable code, and
+constant binary expressions. It does not enforce formatting, import order, line
+length, quoting, or other style-only rules that would create broad downstream
+diffs in upstream-owned files.
+
+Critical-boundary coverage is observational rather than a pass/fail threshold:
+
+```text
+npm run coverage:critical
+```
+
+Review the generated report under `reports/coverage/critical/`. Do not add tests
+only to increase a percentage. Add a test when an uncovered branch represents a
+meaningful security, cancellation, cleanup, shutdown, or fail-closed behavior.
 
 Also verify the following invariants:
 
