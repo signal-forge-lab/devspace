@@ -27,6 +27,8 @@ construction, and request-specific creation logs.
 
 - real Node.js HTTP response `finish` release coverage;
 - real Node.js HTTP connection `close` release coverage;
+- immediate release when a response has already ended;
+- cleanup timer start, unref, idempotence, and shutdown cancellation;
 - cleanup coalescing while transport close is pending;
 - shutdown waiting for an in-flight cleanup before closing retained sessions;
 - OpenAI MCP client classification coverage.

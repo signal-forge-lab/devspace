@@ -22,6 +22,8 @@ class FakeTransport {
 
 await testHttpFinishReleasesActiveRequest();
 await testHttpCloseReleasesActiveRequest();
+testAlreadyEndedResponseReleasesImmediately();
+await testStartAndShutdownOwnCleanupTimer();
 await testCleanupRunsOnlyOnceAtATime();
 await testShutdownWaitsForInFlightCleanup();
 testOpenAiClientDetection();
@@ -74,6 +76,60 @@ async function testHttpCloseReleasesActiveRequest(): Promise<void> {
   assert.equal(lifecycle.stats().activeRequests, 0);
   await closeHttpServer(server);
   await lifecycle.close();
+}
+
+function testAlreadyEndedResponseReleasesImmediately(): void {
+  const lifecycle = new McpSessionLifecycle<FakeTransport>();
+  lifecycle.register("ended-session", new FakeTransport(), {}, { requestActive: true });
+  lifecycle.trackRequestUntilResponseEnd("ended-session", {
+    writableEnded: true,
+    destroyed: false,
+    once: () => undefined,
+  });
+  assert.equal(lifecycle.stats().activeRequests, 0);
+}
+
+async function testStartAndShutdownOwnCleanupTimer(): Promise<void> {
+  let scheduled = 0;
+  let cancelled = 0;
+  let unrefCalls = 0;
+  let scheduledIntervalMs: number | undefined;
+  const events: LoggedEvent[] = [];
+  const intervalHandle = {
+    unref: () => {
+      unrefCalls += 1;
+    },
+  } as unknown as ReturnType<typeof setInterval>;
+  const lifecycle = new McpSessionLifecycle<FakeTransport>({
+    log: (level, event, fields) => events.push({ level, event, fields }),
+    memoryUsage: () => ({
+      rss: 1,
+      heapTotal: 2,
+      heapUsed: 3,
+      external: 4,
+      arrayBuffers: 5,
+    }),
+    uptime: () => 12.4,
+    scheduleInterval: (_callback, intervalMs) => {
+      scheduled += 1;
+      scheduledIntervalMs = intervalMs;
+      return intervalHandle;
+    },
+    cancelInterval: (handle) => {
+      assert.equal(handle, intervalHandle);
+      cancelled += 1;
+    },
+  });
+
+  lifecycle.start();
+  lifecycle.start();
+  assert.equal(scheduled, 1);
+  assert.equal(scheduledIntervalMs, 60_000);
+  assert.equal(unrefCalls, 1);
+  assert.equal(events.filter((entry) => entry.event === "mcp_session_metrics_startup").length, 1);
+  await lifecycle.close();
+  await lifecycle.close();
+  assert.equal(cancelled, 1);
 }
 
 async function testCleanupRunsOnlyOnceAtATime(): Promise<void> {
