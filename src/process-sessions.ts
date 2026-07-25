@@ -1,20 +1,13 @@
 import { spawn } from "node:child_process";
 import { buildChildProcessEnvironment } from "./child-environment.js";
-import {
-  isWindowsCommandShim,
-  RequiredExecutableMissingError,
-  resolveExecutablePath,
-} from "./executable-resolution.js";
 import { resolveShellCommand, terminateProcessTree } from "./process-platform.js";
 import { redactPathsInText, type PathRedaction } from "./path-redaction.js";
-import type {
-  WorkspaceActionArtifact,
-  WorkspaceActionExecutionPlan,
-  WorkspaceActionPlanStep,
-  WorkspaceActionProcessStep,
-  WorkspaceActionStepResult,
-} from "./workspace-action-plans.js";
-import { writeWorkspaceJsonArtifact } from "./workspace-json-artifact.js";
+import {
+  cloneWorkspaceActionProcessContext,
+  runWorkspaceActionProcessPlan,
+  type WorkspaceActionProcessContext,
+  type WorkspaceActionProcessPlanInput,
+} from "./workspace-action-process-runner.js";
 
 const DEFAULT_EXEC_YIELD_MS = 10_000;
 const DEFAULT_INTERACTIVE_YIELD_MS = 250;
@@ -39,23 +32,13 @@ export interface StartCommandInput {
   rows?: number;
   yieldTimeMs?: number;
   maxOutputTokens?: number;
-  context?: ProcessSessionContext;
 }
 
-export interface StartActionPlanInput {
-  workspaceId: string;
-  plan: WorkspaceActionExecutionPlan;
-  plannedArtifacts?: WorkspaceActionArtifact[];
-  cwd: string;
-  workspaceRoot?: string;
+export interface StartActionPlanInput extends WorkspaceActionProcessPlanInput {
   outputRedactions?: PathRedaction[];
   outputMode?: "full" | "status";
-  tty?: boolean;
-  columns?: number;
-  rows?: number;
   yieldTimeMs?: number;
   maxOutputTokens?: number;
-  context: WorkspaceActionProcessContext;
 }
 
 export interface WriteStdinInput {
@@ -79,20 +62,6 @@ export interface ProcessSnapshot {
   wallTimeMs: number;
   cancelled?: boolean;
   context?: ProcessSessionContext;
-}
-
-export interface WorkspaceActionProcessContext {
-  kind: "workspace_action";
-  contractVersion: 2;
-  action: string;
-  preset: string;
-  profile?: string;
-  policy: string[];
-  commandPreview?: string;
-  profileEvidence: string[];
-  warnings: string[];
-  artifacts: WorkspaceActionArtifact[];
-  steps: WorkspaceActionStepResult[];
 }
 
 export type ProcessSessionContext = WorkspaceActionProcessContext;
@@ -285,11 +254,20 @@ export class ProcessSessionManager {
     const session = this.createSession(input);
     this.sessions.set(session.id, session);
 
-    void this.runPlan(session, input).catch((error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      this.append(session, `${message}\n`);
-      this.markRemainingStepsSkipped(session);
-      this.finish(session, 1);
+    const context = session.context ?? cloneWorkspaceActionProcessContext(input.context);
+    session.context = context;
+    void runWorkspaceActionProcessPlan({
+      ...input,
+      columns: session.columns,
+      rows: session.rows,
+      context,
+    }, {
+      isCancellationRequested: () => session.cancelRequested,
+      append: (output) => this.append(session, output),
+      attachProcess: (processHandle) => {
+        session.process = processHandle;
+      },
+      finish: (exitCode, signal) => this.finish(session, exitCode, signal),
     });
 
     const yieldTimeMs = boundedInteger(input.yieldTimeMs, DEFAULT_EXEC_YIELD_MS, MAX_COMMAND_YIELD_MS);
@@ -382,160 +360,15 @@ export class ProcessSessionManager {
       outputMode: input.outputMode ?? "full",
       running: true,
       cancelRequested: false,
-      context: input.context
-        ? cloneProcessSessionContext(input.context)
+      context: "context" in input
+        ? cloneWorkspaceActionProcessContext(input.context)
         : undefined,
       exitPromise,
       resolveExit,
     };
   }
 
-  private async runPlan(session: ProcessSession, input: StartActionPlanInput): Promise<void> {
-    const context = session.context;
-    if (context?.kind !== "workspace_action") {
-      throw new Error("Workspace action plan sessions require workspace action context.");
-    }
-
-    for (let index = 0; index < input.plan.steps.length; index++) {
-      const planStep = input.plan.steps[index];
-      const resultStep = context.steps[index];
-      if (!planStep || !resultStep) {
-        throw new Error("Workspace action plan and result steps are out of sync.");
-      }
-
-      if (session.cancelRequested) {
-        resultStep.status = "skipped";
-        continue;
-      }
-
-      resultStep.status = "running";
-      this.append(session, `==> [${singleLineStepText(planStep.id)}] ${singleLineStepText(planStep.label)}\n`);
-      const stepStartedAt = Date.now();
-      let outcome: { exitCode?: number; signal?: string };
-      try {
-        outcome = await this.runPlanStep(session, input, planStep);
-      } catch (error) {
-        resultStep.durationMs = Date.now() - stepStartedAt;
-        resultStep.exitCode = 1;
-        resultStep.status = "failed";
-        this.append(session, `${error instanceof Error ? error.message : String(error)}\n`);
-        this.append(session, stepEndMarker(planStep.id, "failed to start", resultStep.durationMs));
-        this.markRemainingStepsSkipped(session, index + 1);
-        this.finish(session, 1);
-        return;
-      }
-      resultStep.durationMs = Date.now() - stepStartedAt;
-      resultStep.exitCode = outcome.exitCode;
-      resultStep.signal = outcome.signal;
-
-      if (session.cancelRequested) {
-        resultStep.status = "cancelled";
-        this.append(session, stepEndMarker(planStep.id, "cancelled", resultStep.durationMs));
-        this.markRemainingStepsSkipped(session, index + 1);
-        this.finish(session, outcome.exitCode, outcome.signal);
-        return;
-      }
-
-      if (outcome.signal || outcome.exitCode !== 0) {
-        resultStep.status = "failed";
-        const detail = outcome.signal
-          ? `failed after signal ${outcome.signal}`
-          : `failed with exit code ${outcome.exitCode ?? "unknown"}`;
-        this.append(session, stepEndMarker(planStep.id, detail, resultStep.durationMs));
-        this.markRemainingStepsSkipped(session, index + 1);
-        this.finish(session, outcome.exitCode, outcome.signal);
-        return;
-      }
-
-      resultStep.status = "completed";
-      this.append(session, stepEndMarker(planStep.id, "completed", resultStep.durationMs));
-    }
-
-    this.finish(session, 0);
-  }
-
-  private runPlanStep(
-    session: ProcessSession,
-    input: StartActionPlanInput,
-    step: WorkspaceActionPlanStep,
-  ): Promise<{ exitCode?: number; signal?: string }> {
-    if (step.kind === "write_json") {
-      return writeWorkspaceJsonArtifact(input.cwd, step.path, step.value).then(() => {
-        const context = session.context;
-        const artifact = input.plannedArtifacts?.find((candidate) => candidate.path === step.path);
-        if (
-          context?.kind === "workspace_action"
-          && artifact
-          && !context.artifacts.some((candidate) => candidate.path === artifact.path)
-        ) {
-          context.artifacts.push({ ...artifact });
-        }
-        this.append(session, `Generated artifact: ${step.path}\n`);
-        return { exitCode: 0 };
-      });
-    }
-
-    return this.runProcessPlanStep(session, input, step);
-  }
-
-  private async runProcessPlanStep(
-    session: ProcessSession,
-    input: StartActionPlanInput,
-    step: WorkspaceActionProcessStep,
-  ): Promise<{ exitCode?: number; signal?: string }> {
-    const childEnvironment = buildChildProcessEnvironment({
-      workspaceId: input.workspaceId,
-      workspaceRoot: input.workspaceRoot,
-    });
-    const executable = await resolveExecutablePath(step.executable, {
-      cwd: input.cwd,
-      env: childEnvironment,
-    });
-    if (!executable) throw new RequiredExecutableMissingError(step.executable);
-
-    return new Promise((resolve, reject) => {
-      try {
-        if (input.tty && process.platform !== "win32") {
-          void this.startProcessPty(
-            session,
-            input,
-            executable,
-            step.args,
-            childEnvironment,
-            (exitCode, signal) => resolve({ exitCode, signal }),
-          ).catch(reject);
-        } else {
-          this.startProcessPipe(
-            session,
-            input,
-            executable,
-            step.args,
-            childEnvironment,
-            (exitCode, signal) => resolve({ exitCode, signal }),
-          );
-        }
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }
-
-  private markRemainingStepsSkipped(session: ProcessSession, startIndex = 0): void {
-    const context = session.context;
-    if (context?.kind !== "workspace_action") return;
-    for (let index = startIndex; index < context.steps.length; index++) {
-      const step = context.steps[index];
-      if (step?.status === "pending") step.status = "skipped";
-    }
-  }
-
-  private startPipe(
-    session: ProcessSession,
-    input: StartCommandInput,
-    onExit: (exitCode?: number, signal?: string) => void = (exitCode, signal) => {
-      this.finish(session, exitCode, signal);
-    },
-  ): void {
+  private startPipe(session: ProcessSession, input: StartCommandInput): void {
     const shell = resolveShellCommand(input.command);
     const detached = process.platform !== "win32";
     const child = spawn(input.command, {
@@ -558,93 +391,10 @@ export class ProcessSessionManager {
     child.stdout.on("data", (data: Buffer) => this.append(session, data.toString("utf8")));
     child.stderr.on("data", (data: Buffer) => this.append(session, data.toString("utf8")));
     child.on("error", (error) => this.append(session, `${error.message}\n`));
-    child.on("close", (code, signal) => onExit(code ?? undefined, signal ?? undefined));
+    child.on("close", (code, signal) => this.finish(session, code ?? undefined, signal ?? undefined));
   }
 
-  private startProcessPipe(
-    session: ProcessSession,
-    input: StartActionPlanInput,
-    executable: string,
-    args: readonly string[],
-    childEnvironment: NodeJS.ProcessEnv,
-    onExit: (exitCode?: number, signal?: string) => void,
-  ): void {
-    const detached = process.platform !== "win32";
-    const invocation = process.platform === "win32" && isWindowsCommandShim(executable)
-      ? {
-          executable: childEnvironment.ComSpec ?? process.env.ComSpec ?? "cmd.exe",
-          args: ["/d", "/c", "call", executable, ...args],
-        }
-      : { executable, args: [...args] };
-    const child = spawn(invocation.executable, invocation.args, {
-      cwd: input.cwd,
-      env: childEnvironment,
-      stdio: "pipe",
-      windowsHide: true,
-      detached,
-      shell: false,
-    });
-
-    session.process = {
-      write: (data) => child.stdin.write(data),
-      kill: (signal = "SIGTERM") => terminateProcessTree(child, signal, detached),
-      resize: input.tty ? () => undefined : undefined,
-    };
-    child.stdout.on("data", (data: Buffer) => this.append(session, data.toString("utf8")));
-    child.stderr.on("data", (data: Buffer) => this.append(session, data.toString("utf8")));
-    let settled = false;
-    const finish = (exitCode?: number, signal?: string): void => {
-      if (settled) return;
-      settled = true;
-      onExit(exitCode, signal);
-    };
-    child.once("error", (error) => {
-      this.append(session, `${error.message}\n`);
-      finish(1);
-    });
-    child.once("close", (code, signal) => finish(code ?? undefined, signal ?? undefined));
-  }
-
-  private async startProcessPty(
-    session: ProcessSession,
-    input: StartActionPlanInput,
-    executable: string,
-    args: readonly string[],
-    childEnvironment: NodeJS.ProcessEnv,
-    onExit: (exitCode?: number, signal?: string) => void,
-  ): Promise<void> {
-    let nodePty: typeof import("node-pty");
-    try {
-      nodePty = await import("node-pty");
-    } catch {
-      throw new Error("PTY support requires the optional node-pty dependency.");
-    }
-
-    const pty = nodePty.spawn(executable, [...args], {
-      cwd: input.cwd,
-      env: childEnvironment,
-      name: "xterm-256color",
-      cols: session.columns,
-      rows: session.rows,
-    });
-    session.process = {
-      write: (data) => pty.write(data),
-      kill: (signal) => pty.kill(signal),
-      resize: (columns, rows) => pty.resize(columns, rows),
-    };
-    pty.onData((data) => this.append(session, data));
-    pty.onExit(({ exitCode, signal }) => {
-      onExit(exitCode, signal === 0 ? undefined : String(signal));
-    });
-  }
-
-  private async startPty(
-    session: ProcessSession,
-    input: StartCommandInput,
-    onExit: (exitCode?: number, signal?: string) => void = (exitCode, signal) => {
-      this.finish(session, exitCode, signal);
-    },
-  ): Promise<void> {
+  private async startPty(session: ProcessSession, input: StartCommandInput): Promise<void> {
     let nodePty: typeof import("node-pty");
     try {
       nodePty = await import("node-pty");
@@ -676,7 +426,7 @@ export class ProcessSessionManager {
     };
     pty.onData((data) => this.append(session, data));
     pty.onExit(({ exitCode, signal }) => {
-      onExit(exitCode, signal === 0 ? undefined : String(signal));
+      this.finish(session, exitCode, signal === 0 ? undefined : String(signal));
     });
   }
 
@@ -716,7 +466,7 @@ export class ProcessSessionManager {
       wallTimeMs: Date.now() - session.startedAt,
       cancelled: !session.running && session.cancelRequested ? true : undefined,
       context: session.context
-        ? cloneProcessSessionContext(session.context)
+        ? cloneWorkspaceActionProcessContext(session.context)
         : undefined,
     };
   }
@@ -735,23 +485,4 @@ export class ProcessSessionManager {
     if (session?.cleanupTimer) clearTimeout(session.cleanupTimer);
     this.sessions.delete(sessionId);
   }
-}
-
-function cloneProcessSessionContext(context: ProcessSessionContext): ProcessSessionContext {
-  return {
-    ...context,
-    policy: [...context.policy],
-    profileEvidence: [...context.profileEvidence],
-    warnings: [...context.warnings],
-    artifacts: context.artifacts.map((artifact) => ({ ...artifact })),
-    steps: context.steps.map((step) => ({ ...step })),
-  };
-}
-
-function singleLineStepText(value: string): string {
-  return value.replace(/[\r\n]+/g, " ").trim();
-}
-
-function stepEndMarker(id: string, status: string, durationMs: number | undefined): string {
-  return `<== [${singleLineStepText(id)}] ${status} in ${durationMs ?? 0}ms\n`;
 }
