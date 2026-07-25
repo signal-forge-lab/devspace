@@ -187,7 +187,13 @@ present. When in doubt, use a worktree.
 
 ## Required post-rebase verification
 
-At minimum, run and review:
+Run the project-level rebase verification entry point:
+
+```text
+npm run verify:rebase
+```
+
+It currently runs and requires all of the following to pass:
 
 ```text
 npm run typecheck
