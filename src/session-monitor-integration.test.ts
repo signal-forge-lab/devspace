@@ -122,6 +122,10 @@ async function testMonitorRoutesRemainLocalOnly(): Promise<void> {
       version: "1.4.0",
       port: 7676,
       controlEnabled: true,
+      memory: {
+        rssBytes: 285.2 * 1024 * 1024,
+        heapUsedBytes: 163.2 * 1024 * 1024,
+      },
     },
     mcpSessions: {
       stats: {
@@ -189,6 +193,11 @@ async function testMonitorRoutesRemainLocalOnly(): Promise<void> {
     assert.match(html, /\.board\{[^}]*overflow:auto/);
     assert.match(html, /\.columns\{position:sticky;top:0;z-index:8/);
     assert.doesNotMatch(html, /monitor-pane\{[^}]*box-shadow:inset 0 1px 0/);
+    assert.match(html, /保持中MCPセッション/);
+    assert.match(html, /1回実行・整理候補/);
+    assert.match(html, /JavaScriptヒープ/);
+    assert.match(html, /oneShotCleanupCandidates/);
+    assert.match(html, /formatMemoryBytes/);
     assert.doesNotMatch(html, /1行 = 1 workspace session/);
     assert.doesNotMatch(html, /translateY\(-1px\)/);
 
@@ -207,13 +216,20 @@ async function testMonitorRoutesRemainLocalOnly(): Promise<void> {
     const statusResponse = await fetch(`${baseUrl}/monitor/api/status`);
     assert.equal(statusResponse.status, 200);
     const runtimeStatus = await statusResponse.json() as {
-      server: { pid: number; version: string; controlEnabled: boolean };
+      server: {
+        pid: number;
+        version: string;
+        controlEnabled: boolean;
+        memory: { rssBytes: number; heapUsedBytes: number };
+      };
       mcpSessions: { stats: { active: number; activeRequests: number }; recent: Array<{ sessionIdPrefix: string }> };
       softPause?: { reason?: string };
     };
     assert.equal(runtimeStatus.server.pid, 1234);
     assert.equal(runtimeStatus.server.version, "1.4.0");
     assert.equal(runtimeStatus.server.controlEnabled, true);
+    assert.equal(runtimeStatus.server.memory.rssBytes, 285.2 * 1024 * 1024);
+    assert.equal(runtimeStatus.server.memory.heapUsedBytes, 163.2 * 1024 * 1024);
     assert.equal(runtimeStatus.mcpSessions.stats.active, 2);
     assert.equal(runtimeStatus.mcpSessions.stats.activeRequests, 1);
     assert.equal(runtimeStatus.mcpSessions.recent[0]?.sessionIdPrefix, "mcp-123456");

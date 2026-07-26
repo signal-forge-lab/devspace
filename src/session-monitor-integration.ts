@@ -45,6 +45,10 @@ export interface SessionMonitorRuntimeStatus {
     version: string;
     port: number;
     controlEnabled: boolean;
+    memory: {
+      rssBytes: number;
+      heapUsedBytes: number;
+    };
   };
   mcpSessions: McpSessionSnapshot;
   softPause?: SoftPauseState;

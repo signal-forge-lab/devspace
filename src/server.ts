@@ -1471,6 +1471,7 @@ export function createServer(
 
   const runtimeStatus = (): SessionMonitorRuntimeStatus => {
     const pauseState = softPause.status();
+    const memory = process.memoryUsage();
     return {
       server: {
         status: "running",
@@ -1480,6 +1481,10 @@ export function createServer(
         version: PACKAGE_VERSION,
         port: config.port,
         controlEnabled: Boolean(process.env.WORKBRIDGE_MONITOR_CONTROL_TOKEN?.trim()),
+        memory: {
+          rssBytes: memory.rss,
+          heapUsedBytes: memory.heapUsed,
+        },
       },
       mcpSessions: sessionLifecycle.snapshot(8),
       ...(pauseState ? { softPause: pauseState } : {}),
