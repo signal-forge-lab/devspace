@@ -5,6 +5,7 @@ export { workspaceIdCompactPrefix } from "./logger.js";
 
 export type SessionMonitorState = "running" | "waiting" | "idle" | "error";
 export type SessionMonitorNodeState = "running" | "waiting" | "success" | "error";
+export type SessionMonitorSort = "startedAt" | "lastActivityAt";
 
 export interface SessionMonitorNodeSnapshot {
   number: number;
@@ -204,9 +205,18 @@ export class SessionMonitor {
     session.lastActivityAt = now;
   }
 
-  snapshot(maxSessions = 20, maxNodesPerSession = 20): SessionMonitorSnapshot {
+  snapshot(
+    maxSessions = 20,
+    maxNodesPerSession = 20,
+    sortBy: SessionMonitorSort = "startedAt",
+  ): SessionMonitorSnapshot {
     const sessions = Array.from(this.sessions.values())
-      .sort((left, right) => right.startedAt - left.startedAt || right.displayNumber - left.displayNumber)
+      .sort((left, right) => {
+        const difference = sortBy === "lastActivityAt"
+          ? right.lastActivityAt - left.lastActivityAt
+          : right.startedAt - left.startedAt;
+        return difference || right.displayNumber - left.displayNumber;
+      })
       .slice(0, Math.max(1, maxSessions))
       .map((session): SessionMonitorSessionSnapshot => ({
         displayNumber: session.displayNumber,

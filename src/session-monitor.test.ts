@@ -61,6 +61,24 @@ assert.equal(snapshot.sessions[1]?.state, "idle");
 assert.equal(snapshot.sessions[1]?.workspaceLabel, "arcaia");
 assert.equal(snapshot.sessions[1]?.workspacePath, "C:\\projects\\arcaia");
 
+await new Promise((resolve) => setTimeout(resolve, 2));
+const reactivated = monitor.beginTool({
+  workspaceId: "ws_1234567890-aaaa-bbbb-cccc-1234567890ab",
+  workspaceStartedAt: 1000,
+  tool: "read",
+  input: { path: "src/session-monitor.ts" },
+  workspaceLabel: "arcaia",
+});
+monitor.completeTool(reactivated, { structuredContent: {} });
+assert.deepEqual(
+  monitor.snapshot(20, 20, "startedAt").sessions.map((session) => session.sessionIdPrefix),
+  ["abcdefghij", "1234567890"],
+);
+assert.deepEqual(
+  monitor.snapshot(20, 20, "lastActivityAt").sessions.map((session) => session.sessionIdPrefix),
+  ["1234567890", "abcdefghij"],
+);
+
 assert.deepEqual(classifyToolResult({ structuredContent: { running: true } }), {
   nodeState: "waiting", sessionState: "waiting", exitCode: undefined,
 });

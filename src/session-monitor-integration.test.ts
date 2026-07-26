@@ -182,6 +182,9 @@ async function testMonitorRoutesRemainLocalOnly(): Promise<void> {
     assert.match(html, /data-session-key/);
     assert.match(html, /ResizeObserver/);
     assert.match(html, /scrollWidth-nextWidth-rightGap/);
+    assert.match(html, /workbridge-monitor-session-sort/);
+    assert.match(html, /最終活動時刻順/);
+    assert.match(html, /snapshot\?sort=/);
     assert.doesNotMatch(html, /1行 = 1 workspace session/);
     assert.doesNotMatch(html, /translateY\(-1px\)/);
 

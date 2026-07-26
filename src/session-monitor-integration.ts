@@ -11,6 +11,7 @@ import {
 import {
   SessionMonitor,
   workspaceDisplayInfo,
+  type SessionMonitorSort,
   type SessionMonitorWorkspaceIdentity,
   type SessionMonitorToolReference,
 } from "./session-monitor.js";
@@ -136,7 +137,7 @@ export function registerSessionMonitorRoutes(
       return;
     }
     res.setHeader("Cache-Control", "no-store");
-    res.json(monitor.snapshot());
+    res.json(monitor.snapshot(20, 20, sessionSort(req)));
   });
   app.get("/monitor/api/status", (req, res) => {
     if (!isLocalMonitorRequest(req)) {
@@ -208,6 +209,10 @@ function writeSseLog(res: Response, entry: MonitorLogEntry): void {
 function queryInteger(req: Request, name: string): number | undefined {
   const value = req.query[name];
   return positiveInteger(Array.isArray(value) ? value[0] : value);
+}
+
+function sessionSort(req: Request): SessionMonitorSort {
+  return req.query.sort === "lastActivityAt" ? "lastActivityAt" : "startedAt";
 }
 
 function positiveInteger(value: unknown): number | undefined {
