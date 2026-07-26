@@ -1,3 +1,5 @@
+import { sessionIdPrefix } from "./logger.js";
+
 export interface ClosableMcpTransport {
   close(): Promise<void>;
 }
@@ -35,8 +37,25 @@ export interface McpSessionStats {
   protocolVersions: Record<string, number>;
 }
 
+export interface McpSessionSummary {
+  sessionIdPrefix: string;
+  clientName: string;
+  state: "active" | "operational" | "discovery" | "handshake" | "initialized";
+  ageMs: number;
+  idleMs: number;
+  activeRequests: number;
+  toolCalls: number;
+  subsequentRequests: number;
+}
+
+export interface McpSessionSnapshot {
+  stats: McpSessionStats;
+  recent: McpSessionSummary[];
+}
+
 interface McpSessionEntry<TTransport> {
   transport: TTransport;
+  metadata: McpSessionMetadata;
   createdAt: number;
   lastActivityAt: number;
   activeRequestCount: number;
@@ -84,6 +103,7 @@ export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
     const timestamp = this.now();
     this.sessions.set(sessionId, {
       transport,
+      metadata: { ...metadata },
       createdAt: timestamp,
       lastActivityAt: timestamp,
       activeRequestCount: options.requestActive ? 1 : 0,
@@ -184,6 +204,26 @@ export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
     };
   }
 
+  snapshot(limit = 8): McpSessionSnapshot {
+    const now = this.now();
+    const recent = Array.from(this.sessions, ([sessionId, entry]) => ({
+      sessionIdPrefix: sessionIdPrefix(sessionId) ?? sessionId.slice(0, 10),
+      clientName: entry.metadata.clientName ?? "unknown",
+      state: sessionState(entry),
+      ageMs: Math.max(0, now - entry.createdAt),
+      idleMs: Math.max(0, now - entry.lastActivityAt),
+      activeRequests: entry.activeRequestCount,
+      toolCalls: entry.toolCallCount,
+      subsequentRequests: entry.subsequentRequestCount,
+      lastActivityAt: entry.lastActivityAt,
+    }))
+      .sort((left, right) => right.lastActivityAt - left.lastActivityAt)
+      .slice(0, Math.max(0, Math.min(50, Math.trunc(limit))))
+      .map(({ lastActivityAt: _lastActivityAt, ...summary }) => summary);
+
+    return { stats: this.stats(), recent };
+  }
+
   async closePreUse(idleTimeoutMs: number): Promise<McpSessionCloseResult[]> {
     const cutoff = this.now() - idleTimeoutMs;
     const unusedSessions: Array<{ sessionId: string; transport: TTransport }> = [];
@@ -252,6 +292,16 @@ export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
     this.totalClosed += sessions.length;
     return closeSessions(sessions);
   }
+}
+
+function sessionState<TTransport>(
+  entry: McpSessionEntry<TTransport>,
+): McpSessionSummary["state"] {
+  if (entry.activeRequestCount > 0) return "active";
+  if (entry.operationalRequestCount > 0) return "operational";
+  if (entry.discoveryRequestCount > 0) return "discovery";
+  if (entry.handshakeRequestCount > 0) return "handshake";
+  return "initialized";
 }
 
 function classifyRequestMethod(method: string): "handshake" | "discovery" | "operational" {

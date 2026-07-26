@@ -69,8 +69,11 @@ const publishedDesktopFiles = rootPackage.files.filter((value) =>
 assert.deepEqual(publishedDesktopFiles, [
   "desktop/monitor/lib.cjs",
   "desktop/monitor/main.cjs",
+  "desktop/monitor/preload.cjs",
   "desktop/monitor/package.json",
   "desktop/monitor/package-lock.json",
+  "desktop/monitor/supervisor.cjs",
+  "desktop/monitor/supervisor.test.cjs",
   "desktop/monitor/test.cjs",
   "desktop/monitor/assets/workbridge-monitor-icon.png",
 ]);

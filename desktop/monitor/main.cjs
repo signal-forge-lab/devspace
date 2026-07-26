@@ -7,10 +7,16 @@ const path = require("node:path");
 const {
   app,
   BrowserWindow,
+  ipcMain,
   Menu,
   nativeImage,
   screen,
 } = require("electron");
+const {
+  SUPPORTED_ACTIONS,
+  WorkbridgeSupervisor,
+  resolveWorkbridgeProjectRoot,
+} = require("./supervisor.cjs");
 const {
   MINIMUM_HEIGHT,
   MINIMUM_WIDTH,
@@ -36,6 +42,7 @@ let mainWindow;
 let retryTimer;
 let waitingPageVisible = false;
 let quitting = false;
+let supervisor;
 
 app.on("second-instance", () => {
   if (!mainWindow) return;
@@ -51,6 +58,26 @@ app.on("web-contents-created", (_event, contents) => {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  const projectRoot = resolveWorkbridgeProjectRoot(
+    process.env.WORKBRIDGE_PROJECT_ROOT,
+    [process.cwd(), path.dirname(process.execPath), app.getAppPath()],
+  );
+  supervisor = new WorkbridgeSupervisor({
+    monitorUrl,
+    projectRoot,
+    tokenFile: path.join(app.getPath("userData"), "supervisor-state.json"),
+  });
+  supervisor.on("status", (status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("workbridge-monitor:status", status);
+    }
+  });
+  supervisor.beginPolling();
+  ipcMain.handle("workbridge-monitor:get-status", () => supervisor.status());
+  ipcMain.handle("workbridge-monitor:run-action", async (_event, action) => {
+    if (!SUPPORTED_ACTIONS.has(action)) throw new Error("Unsupported Workbridge monitor action.");
+    return supervisor.runAction(action);
+  });
   createMonitorWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createMonitorWindow();
@@ -60,6 +87,7 @@ app.whenReady().then(() => {
 app.on("before-quit", () => {
   quitting = true;
   clearRetryTimer();
+  supervisor?.stopPolling();
 });
 
 app.on("window-all-closed", () => {
@@ -86,6 +114,7 @@ function createMonitorWindow() {
     show: false,
     ...(icon.isEmpty() ? {} : { icon }),
     webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,

@@ -5,6 +5,7 @@ import {
   type McpSessionCloseResult,
   type McpSessionMetadata,
   type McpSessionRegistrationOptions,
+  type McpSessionSnapshot,
   type McpSessionStats,
 } from "./mcp-sessions.js";
 
@@ -89,6 +90,10 @@ export class McpSessionLifecycle<TTransport extends ClosableMcpTransport> {
 
   stats(): McpSessionStats {
     return this.registry.stats();
+  }
+
+  snapshot(limit = 8): McpSessionSnapshot {
+    return this.registry.snapshot(limit);
   }
 
   start(): void {

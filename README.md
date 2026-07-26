@@ -140,6 +140,13 @@ ERROR filters, optional automatic scrolling, display-only clearing, and
 expandable structured log details. The console APIs inherit the same local-only
 access restriction as the monitor page.
 
+The header exposes two separate runtime summaries. `WORKBRIDGE` shows the
+server process state, PID, uptime, port, and whether the desktop monitor owns
+the process. `MCP SESS` shows active MCP transports, active requests, total
+created/closed sessions, tool-call session counts, and a compact recent-session
+list. These values come from the local-only `/monitor/api/status` endpoint and
+do not change the public seven-tool MCP contract.
+
 ### Desktop monitor window
 
 The monitor can run in a separate Electron window without browser tabs or an
@@ -147,8 +154,7 @@ address bar. The desktop wrapper is isolated under `desktop/monitor`, so the
 published Workbridge server does not acquire Electron as a production
 dependency.
 
-Install the desktop-only dependencies once, start Workbridge normally, and then
-open the monitor window:
+Install the desktop-only dependencies once and open the monitor window:
 
 ```bash
 npm run monitor:desktop:install
@@ -160,6 +166,26 @@ The window loads `http://127.0.0.1:7676/monitor` by default. Override it with
 remembers its size, position, maximized state, and the monitor's own console
 split height. If Workbridge is not running yet, the window remains open and
 switches to the monitor automatically when the local endpoint becomes ready.
+
+The desktop header can Start, Build, Restart, Build & Restart, Pause, Resume,
+and Stop Workbridge. A server started by the monitor is marked `Managed` and can
+be stopped or restarted safely through a per-launch local control token. A
+server started independently in PowerShell is marked `External process`; Build,
+Pause, and Resume remain available, while Stop and Restart stay disabled to
+avoid terminating an unrelated process. Closing and reopening the monitor can
+re-adopt its previously managed server through the token stored in the current
+user's Electron application-data directory.
+
+Pause uses the existing command contract:
+
+```bash
+node dist/cli.js control pause
+```
+
+Starting Workbridge always clears an existing soft-pause request before the
+server begins listening. This is equivalent to an implicit
+`node dist/cli.js control resume`, so Restart and Build & Restart resume normal
+tool execution without requiring a separate manual command.
 
 Create a Windows desktop app directory with:
 

@@ -1,12 +1,12 @@
 {
   "name": "@workbridge/session-monitor-desktop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Native desktop window for the local Workbridge session monitor.",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "node test.cjs && node --check main.cjs",
+    "test": "node test.cjs && node supervisor.test.cjs && node --check main.cjs && node --check preload.cjs && node --check supervisor.cjs",
     "pack:win": "electron-packager . \"Workbridge Monitor\" --platform=win32 --arch=x64 --out=release --overwrite --prune --asar --ignore=\"^/release($|/)\" --ignore=\"^/test\\.cjs$\" --ignore=\"^/package-lock\\.json$\"",
     "dist:win": "npm run pack:win"
   },

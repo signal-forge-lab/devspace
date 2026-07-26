@@ -27,6 +27,24 @@ assert.equal(
 );
 await drainingShutdown;
 
+let idleConnectionsClosed = false;
+await shutdownHttpServer(
+  {
+    close(callback: (error?: Error) => void) {
+      setImmediate(() => callback());
+    },
+    closeIdleConnections() {
+      idleConnectionsClosed = true;
+    },
+  },
+  async () => {},
+);
+assert.equal(
+  idleConnectionsClosed,
+  true,
+  "idle keep-alive connections must close after application cleanup",
+);
+
 let finishApplicationClose: (() => void) | undefined;
 let shutdownResolved = false;
 

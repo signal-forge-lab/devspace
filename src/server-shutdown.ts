@@ -1,5 +1,6 @@
 export interface ClosableHttpServer {
   close(callback: (error?: Error) => void): void;
+  closeIdleConnections?(): void;
 }
 
 export async function shutdownHttpServer(
@@ -14,5 +15,6 @@ export async function shutdownHttpServer(
   });
 
   await closeApplication();
+  httpServer.closeIdleConnections?.();
   await httpClosed;
 }

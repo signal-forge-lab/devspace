@@ -68,6 +68,7 @@ import { summarizeLocalAgentProfile } from "./local-agent-profiles.js";
 import { PACKAGE_VERSION } from "./version.js";
 import {
   registerSessionMonitorRoutes,
+  type SessionMonitorRuntimeStatus,
   type SessionMonitorContext,
 } from "./session-monitor-integration.js";
 import { SessionMonitor } from "./session-monitor.js";
@@ -1419,6 +1420,7 @@ export function createServer(
   const processSessions = new ProcessSessionManager();
   const softPause = new SoftPauseController(config.stateDir);
   const sessionMonitor = new SessionMonitor();
+  const serverStartedAt = Date.now();
   const localAgentProviders = config.subagents
     ? getLocalAgentProviderAvailabilitySnapshot()
     : [];
@@ -1467,7 +1469,28 @@ export function createServer(
     res.json({ ok: true, name: LEGACY_SERVICE_NAME });
   });
 
-  const sessionMonitorRoutes = registerSessionMonitorRoutes(app, sessionMonitor);
+  const runtimeStatus = (): SessionMonitorRuntimeStatus => {
+    const pauseState = softPause.status();
+    return {
+      server: {
+        status: "running",
+        pid: process.pid,
+        startedAt: new Date(serverStartedAt).toISOString(),
+        uptimeMs: Math.max(0, Date.now() - serverStartedAt),
+        version: PACKAGE_VERSION,
+        port: config.port,
+        controlEnabled: Boolean(process.env.WORKBRIDGE_MONITOR_CONTROL_TOKEN?.trim()),
+      },
+      mcpSessions: sessionLifecycle.snapshot(8),
+      ...(pauseState ? { softPause: pauseState } : {}),
+    };
+  };
+  const sessionMonitorRoutes = registerSessionMonitorRoutes(
+    app,
+    sessionMonitor,
+    undefined,
+    runtimeStatus,
+  );
 
   app.all("/mcp", async (req, res) => {
     const requestId = res.locals.requestId as string | undefined;

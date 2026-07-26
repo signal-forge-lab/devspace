@@ -143,6 +143,13 @@ observed.endRequest("discovery");
 observed.beginRequest("operational", ["http/get", "tools/list", "tools/call", "tools/call"]);
 observed.endRequest("operational");
 
+const observedSnapshot = observed.snapshot(4);
+assert.equal(observedSnapshot.stats.active, 4);
+assert.equal(observedSnapshot.recent.length, 4);
+assert.equal(observedSnapshot.recent[0]?.clientName, "chatgpt");
+assert.equal(observedSnapshot.recent.some((session) => session.state === "operational"), true);
+assert.equal(observedSnapshot.recent.some((session) => session.toolCalls === 2), true);
+
 assert.deepEqual(observed.stats(), {
   active: 4,
   activeRequests: 0,

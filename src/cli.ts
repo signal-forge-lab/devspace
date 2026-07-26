@@ -36,6 +36,7 @@ import {
 import { expandHomePath } from "./roots.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
 import { SoftPauseController } from "./soft-pause.js";
+import { registerMonitorControlRoutes } from "./monitor-control.js";
 import { PACKAGE_VERSION, SUPPORTED_NODE_RANGE } from "./version.js";
 
 type Command = "serve" | "init" | "doctor" | "config" | "control" | "agents" | "help" | "version";
@@ -211,6 +212,7 @@ async function serve(): Promise<void> {
 
   const { createServer } = await import("./server.js");
   const config = loadConfig();
+  new SoftPauseController(config.stateDir).clear();
   const { app, close } = createServer(config);
   const httpServer = app.listen(config.port, config.host, () => {
     console.log(`${PRODUCT_DISPLAY_NAME} listening on http://${config.host}:${config.port}/mcp`);
@@ -253,6 +255,10 @@ async function serve(): Promise<void> {
       process.exit(1);
     });
   };
+  registerMonitorControlRoutes(app, {
+    token: process.env.WORKBRIDGE_MONITOR_CONTROL_TOKEN,
+    shutdown,
+  });
   process.once("SIGINT", handleShutdown);
   process.once("SIGTERM", handleShutdown);
 }

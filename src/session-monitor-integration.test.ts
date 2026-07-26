@@ -113,7 +113,54 @@ async function testMonitorRoutesRemainLocalOnly(): Promise<void> {
   });
   monitor.completeTool(reference, { structuredContent: {} });
   const app = express();
-  const monitorRoutes = registerSessionMonitorRoutes(app, monitor, logs);
+  const monitorRoutes = registerSessionMonitorRoutes(app, monitor, logs, () => ({
+    server: {
+      status: "running",
+      pid: 1234,
+      startedAt: "2026-07-26T00:00:00.000Z",
+      uptimeMs: 12_345,
+      version: "1.4.0",
+      port: 7676,
+      controlEnabled: true,
+    },
+    mcpSessions: {
+      stats: {
+        active: 2,
+        activeRequests: 1,
+        initializedOnly: 0,
+        handshakeOnly: 0,
+        discoveryOnly: 0,
+        operational: 2,
+        toolCallSessions: 2,
+        oneShotCleanupCandidates: 1,
+        reusedToolCallSessions: 0,
+        maxToolCallsPerSession: 1,
+        totalCreated: 4,
+        totalClosed: 2,
+        totalSubsequentRequests: 4,
+        oldestAgeMs: 20_000,
+        longestIdleMs: 500,
+        requestMethods: { "tools/call": 2 },
+        clientNames: { "openai-mcp": 2 },
+        protocolVersions: { "2025-06-18": 2 },
+      },
+      recent: [{
+        sessionIdPrefix: "mcp-123456",
+        clientName: "openai-mcp",
+        state: "active",
+        ageMs: 2_000,
+        idleMs: 25,
+        activeRequests: 1,
+        toolCalls: 1,
+        subsequentRequests: 1,
+      }],
+    },
+    softPause: {
+      version: 1,
+      requestedAt: "2026-07-26T00:00:01.000Z",
+      reason: "test pause",
+    },
+  }));
   const server = app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve, reject) => {
     server.once("listening", resolve);
@@ -129,7 +176,7 @@ async function testMonitorRoutesRemainLocalOnly(): Promise<void> {
     assert.match(htmlResponse.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/);
     const html = await htmlResponse.text();
     assert.match(html, /Workbridge Session Monitor/);
-    assert.match(html, /v1\.3\.2/);
+    assert.match(html, /v1\.4\.0/);
     assert.match(html, /workbridge-monitor-icon\.png/);
     assert.match(html, /Polling/);
     assert.match(html, /data-session-key/);
@@ -147,6 +194,21 @@ async function testMonitorRoutesRemainLocalOnly(): Promise<void> {
     assert.equal(snapshotResponse.status, 200);
     const snapshot = await snapshotResponse.json() as { sessions: Array<{ sessionIdPrefix: string }> };
     assert.equal(snapshot.sessions[0]?.sessionIdPrefix, "session-");
+
+    const statusResponse = await fetch(`${baseUrl}/monitor/api/status`);
+    assert.equal(statusResponse.status, 200);
+    const runtimeStatus = await statusResponse.json() as {
+      server: { pid: number; version: string; controlEnabled: boolean };
+      mcpSessions: { stats: { active: number; activeRequests: number }; recent: Array<{ sessionIdPrefix: string }> };
+      softPause?: { reason?: string };
+    };
+    assert.equal(runtimeStatus.server.pid, 1234);
+    assert.equal(runtimeStatus.server.version, "1.4.0");
+    assert.equal(runtimeStatus.server.controlEnabled, true);
+    assert.equal(runtimeStatus.mcpSessions.stats.active, 2);
+    assert.equal(runtimeStatus.mcpSessions.stats.activeRequests, 1);
+    assert.equal(runtimeStatus.mcpSessions.recent[0]?.sessionIdPrefix, "mcp-123456");
+    assert.equal(runtimeStatus.softPause?.reason, "test pause");
 
     const published = logs.publish({
       ts: "2026-07-25T00:00:00.000Z",
@@ -188,6 +250,10 @@ async function testMonitorRoutesRemainLocalOnly(): Promise<void> {
       headers: { "x-forwarded-for": "198.51.100.10" },
     });
     assert.equal(forwardedLogsResponse.status, 404);
+    const forwardedStatusResponse = await fetch(`${baseUrl}/monitor/api/status`, {
+      headers: { "x-forwarded-for": "198.51.100.10" },
+    });
+    assert.equal(forwardedStatusResponse.status, 404);
     const forwardedIconResponse = await fetch(
       `${baseUrl}/monitor/assets/workbridge-monitor-icon.png`,
       { headers: { "x-forwarded-for": "198.51.100.10" } },

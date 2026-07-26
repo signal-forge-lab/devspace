@@ -16,6 +16,8 @@ import {
 } from "./session-monitor.js";
 import { sessionMonitorHtml } from "./session-monitor-ui.js";
 import type { WorkspaceRegistry } from "./workspaces.js";
+import type { McpSessionSnapshot } from "./mcp-sessions.js";
+import type { SoftPauseState } from "./soft-pause.js";
 
 const MONITOR_ICON_PATH = fileURLToPath(
   new URL("../assets/workbridge-monitor-icon.png", import.meta.url),
@@ -31,6 +33,20 @@ export interface SessionMonitorContext {
 
 export interface SessionMonitorRouteController {
   close(): void;
+}
+
+export interface SessionMonitorRuntimeStatus {
+  server: {
+    status: "running";
+    pid: number;
+    startedAt: string;
+    uptimeMs: number;
+    version: string;
+    port: number;
+    controlEnabled: boolean;
+  };
+  mcpSessions: McpSessionSnapshot;
+  softPause?: SoftPauseState;
 }
 
 export function createSessionMonitorToolRegistrar(
@@ -83,6 +99,7 @@ export function registerSessionMonitorRoutes(
   app: Express,
   monitor: SessionMonitor,
   logs: MonitorLogStream = monitorLogStream,
+  runtimeStatus?: () => SessionMonitorRuntimeStatus,
 ): SessionMonitorRouteController {
   const streamResponses = new Set<Response>();
   const sendMonitorHtml = (req: Request, res: Response) => {
@@ -120,6 +137,18 @@ export function registerSessionMonitorRoutes(
     }
     res.setHeader("Cache-Control", "no-store");
     res.json(monitor.snapshot());
+  });
+  app.get("/monitor/api/status", (req, res) => {
+    if (!isLocalMonitorRequest(req)) {
+      res.status(404).end();
+      return;
+    }
+    res.setHeader("Cache-Control", "no-store");
+    if (!runtimeStatus) {
+      res.status(503).json({ ok: false, error: "Runtime status unavailable" });
+      return;
+    }
+    res.json({ version: 1, generatedAt: new Date().toISOString(), ...runtimeStatus() });
   });
   app.get("/monitor/api/logs", (req, res) => {
     if (!isLocalMonitorRequest(req)) {
@@ -212,7 +241,7 @@ function resultWorkspaceIdFromToolResult(result: unknown): string | undefined {
   return stringValue(structuredContent?.workspaceId);
 }
 
-function isLocalMonitorRequest(req: Request): boolean {
+export function isLocalMonitorRequest(req: Request): boolean {
   const forwarded = req.header("cf-connecting-ip")
     ?? req.header("x-forwarded-for")?.split(",")[0]?.trim();
   if (forwarded && !isLoopbackAddress(forwarded)) return false;
