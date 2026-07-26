@@ -129,7 +129,7 @@ async function testMonitorRoutesRemainLocalOnly(): Promise<void> {
     assert.match(htmlResponse.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/);
     const html = await htmlResponse.text();
     assert.match(html, /Workbridge Session Monitor/);
-    assert.match(html, /v1\.3\.1/);
+    assert.match(html, /v1\.3\.2/);
     assert.match(html, /workbridge-monitor-icon\.png/);
     assert.match(html, /Polling/);
     assert.match(html, /data-session-key/);
