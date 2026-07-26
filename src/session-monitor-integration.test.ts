@@ -180,6 +180,8 @@ async function testMonitorRoutesRemainLocalOnly(): Promise<void> {
     assert.match(html, /workbridge-monitor-icon\.png/);
     assert.match(html, /Polling/);
     assert.match(html, /data-session-key/);
+    assert.match(html, /ResizeObserver/);
+    assert.match(html, /scrollWidth-nextWidth-rightGap/);
     assert.doesNotMatch(html, /1行 = 1 workspace session/);
     assert.doesNotMatch(html, /translateY\(-1px\)/);
 
