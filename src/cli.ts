@@ -242,25 +242,37 @@ async function serve(): Promise<void> {
     console.log(`logging: ${config.logging.level} ${config.logging.format}`);
   });
 
-  let shuttingDown = false;
-  const shutdown = async () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    await shutdownHttpServer(httpServer, close);
-    process.exit(0);
-  };
-  const handleShutdown = () => {
-    void shutdown().catch((error) => {
-      console.error("devspace shutdown failed", error);
-      process.exit(1);
+  httpServer.ref();
+
+  await new Promise<void>((resolveServe, rejectServe) => {
+    let shuttingDown = false;
+    let handleShutdown: () => void;
+    const removeShutdownHandlers = () => {
+      process.removeListener("SIGINT", handleShutdown);
+      process.removeListener("SIGTERM", handleShutdown);
+    };
+    const shutdown = async () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      try {
+        await shutdownHttpServer(httpServer, close);
+        resolveServe();
+      } catch (error) {
+        rejectServe(error);
+      } finally {
+        removeShutdownHandlers();
+      }
+    };
+    handleShutdown = () => {
+      void shutdown();
+    };
+    registerMonitorControlRoutes(app, {
+      token: process.env.WORKBRIDGE_MONITOR_CONTROL_TOKEN,
+      shutdown,
     });
-  };
-  registerMonitorControlRoutes(app, {
-    token: process.env.WORKBRIDGE_MONITOR_CONTROL_TOKEN,
-    shutdown,
+    process.once("SIGINT", handleShutdown);
+    process.once("SIGTERM", handleShutdown);
   });
-  process.once("SIGINT", handleShutdown);
-  process.once("SIGTERM", handleShutdown);
 }
 
 async function runDoctor(): Promise<void> {

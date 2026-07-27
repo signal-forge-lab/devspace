@@ -35,6 +35,7 @@
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "npm run clean && tsc -p tsconfig.build.json",
+    "test:serve-lifecycle": "node scripts/cli-serve-smoke.mjs",
     "baseline:tools:check": "tsx scripts/capture-tool-schema-baseline.ts --check",
     "baseline:tools:print": "tsx scripts/capture-tool-schema-baseline.ts",
     "control": "tsx src/cli.ts control",
@@ -51,7 +52,7 @@
     "coverage:critical": "c8 --config c8.critical.config.json npm test",
     "audit:prod:high": "npm audit --omit=dev --audit-level=high",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "verify:rebase": "npm run typecheck && npm run lint && npm run baseline:tools:check && npm test && npm run build && git diff --check"
+    "verify:rebase": "npm run typecheck && npm run lint && npm run baseline:tools:check && npm test && npm run build && npm run test:serve-lifecycle && git diff --check"
   },
   "keywords": [],
   "author": "",
