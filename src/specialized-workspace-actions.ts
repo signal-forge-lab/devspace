@@ -196,10 +196,10 @@ export async function resolveAoRegisteredPythonAction(input: {
   const python = process.platform === "win32" ? "py" : "python3";
   if (input.preset === "credential_presence") {
     const code = [
-      "from tradingagents.ao_dry_run import _credential_source",
-      "s=_credential_source('IW_AO_OPENAI_API_KEY')",
-      "print('credential_present=' + str(s is not None).lower())",
-      "print('credential_source=' + (s or 'none'))",
+      "import os",
+      "v=os.getenv('IW_AO_OPENAI_API_KEY')",
+      "print('credential_present=' + str(bool(v)).lower())",
+      "print('credential_source=' + ('sops_process_env' if v else 'none'))",
       "print('secret_value_observed=false')",
     ].join("; ");
     const plan = workspaceActionSteps([
@@ -223,7 +223,8 @@ export async function resolveAoRegisteredPythonAction(input: {
       profileEvidence: [
         `fixed module path: ${AO_DRY_RUN_MODULE_PATH}`,
         "credential name: IW_AO_OPENAI_API_KEY",
-        "secret value: never returned, printed, hashed, or persisted",
+        "credential source: canonical SOPS store -> transient child process environment",
+        "secret value: never returned, printed, hashed, logged, or persisted",
       ],
       warnings: [],
       artifacts: [],

@@ -35,6 +35,7 @@ export interface WorkspaceActionProcessPlanInput {
   plannedArtifacts?: WorkspaceActionArtifact[];
   cwd: string;
   workspaceRoot?: string;
+  environmentOverrides?: NodeJS.ProcessEnv;
   tty?: boolean;
   columns?: number;
   rows?: number;
@@ -183,7 +184,10 @@ async function runProcessPlanStep(
   runtime: WorkspaceActionProcessRuntime,
   step: WorkspaceActionProcessStep,
 ): Promise<ProcessStepOutcome> {
+  const environmentOverrides = input.environmentOverrides ?? {};
   const childEnvironment = buildChildProcessEnvironment({
+    source: { ...process.env, ...environmentOverrides },
+    allowlist: Object.keys(environmentOverrides),
     workspaceId: input.workspaceId,
     workspaceRoot: input.workspaceRoot,
   });

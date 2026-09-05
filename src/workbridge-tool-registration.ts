@@ -4,6 +4,10 @@ import { isAbsolute, resolve } from "node:path";
 import * as z from "zod/v4";
 import { launchDetachedWorkspaceAction } from "./detached-workspace-action.js";
 import {
+  AO_OPENAI_CREDENTIAL_NAME,
+  loadAoOpenAiApiKeyFromSops,
+} from "./ao-sops-credential.js";
+import {
   isArtifactDownloadSupportedPlatform,
   registerArtifactTools,
 } from "./artifact-tools.js";
@@ -1009,12 +1013,21 @@ function registerWorkspaceActionTool({
 
       let snapshot: ProcessSnapshot;
       try {
+        let environmentOverrides: NodeJS.ProcessEnv | undefined;
+        if (resolved.action === "ao_registered_python" && resolved.preset !== "help") {
+          const credential = await loadAoOpenAiApiKeyFromSops({ cwd });
+          if (!credential && resolved.preset !== "credential_presence") {
+            throw new Error("The designated AO credential is absent from the canonical SOPS store.");
+          }
+          if (credential) environmentOverrides = { [AO_OPENAI_CREDENTIAL_NAME]: credential };
+        }
         snapshot = await processSessions.startPlan({
           workspaceId,
           plan: actionPlan,
           plannedArtifacts: resolved.artifacts,
           cwd,
           workspaceRoot: cwd,
+          environmentOverrides,
           outputRedactions: resolved.outputRedactions,
           outputMode: "full",
           tty,

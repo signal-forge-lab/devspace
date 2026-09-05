@@ -246,7 +246,8 @@ assert.equal(aoCredentialPresence.plan?.steps.length, 1);
 assert.match(aoCredentialPresence.command, /IW_AO_OPENAI_API_KEY/);
 assert.match(aoCredentialPresence.displayCommand, /fixed AO credential-presence check/);
 assert.doesNotMatch(aoCredentialPresence.displayCommand, /IW_AO_OPENAI_API_KEY/);
-assert.ok(aoCredentialPresence.profileEvidence.some((entry) => /never returned, printed, hashed, or persisted/.test(entry)));
+assert.ok(aoCredentialPresence.profileEvidence.some((entry) => /canonical SOPS store/.test(entry)));
+assert.ok(aoCredentialPresence.profileEvidence.some((entry) => /never returned, printed, hashed, logged, or persisted/.test(entry)));
 
 const aoExecute = await resolveWorkspaceAction({
   workspaceRoot: aoWorkspaceRoot,
