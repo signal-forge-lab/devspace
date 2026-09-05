@@ -219,6 +219,10 @@ const WORKSPACE_ACTIONS: Record<WorkspaceActionName, WorkspaceActionDefinition> 
         description: "Start only the registered producer module help entrypoint without scientific inputs.",
         validateParameters: requireNoParameters,
       },
+      credential_presence: {
+        description: "Check only whether the designated AO credential is available, without returning its value.",
+        validateParameters: requireNoParameters,
+      },
       execute: {
         description: "Run one future AO registration with strictly allowlisted timestamps and artifact paths.",
         validateParameters: validateAoRegisteredExecuteParameters,
@@ -319,7 +323,7 @@ export async function resolveWorkspaceAction(
     try {
       const resolved = await resolveAoRegisteredPythonAction({
         workspaceRoot: input.workspaceRoot,
-        preset: presetName as "help" | "execute" | "freeze_first_execute",
+        preset: presetName as "help" | "credential_presence" | "execute" | "freeze_first_execute",
         parameters,
         allowedRoots: input.allowedRoots,
       });

@@ -21,6 +21,10 @@ await writeFile(
   "print('AO action test fixture')\n",
 );
 await writeFile(
+  join(aoWorkspaceRoot, "tradingagents", "ao_dry_run.py"),
+  "def _credential_source(_): return None\n",
+);
+await writeFile(
   join(aoWorkspaceRoot, "tradingagents", "ao_registered_market_freeze.py"),
   "print('AO freeze test fixture')\n",
 );
@@ -68,7 +72,12 @@ assert.deepEqual(catalog[1]?.presets.map((preset) => preset.name), ["summary", "
 assert.deepEqual(catalog[2]?.presets.map((preset) => preset.name), ["quick", "standard"]);
 assert.deepEqual(catalog[3]?.presets.map((preset) => preset.name), ["exact"]);
 assert.deepEqual(catalog[4]?.presets.map((preset) => preset.name), ["profile"]);
-assert.deepEqual(catalog[5]?.presets.map((preset) => preset.name), ["help", "execute", "freeze_first_execute"]);
+assert.deepEqual(catalog[5]?.presets.map((preset) => preset.name), [
+  "help",
+  "credential_presence",
+  "execute",
+  "freeze_first_execute",
+]);
 assert.deepEqual(catalog[5]?.policy, ["workspace_modify", "external_effect", "long_running"]);
 assert.deepEqual(catalog[6]?.presets.map((preset) => preset.name), ["embedded_zip"]);
 assert.deepEqual(catalog[6]?.policy, ["read_only", "external_effect"]);
@@ -223,6 +232,21 @@ assert.deepEqual(aoHelp.policy, ["read_only"]);
 assert.match(aoHelp.command, /tradingagents\.ao_d60_registered_run --help/);
 assert.doesNotMatch(aoHelp.command, /execute-registered/);
 assert.ok(aoHelp.profileEvidence.some((entry) => /scientific input parameters: none/.test(entry)));
+
+const aoCredentialPresence = await resolveWorkspaceAction({
+  workspaceRoot: aoWorkspaceRoot,
+  action: "ao_registered_python",
+  preset: "credential_presence",
+  allowedRoots: [aoTemporaryRoot],
+});
+assert.equal(aoCredentialPresence.preset, "credential_presence");
+assert.deepEqual(aoCredentialPresence.parameters, {});
+assert.deepEqual(aoCredentialPresence.policy, ["read_only"]);
+assert.equal(aoCredentialPresence.plan?.steps.length, 1);
+assert.match(aoCredentialPresence.command, /IW_AO_OPENAI_API_KEY/);
+assert.match(aoCredentialPresence.displayCommand, /fixed AO credential-presence check/);
+assert.doesNotMatch(aoCredentialPresence.displayCommand, /IW_AO_OPENAI_API_KEY/);
+assert.ok(aoCredentialPresence.profileEvidence.some((entry) => /never returned, printed, hashed, or persisted/.test(entry)));
 
 const aoExecute = await resolveWorkspaceAction({
   workspaceRoot: aoWorkspaceRoot,

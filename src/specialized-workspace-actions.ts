@@ -15,6 +15,7 @@ import type {
 
 const AO_REGISTERED_MODULE = "tradingagents.ao_d60_registered_run";
 const AO_REGISTERED_MODULE_PATH = "tradingagents/ao_d60_registered_run.py";
+const AO_DRY_RUN_MODULE_PATH = "tradingagents/ao_dry_run.py";
 const AO_REGISTERED_MARKET_FREEZE_MODULE = "tradingagents.ao_registered_market_freeze";
 const AO_REGISTERED_MARKET_FREEZE_MODULE_PATH = "tradingagents/ao_registered_market_freeze.py";
 const AO_FREEZE_FIRST_RUN_MODULE = "tradingagents.ao_freeze_first_run";
@@ -155,7 +156,7 @@ export async function resolveAegisRunnerAction(
 
 export async function resolveAoRegisteredPythonAction(input: {
   workspaceRoot: string;
-  preset: "help" | "execute" | "freeze_first_execute";
+  preset: "help" | "credential_presence" | "execute" | "freeze_first_execute";
   parameters: Record<string, unknown>;
   allowedRoots?: string[];
 }): Promise<SpecializedResolvedWorkspaceAction> {
@@ -170,7 +171,9 @@ export async function resolveAoRegisteredPythonAction(input: {
 
   const requiredModulePaths = input.preset === "freeze_first_execute"
     ? [AO_REGISTERED_MARKET_FREEZE_MODULE_PATH, AO_FREEZE_FIRST_RUN_MODULE_PATH]
-    : [AO_REGISTERED_MODULE_PATH];
+    : input.preset === "credential_presence"
+      ? [AO_DRY_RUN_MODULE_PATH]
+      : [AO_REGISTERED_MODULE_PATH];
   try {
     for (const modulePath of requiredModulePaths) {
       const resolvedModulePath = await resolveAllowedRealPath(
@@ -191,6 +194,43 @@ export async function resolveAoRegisteredPythonAction(input: {
   }
 
   const python = process.platform === "win32" ? "py" : "python3";
+  if (input.preset === "credential_presence") {
+    const code = [
+      "from tradingagents.ao_dry_run import _credential_source",
+      "s=_credential_source('IW_AO_OPENAI_API_KEY')",
+      "print('credential_present=' + str(s is not None).lower())",
+      "print('credential_source=' + (s or 'none'))",
+      "print('secret_value_observed=false')",
+    ].join("; ");
+    const plan = workspaceActionSteps([
+      processStep(
+        "credential-presence",
+        "AO designated credential presence",
+        python,
+        ["-c", code],
+      ),
+    ]);
+    const command = compileWorkspaceActionPlan(plan);
+    return {
+      action: "ao_registered_python",
+      preset: "credential_presence",
+      parameters: {},
+      command,
+      displayCommand: `${python} -c <fixed AO credential-presence check>`,
+      description: "Check only whether IW_AO_OPENAI_API_KEY is available to the registered AO producer path.",
+      policy: ["read_only"],
+      profile: "python",
+      profileEvidence: [
+        `fixed module path: ${AO_DRY_RUN_MODULE_PATH}`,
+        "credential name: IW_AO_OPENAI_API_KEY",
+        "secret value: never returned, printed, hashed, or persisted",
+      ],
+      warnings: [],
+      artifacts: [],
+      plan,
+    };
+  }
+
   if (input.preset === "help") {
     const plan = workspaceActionSteps([
       processStep(
