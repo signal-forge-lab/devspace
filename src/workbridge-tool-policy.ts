@@ -4,6 +4,7 @@ export const WORKBRIDGE_REVIEW_TOOL_NAME = "show_changes" as const;
 export const WORKBRIDGE_EXTENSION_TOOL_NAMES = [
   "run_workspace_action",
   "run_semantic_action",
+  "run_graft_action",
 ] as const;
 export const WORKBRIDGE_SUBAGENTS_ENABLED = false as const;
 

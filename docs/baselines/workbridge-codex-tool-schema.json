@@ -1,6 +1,6 @@
 {
   "formatVersion": 3,
-  "packageVersion": "1.0.8-workbridge.1",
+  "packageVersion": "1.0.8-workbridge.2",
   "source": "SHA-256 of canonical full in-memory MCP tools/list contracts",
   "configuration": {
     "toolSurface": "upstream-codex-plus-workbridge",
@@ -9,7 +9,8 @@
     "reviewTool": "show_changes",
     "workbridgeExtensions": [
       "run_workspace_action",
-      "run_semantic_action"
+      "run_semantic_action",
+      "run_graft_action"
     ],
     "runtimeProfileSwitching": "disabled",
     "commandMetadata": "always",
@@ -41,6 +42,10 @@
     {
       "name": "read",
       "contractSha256": "dbba9843a7c6676e61c75385886f7cdd5e6df307c0447a785a0efd270ade6e14"
+    },
+    {
+      "name": "run_graft_action",
+      "contractSha256": "9304d18acc2c8ef510e97100b7daeb9090325bfb3761ae990c6fa05956904531"
     },
     {
       "name": "run_semantic_action",

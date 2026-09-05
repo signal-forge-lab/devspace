@@ -10,6 +10,12 @@ import {
 import { PRODUCT_DISPLAY_NAME } from "./branding.js";
 import type { ServerConfig } from "./config.js";
 import type { IncomingArtifactAdapter } from "./incoming-artifacts.js";
+import {
+  GRAFT_ACTIONS,
+  createGraftActionPlan,
+  type GraftAction,
+  type GraftActionParameters,
+} from "./graft-code-intelligence.js";
 import { logEvent, loggedCommandFields } from "./logger.js";
 import { redactPathsInText, workspacePathRedactions } from "./path-redaction.js";
 import { ProcessSessionManager, type ProcessSnapshot } from "./process-sessions.js";
@@ -210,7 +216,7 @@ export function workbridgeServerInstructions(): string {
   const outgoingArtifactInstruction =
     " To return an existing workspace ZIP to the user, call run_workspace_action with action=publish_artifact, preset=embedded_zip, and parameters.path. Never print ZIP or binary Base64 through exec_command.";
 
-  return `Use ${PRODUCT_DISPLAY_NAME} as a local coding workspace. The public tool surface follows the upstream Codex profile, adds Workbridge-owned extensions, and keeps explicitly disabled capabilities out of the runtime. Call open_workspace once per project folder or worktree and reuse its workspaceId. Use read for direct file reads, run_semantic_action for read-only symbol, reference, implementation, declaration, diagnostics, and semantic pattern queries, apply_patch for all file modifications, ${WORKBRIDGE_REVIEW_TOOL_NAME} once after the final related file change for the combined change review, exec_command for ad hoc inspection, tests, builds, and commands, write_stdin to poll or interact with running processes, run_workspace_action for registered repeatable actions whose implementation and policy are owned by Workbridge, and download_artifact for MCP-host native files.${artifactInstruction}${outgoingArtifactInstruction}${patchConsolidationInstruction} Follow instructions returned by open_workspace; read applicable instruction and skill files before working in their scope.${SOFT_PAUSE_SERVER_INSTRUCTION}`;
+  return `Use ${PRODUCT_DISPLAY_NAME} as a local coding workspace. The public tool surface follows the upstream Codex profile, adds Workbridge-owned extensions, and keeps explicitly disabled capabilities out of the runtime. Call open_workspace once per project folder or worktree and reuse its workspaceId. Use read for direct file reads, run_semantic_action for precise read-only symbol/reference/implementation/declaration/diagnostics queries, run_graft_action for read-only repository orientation, conceptual candidate discovery, caller/callee blast-radius views, API skeletons, and indexed exhaustive search, apply_patch for all file modifications, ${WORKBRIDGE_REVIEW_TOOL_NAME} once after the final related file change for the combined change review, exec_command for ad hoc inspection, tests, builds, and commands, write_stdin to poll or interact with running processes, run_workspace_action for registered repeatable actions whose implementation and policy are owned by Workbridge, and download_artifact for MCP-host native files.${artifactInstruction}${outgoingArtifactInstruction}${patchConsolidationInstruction} Follow instructions returned by open_workspace; read applicable instruction and skill files before working in their scope.${SOFT_PAUSE_SERVER_INSTRUCTION}`;
 }
 
 export function logToolCall(config: ServerConfig, fields: ToolLogFields): void {
@@ -323,6 +329,14 @@ export function registerWorkbridgeExtensionTools({
     config,
     workspaces,
     semanticManager,
+    registerTool,
+  });
+
+  registerGraftActionTool({
+    server,
+    config,
+    workspaces,
+    processSessions,
     registerTool,
   });
 
@@ -460,6 +474,142 @@ function semanticActionParametersSchema(): z.ZodRawShape {
   };
 }
 
+interface RegisterGraftActionToolOptions {
+  server: McpServer;
+  config: ServerConfig;
+  workspaces: WorkspaceRegistry;
+  processSessions: ProcessSessionManager;
+  registerTool: AppToolRegistrar;
+}
+
+function registerGraftActionTool({
+  server,
+  config,
+  workspaces,
+  processSessions,
+  registerTool,
+}: RegisterGraftActionToolOptions): void {
+  registerTool(
+    server,
+    "run_graft_action",
+    {
+      title: "Run Graft action",
+      description:
+        `Run one read-only Graft repository-graph query against the exact root of an open workspace. Use map for unfamiliar-repository orientation and hotspots, ask for conceptual candidate discovery, callers for compressed caller/callee or blast-radius views, skeleton for a file's API surface, grep for indexed exhaustive search, and check for graph freshness. Prefer Serena for precise symbol/declaration/implementation/reference/diagnostics queries and normal read/rg when the location is already known. Workbridge keeps the Graft graph outside the repository and builds it automatically on first query. ${WORKSPACE_REUSE_DESCRIPTION}`,
+      inputSchema: {
+        workspaceId: z.string().describe(WORKSPACE_ID_DESCRIPTION),
+        action: z.enum(GRAFT_ACTIONS).describe("Graft repository-graph action."),
+        parameters: z.object(graftActionParametersSchema()).optional().describe(
+          "Action-specific parameters. Only the documented allowlisted fields are forwarded to Graft.",
+        ),
+        yieldTimeMs: z.number().int().min(0).max(30_000).optional().describe(
+          "Milliseconds to wait before returning a running session. Defaults to 30000 for Graft.",
+        ),
+        maxOutputTokens: z.number().int().positive().max(100_000).optional().describe(
+          "Approximate output token budget. Defaults to 10000.",
+        ),
+      },
+      outputSchema: processOrWorkspaceActionOutputSchema(),
+      _meta: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ workspaceId, action, parameters, yieldTimeMs, maxOutputTokens }) => {
+      const startedAt = performance.now();
+      const workspace = workspaces.getWorkspace(workspaceId);
+      const typedAction = action as GraftAction;
+
+      try {
+        const { graphDir, plan } = createGraftActionPlan({
+          action: typedAction,
+          parameters: (parameters ?? {}) as GraftActionParameters,
+          workspaceRoot: workspace.root,
+          stateDir: config.stateDir,
+        });
+        const redactions = [
+          ...workspacePathRedactions(workspace.root),
+          { path: graphDir, replacement: "<graft-cache>" },
+        ];
+        const snapshot = await processSessions.startPlan({
+          workspaceId,
+          plan,
+          cwd: workspace.root,
+          workspaceRoot: workspace.root,
+          outputRedactions: redactions,
+          yieldTimeMs: yieldTimeMs ?? 30_000,
+          maxOutputTokens,
+          context: {
+            kind: "workspace_action",
+            contractVersion: WORKSPACE_ACTION_CONTRACT_VERSION,
+            action: typedAction,
+            preset: "graft",
+            policy: ["read_only"],
+            profileEvidence: [],
+            warnings: [],
+            artifacts: [],
+            steps: pendingWorkspaceActionSteps(plan),
+          },
+        });
+        logToolCall(config, {
+          tool: "run_graft_action",
+          workspaceId,
+          action: typedAction,
+          ...processLogOutcome(snapshot),
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        return processToolResponse("run_graft_action", workspaceId, snapshot, {
+          action: typedAction,
+          graphCache: "managed",
+        });
+      } catch (error) {
+        const message = redactPathsInText(
+          error instanceof Error ? error.message : String(error),
+          workspacePathRedactions(workspace.root),
+        );
+        const elapsed = Math.round(performance.now() - startedAt);
+        logToolCall(config, {
+          tool: "run_graft_action",
+          workspaceId,
+          action: typedAction,
+          success: false,
+          durationMs: elapsed,
+          error: message,
+        });
+        return {
+          ...processToolResponse("run_graft_action", workspaceId, {
+            output: message,
+            outputTruncated: false,
+            running: false,
+            exitCode: 1,
+            wallTimeMs: elapsed,
+          }, { action: typedAction }),
+          isError: true,
+        };
+      }
+    },
+  );
+}
+
+function graftActionParametersSchema(): z.ZodRawShape {
+  return {
+    query: z.string().min(1).max(4_000).optional().describe("ask query in plain language."),
+    symbol: z.string().min(1).max(1_000).optional().describe("callers symbol name; bare, qualified, or package-qualified."),
+    file: z.string().min(1).max(2_000).optional().describe("skeleton workspace-relative file path or unique basename."),
+    pattern: z.string().min(1).max(4_000).optional().describe("grep regex or literal pattern."),
+    scopePath: z.string().min(1).max(2_000).optional().describe("Optional workspace-relative path prefix used by ask/callers/grep."),
+    limit: z.number().int().min(1).max(50).optional().describe("Maximum ask results."),
+    direction: z.enum(["in", "out"]).optional().describe("callers direction: in for callers, out for callees."),
+    depth: z.union([z.number().int().min(1).max(100), z.literal("all")]).optional().describe("callers traversal depth or all."),
+    ignoreCase: z.boolean().optional().describe("Case-insensitive grep."),
+    fixed: z.boolean().optional().describe("Treat grep pattern as a literal string."),
+    maxDirs: z.number().int().min(1).max(100).optional().describe("Maximum directory entries in map output."),
+  };
+}
+
 interface RegisterProcessToolsOptions {
   server: McpServer;
   config: ServerConfig;
@@ -565,7 +715,7 @@ function registerCodexProcessTools({
     {
       title: "Write to process",
       description:
-        "Poll or write characters to a process returned by exec_command or run_workspace_action. Omit chars or pass an empty string to poll. Pass \\u0003 to send Ctrl-C.",
+        "Poll or write characters to a process returned by exec_command, run_workspace_action, or run_graft_action. Omit chars or pass an empty string to poll. Pass \\u0003 to send Ctrl-C.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier used to start the process."),
         sessionId: z.number().describe("Process session identifier returned by exec_command or run_workspace_action."),
@@ -1399,7 +1549,7 @@ function processResult(snapshot: ProcessSnapshot): string {
 }
 
 function processToolResponse(
-  tool: "exec_command" | "write_stdin" | "run_workspace_action",
+  tool: "exec_command" | "write_stdin" | "run_workspace_action" | "run_graft_action",
   workspaceId: string,
   snapshot: ProcessSnapshot,
   summary: Record<string, unknown>,

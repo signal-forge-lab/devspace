@@ -27,16 +27,16 @@ DevSpace is a local development execution layer for MCP hosts such as ChatGPT an
 
 ## Graft code-intelligence policy
 
-- Graft is an optional read-only code-intelligence accelerator available through `exec_command`; invoke the pinned CLI as `npx -y @nanonets/graft@0.10.1 ...`.
-- Use `graft map` for unfamiliar repository orientation and hotspot discovery.
-- Use `graft ask` only for conceptual candidate discovery; verify important conclusions with Serena, Workbridge reads, or `rg` before treating them as ground truth.
-- Use `graft callers` when a compressed caller/dependency or blast-radius view is more useful than every individual reference.
-- Use `graft skeleton` for a signatures-and-spans view of a file, and `graft grep` for indexed exhaustive occurrence searches.
-- Keep Graft's generated graph outside the repository and pass that location with `--dir`; do not let a Graft build alter repository ignore files or pollute normal `rg` ground-truth searches.
+- Graft is an optional read-only code-intelligence accelerator exposed through `run_graft_action`; choose it naturally when its repository-graph view is a better fit than Serena.
+- Use `map` for unfamiliar repository orientation and hotspot discovery.
+- Use `ask` only for conceptual candidate discovery; verify important conclusions with Serena, Workbridge reads, or `rg` before treating them as ground truth.
+- Use `callers` when a compressed caller/dependency or blast-radius view is more useful than every individual reference.
+- Use `skeleton` for a signatures-and-spans view of a file, and `grep` for indexed exhaustive occurrence searches.
+- Workbridge keeps Graft's generated graph outside the repository and auto-builds it on first use; normal source mutations remain in Workbridge.
 - Prefer Serena for precise symbol/declaration/implementation/reference queries and when exact reference lines matter.
 - Prefer normal Workbridge reads or `rg` when the location is already known, for localized work, and for final source verification.
 - Keep all source mutations in Workbridge; Graft is not an editing authority.
-- Do not invoke Graft merely because it is available, and do not run `graft init`, add Graft MCP, or install global hooks without explicit approval.
+- Do not invoke Graft merely because it is available, and do not run `graft init`, add a separate Graft MCP, or install global hooks without explicit approval.
 
 Pi's SDK currently provides mature local coding primitives. DevSpace wraps those primitives in a Streamable HTTP MCP server and adds the product-specific boundaries around them: approved roots, workspace state, instructions, process sessions, worktrees, artifacts, review checkpoints, widgets, and subagent execution.
 

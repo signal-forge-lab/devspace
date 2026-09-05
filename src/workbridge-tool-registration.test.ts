@@ -28,6 +28,7 @@ import {
 assert.deepEqual(WORKBRIDGE_EXTENSION_TOOL_NAMES, [
   "run_workspace_action",
   "run_semantic_action",
+  "run_graft_action",
 ]);
 assert.equal(WORKBRIDGE_UPSTREAM_TOOL_MODE, "codex");
 assert.equal(WORKBRIDGE_WIDGET_MODE, "off");
@@ -63,9 +64,11 @@ registerWorkbridgeExtensionTools({
 assert.deepEqual(registeredNames, [
   "run_workspace_action",
   "run_semantic_action",
+  "run_graft_action",
   "download_artifact",
 ]);
 assert.match(workbridgeServerInstructions(), /run_semantic_action/);
+assert.match(workbridgeServerInstructions(), /run_graft_action/);
 
 assert.deepEqual(processLogOutcome({
   output: "",
@@ -126,6 +129,13 @@ try {
       durationMs: 45,
     });
     logToolCall(loggingConfig, {
+      tool: "run_graft_action",
+      workspaceId: "ws_usage_test",
+      action: "callers",
+      success: true,
+      durationMs: 31,
+    });
+    logToolCall(loggingConfig, {
       tool: "write_stdin",
       workspaceId: "ws_usage_test",
       success: true,
@@ -138,7 +148,7 @@ try {
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line) as Record<string, unknown>);
-  assert.equal(usageLines.length, 2);
+  assert.equal(usageLines.length, 3);
   assert.deepEqual(
     {
       schemaVersion: usageLines[0]?.schemaVersion,
@@ -164,6 +174,8 @@ try {
   assert.equal("path" in (usageLines[0] ?? {}), false);
   assert.equal(usageLines[1]?.tool, "run_semantic_action");
   assert.equal(usageLines[1]?.action, "find_referencing_symbols");
+  assert.equal(usageLines[2]?.tool, "run_graft_action");
+  assert.equal(usageLines[2]?.action, "callers");
 
   let decoratedDescription = "";
   let capturedHandler: (() => Promise<unknown>) | undefined;
