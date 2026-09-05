@@ -35,6 +35,7 @@ test("tool modes expose the expected host-facing tool surface", async (t) => {
         "bash",
         "show_changes",
         "run_workspace_action",
+        "check_ao_credential_status",
         "run_semantic_action",
         "run_graft_action",
         "download_artifact",
@@ -50,6 +51,7 @@ test("tool modes expose the expected host-facing tool surface", async (t) => {
         "write_stdin",
         "show_changes",
         "run_workspace_action",
+        "check_ao_credential_status",
         "run_semantic_action",
         "run_graft_action",
         "download_artifact",
@@ -66,6 +68,18 @@ test("tool modes expose the expected host-facing tool surface", async (t) => {
         tools.tools.map((tool) => tool.name).sort(),
         expected.sort(),
       );
+
+      const aoCredentialStatus = tools.tools.find((tool) => tool.name === "check_ao_credential_status");
+      assert.ok(aoCredentialStatus);
+      assert.deepEqual(aoCredentialStatus.annotations, {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
+      assert.deepEqual(Object.keys((aoCredentialStatus.inputSchema.properties ?? {}) as Record<string, unknown>), [
+        "workspaceId",
+      ]);
     });
   }
 });

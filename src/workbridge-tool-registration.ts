@@ -330,6 +330,13 @@ export function registerWorkbridgeExtensionTools({
     shellToolMeta,
   });
 
+  registerAoCredentialStatusTool({
+    server,
+    config,
+    workspaces,
+    registerTool,
+  });
+
   registerSemanticActionTool({
     server,
     config,
@@ -352,6 +359,98 @@ export function registerWorkbridgeExtensionTools({
     incomingArtifactAdapters,
     registerTool: artifactRegisterTool,
   });
+}
+
+interface RegisterAoCredentialStatusToolOptions {
+  server: McpServer;
+  config: ServerConfig;
+  workspaces: WorkspaceRegistry;
+  registerTool: AppToolRegistrar;
+}
+
+function registerAoCredentialStatusTool({
+  server,
+  config,
+  workspaces,
+  registerTool,
+}: RegisterAoCredentialStatusToolOptions): void {
+  registerTool(
+    server,
+    "check_ao_credential_status",
+    {
+      title: "Check AO credential status",
+      description:
+        `Check whether the canonical AO SOPS credential can be resolved for an open workspace. Returns status only; the credential value is never returned, logged, hashed, or persisted. This tool does not run a workspace command or modify scientific state. ${WORKSPACE_REUSE_DESCRIPTION}`,
+      inputSchema: {
+        workspaceId: z.string().describe(WORKSPACE_ID_DESCRIPTION),
+      },
+      outputSchema: {
+        workspaceId: z.string(),
+        credentialPresent: z.boolean(),
+        credentialSource: z.enum(["sops_canonical_store", "none"]),
+        secretValueObserved: z.literal(false),
+        result: z.string(),
+      },
+      _meta: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ workspaceId }) => {
+      const startedAt = performance.now();
+      const workspace = workspaces.getWorkspace(workspaceId);
+      try {
+        let credential = await loadAoOpenAiApiKeyFromSops({ cwd: workspace.root });
+        const credentialPresent = Boolean(credential);
+        credential = undefined;
+        const credentialSource = credentialPresent ? "sops_canonical_store" : "none";
+        const result = [
+          `credential_present=${String(credentialPresent).toLowerCase()}`,
+          `credential_source=${credentialSource}`,
+          "secret_value_observed=false",
+        ].join("\n");
+        logToolCall(config, {
+          tool: "check_ao_credential_status",
+          workspaceId,
+          success: true,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        return {
+          content: [textBlock(result)],
+          structuredContent: {
+            workspaceId,
+            credentialPresent,
+            credentialSource,
+            secretValueObserved: false as const,
+            result,
+          },
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logToolCall(config, {
+          tool: "check_ao_credential_status",
+          workspaceId,
+          success: false,
+          durationMs: Math.round(performance.now() - startedAt),
+          error: message,
+        });
+        return {
+          isError: true,
+          content: [textBlock(message)],
+          structuredContent: {
+            workspaceId,
+            credentialPresent: false,
+            credentialSource: "none" as const,
+            secretValueObserved: false as const,
+            result: message,
+          },
+        };
+      }
+    },
+  );
 }
 
 interface RegisterSemanticActionToolOptions {

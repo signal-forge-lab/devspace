@@ -27,6 +27,7 @@ import {
 
 assert.deepEqual(WORKBRIDGE_EXTENSION_TOOL_NAMES, [
   "run_workspace_action",
+  "check_ao_credential_status",
   "run_semantic_action",
   "run_graft_action",
 ]);
@@ -63,6 +64,7 @@ registerWorkbridgeExtensionTools({
 
 assert.deepEqual(registeredNames, [
   "run_workspace_action",
+  "check_ao_credential_status",
   "run_semantic_action",
   "run_graft_action",
   "download_artifact",

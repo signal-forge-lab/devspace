@@ -9,6 +9,7 @@
     "reviewTool": "show_changes",
     "workbridgeExtensions": [
       "run_workspace_action",
+      "check_ao_credential_status",
       "run_semantic_action",
       "run_graft_action"
     ],
@@ -26,6 +27,10 @@
     {
       "name": "apply_patch",
       "contractSha256": "3bcfc71d7c0748bc8bf41496a0a49c88d905df24a02bfbdb5c8298637997f675"
+    },
+    {
+      "name": "check_ao_credential_status",
+      "contractSha256": "8736de93833f50a7ed30fe990c9bbcbbf9c10cf544c608f58b81b7c60e779339"
     },
     {
       "name": "download_artifact",
