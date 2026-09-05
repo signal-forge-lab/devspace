@@ -11,6 +11,10 @@ import {
 } from "./workspace-actions.js";
 import { pendingWorkspaceActionSteps } from "./workspace-action-plans.js";
 import {
+  AO_OPENAI_CREDENTIAL_NAME,
+  loadAoOpenAiApiKeyFromSops,
+} from "./ao-sops-credential.js";
+import {
   runWorkspaceActionProcessPlan,
   type WorkspaceActionProcessContext,
 } from "./workspace-action-process-runner.js";
@@ -526,13 +530,21 @@ export function parseLocalActionTriggerWorkerArgs(args: readonly string[]): {
   };
 }
 
-async function executeResolvedAction(input: {
+export async function executeResolvedAction(input: {
   resolved: ResolvedWorkspaceAction;
   workspaceRoot: string;
   triggerId: string;
-}): Promise<LocalActionTriggerExecutionResult> {
+}, loadCredential: (options: { cwd: string }) => Promise<string | undefined> = loadAoOpenAiApiKeyFromSops): Promise<LocalActionTriggerExecutionResult> {
   const plan = input.resolved.plan;
   if (!plan) throw new Error("Local action trigger requires a process-backed action plan.");
+  let environmentOverrides: NodeJS.ProcessEnv | undefined;
+  if (input.resolved.action === "ao_registered_python" && input.resolved.preset !== "help") {
+    const credential = await loadCredential({ cwd: input.workspaceRoot });
+    if (!credential) {
+      throw new Error("The designated AO credential is absent from the canonical SOPS store.");
+    }
+    environmentOverrides = { [AO_OPENAI_CREDENTIAL_NAME]: credential };
+  }
   const outputHash = createHash("sha256");
   const stdoutHash = createHash("sha256");
   const stderrHash = createHash("sha256");
@@ -563,6 +575,7 @@ async function executeResolvedAction(input: {
     plannedArtifacts: input.resolved.artifacts,
     cwd: input.workspaceRoot,
     workspaceRoot: input.workspaceRoot,
+    environmentOverrides,
     tty: false,
     context,
   }, {

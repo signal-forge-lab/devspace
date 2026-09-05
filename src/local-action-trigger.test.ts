@@ -8,6 +8,7 @@ import {
   armLocalActionTrigger,
   canonicalLocalActionTriggerManifest,
   claimLocalActionTrigger,
+  executeResolvedAction,
   loadLocalActionTriggerManifest,
   parseLocalActionTriggerWorkerArgs,
   resolveLocalActionTrigger,
@@ -142,6 +143,38 @@ try {
   });
   assert.equal(resolution.commandSha256, commandHash);
   assert.equal(resolution.resolved.profile, "python");
+
+  const injectedExecution = await executeResolvedAction({
+    resolved: {
+      ...resolvedAction,
+      preset: "execute",
+      plan: {
+        kind: "steps",
+        steps: [{
+          id: "credential",
+          label: "credential",
+          kind: "process",
+          executable: process.execPath,
+          args: [
+            "-e",
+            "process.exit(process.env.IW_AO_OPENAI_API_KEY === 'trigger-test-secret' ? 0 : 7)",
+          ],
+        }],
+      },
+    },
+    workspaceRoot: projectRoot,
+    triggerId: "credential-injection-test",
+  }, async () => "trigger-test-secret");
+  assert.equal(injectedExecution.exitCode, 0);
+  assert.equal(injectedExecution.processStartedCount, 1);
+  await assert.rejects(
+    executeResolvedAction({
+      resolved: { ...resolvedAction, preset: "execute" },
+      workspaceRoot: projectRoot,
+      triggerId: "credential-missing-test",
+    }, async () => undefined),
+    /credential is absent from the canonical SOPS store/,
+  );
 
   const claim = await claimLocalActionTrigger(stateDir, "atomic-test", {
     manifestSha256: "c".repeat(64),
