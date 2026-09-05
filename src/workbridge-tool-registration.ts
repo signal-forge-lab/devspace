@@ -186,6 +186,8 @@ interface WorkspaceActionToolInput {
   workingDirectory?: string;
   yieldTimeMs?: number;
   maxOutputTokens?: number;
+  intent?: string;
+  retryContext?: string;
 }
 
 const WORKSPACE_ACTION_CONTRACT_VERSION = 2 as const;
@@ -792,6 +794,7 @@ function registerWorkspaceActionTool({
         workingDirectory: z.string().optional().describe("Working directory relative to the workspace root. Defaults to the workspace root and becomes the project root for profile-based actions."),
         yieldTimeMs: z.number().int().min(0).max(30_000).optional().describe("Milliseconds to wait before returning a running session."),
         maxOutputTokens: z.number().int().positive().max(100_000).optional().describe("Approximate output token budget."),
+        ...commandMetadataInputSchema(),
       },
       outputSchema: workspaceActionOutputSchema(),
       ...shellToolMeta,
@@ -800,7 +803,7 @@ function registerWorkspaceActionTool({
     async (rawInput) => {
       const {
         workspaceId, action, preset, parameters, dryRun, tty, columns, rows,
-        workingDirectory, yieldTimeMs, maxOutputTokens,
+        workingDirectory, yieldTimeMs, maxOutputTokens, intent, retryContext,
       } = rawInput as WorkspaceActionToolInput;
       const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
@@ -840,6 +843,8 @@ function registerWorkspaceActionTool({
           executionPolicy: "invalid_working_directory",
           durationMs: Math.round(performance.now() - startedAt),
           error: message,
+          intent,
+          retryContext,
         });
         return rejectedWorkspaceActionResponse({
           action,
@@ -882,6 +887,8 @@ function registerWorkspaceActionTool({
           executionPolicy: error.kind,
           durationMs: Math.round(performance.now() - startedAt),
           error: message,
+          intent,
+          retryContext,
         });
         return rejectedWorkspaceActionResponse({
           action,
@@ -931,6 +938,8 @@ function registerWorkspaceActionTool({
           dryRun: true,
           success: true,
           durationMs: Math.round(performance.now() - startedAt),
+          intent,
+          retryContext,
         });
         return {
           content,
@@ -1075,6 +1084,8 @@ function registerWorkspaceActionTool({
           executionPolicy: "process_start_failed",
           durationMs: Math.round(performance.now() - startedAt),
           error: message,
+          intent,
+          retryContext,
         });
         return {
           content,
@@ -1117,6 +1128,8 @@ function registerWorkspaceActionTool({
         dryRun: false,
         ...processLogOutcome(snapshot),
         durationMs: Math.round(performance.now() - startedAt),
+        intent,
+        retryContext,
       });
 
       return processToolResponse("run_workspace_action", workspaceId, snapshot, {

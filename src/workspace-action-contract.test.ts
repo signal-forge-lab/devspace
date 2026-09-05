@@ -324,6 +324,8 @@ try {
       action: "ao_registered_python",
       preset: "help",
       dryRun: true,
+      intent: "inspect",
+      retryContext: "previous_host_safecheck_self_reported",
     },
   }));
   assert.equal(aoHelpDryRun.status, "dry_run");
