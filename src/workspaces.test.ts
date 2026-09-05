@@ -215,7 +215,7 @@ async function fixture(t: TestContext): Promise<WorkspaceFixture> {
   await writeFile(join(root, "nested", "AGENTS.md"), "nested instructions\n");
   await writeFile(join(root, "nested", "file.txt"), "hello\n");
 
-  const config = loadConfig(writeTestDevspaceConfig(join(root, ".devspace-home"), {
+  const loadedConfig = loadConfig(writeTestDevspaceConfig(join(root, ".devspace-home"), {
     server: { port: 1 },
     workspaces: {
       allowedRoots: [root],
@@ -224,6 +224,10 @@ async function fixture(t: TestContext): Promise<WorkspaceFixture> {
     skills: { agentDir },
     subagents: { enabled: true, providers: [] },
   }));
+  const config = {
+    ...loadedConfig,
+    subagents: { ...loadedConfig.subagents, enabled: true },
+  };
 
   t.after(async () => {
     await rm(root, { recursive: true, force: true });

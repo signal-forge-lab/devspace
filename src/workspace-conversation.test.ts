@@ -417,12 +417,16 @@ async function fixture(
 
   if (options.git) await initializeGitRepository(project);
 
-  const config = loadConfig(writeTestDevspaceConfig(join(root, ".config"), {
+  const loadedConfig = loadConfig(writeTestDevspaceConfig(join(root, ".config"), {
     server: { port: 1 },
     workspaces: { allowedRoots: [root], worktreeRoot: join(root, ".worktrees") },
     skills: { agentDir },
     subagents: { enabled: true, providers: [] },
   }));
+  const config = {
+    ...loadedConfig,
+    subagents: { ...loadedConfig.subagents, enabled: true },
+  };
   const openStore = () => {
     const store = new SqliteWorkspaceStore(stateDir);
     stores.add(store);

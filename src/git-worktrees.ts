@@ -164,6 +164,7 @@ async function git(args: string[], cwd: string): Promise<string> {
     const { stdout } = await execFileAsync("git", args, {
       cwd,
       maxBuffer: 10 * 1024 * 1024,
+      windowsHide: true,
     });
     return stdout;
   } catch (error) {

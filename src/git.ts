@@ -25,6 +25,7 @@ export async function git(
     cwd,
     env: options.env ? { ...process.env, ...options.env } : process.env,
     maxBuffer: options.maxBuffer ?? 10 * 1024 * 1024,
+    windowsHide: true,
   });
 
   return { stdout, stderr };

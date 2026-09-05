@@ -19,19 +19,20 @@ try {
   assert.deepEqual(defaults.allowedRoots, [process.cwd()]);
   assert.deepEqual(defaults.allowedHosts, ["localhost", "127.0.0.1", "::1"]);
   assert.equal(defaults.toolMode, "codex");
-  assert.equal(defaults.uiEnabled, true);
+  assert.equal(defaults.uiEnabled, false);
   assert.equal(defaults.skillsEnabled, true);
-  assert.equal(defaults.artifactsEnabled, false);
+  assert.equal(defaults.artifactsEnabled, true);
   assert.deepEqual(defaults.subagents, { enabled: false, providers: [] });
-  assert.deepEqual(defaults.logging, {
-    level: "info",
-    format: "json",
-    requests: true,
-    assets: false,
-    toolCalls: true,
-    shellCommands: false,
-    trustProxy: false,
-  });
+  assert.equal(defaults.logging.level, "info");
+  assert.equal(defaults.logging.format, "json");
+  assert.equal(defaults.logging.file, true);
+  assert.match(defaults.logging.filePath ?? "", /devspace\.jsonl$/);
+  assert.equal(defaults.logging.fileMaxFiles, 5);
+  assert.equal(defaults.logging.requests, true);
+  assert.equal(defaults.logging.assets, false);
+  assert.equal(defaults.logging.toolCalls, true);
+  assert.equal(defaults.logging.shellCommands, false);
+  assert.equal(defaults.logging.trustProxy, false);
 
   writeDevspaceConfig({
     configVersion: 1,
@@ -44,7 +45,8 @@ try {
     },
     workspaces: {
       allowedRoots: ["~/work"],
-      worktreeRoot: "~/trees",
+      auxiliaryRoots: ["~/.codex"],
+      worktreeRoot: "~/work/.workbridge/worktrees",
     },
     storage: { stateDir: "~/state" },
     tools: { mode: "claude" },
@@ -86,32 +88,44 @@ try {
     "devspace.example.com",
     "example.internal",
   ]);
-  assert.equal(configured.toolMode, "claude");
+  assert.equal(configured.toolMode, "codex");
   assert.equal(configured.uiEnabled, false);
   assert.equal(configured.stateDir, resolve(homedir(), "state"));
-  assert.equal(configured.worktreeRoot, resolve(homedir(), "trees"));
+  assert.deepEqual(configured.auxiliaryRoots, [resolve(homedir(), ".codex")]);
+  assert.equal(configured.worktreeRoot, resolve(homedir(), "work", ".workbridge", "worktrees"));
   assert.equal(configured.artifactsEnabled, true);
   assert.equal(configured.artifactMaxFileBytes, 321);
-  assert.equal(configured.skillsEnabled, false);
+  assert.equal(configured.skillsEnabled, true);
   assert.deepEqual(configured.skillPaths, ["~/skills"]);
   assert.equal(configured.agentDir, resolve(homedir(), "agent"));
-  assert.equal(configured.subagents.enabled, true);
-  assert.equal(configured.oauth.ownerToken, "persisted-owner-token-long-enough");
-  assert.equal(configured.oauth.accessTokenTtlSeconds, 120);
-  assert.deepEqual(configured.oauth.scopes, ["devspace", "admin"]);
-  assert.deepEqual(configured.logging, {
-    level: "debug",
-    format: "pretty",
-    requests: false,
-    assets: true,
-    toolCalls: false,
-    shellCommands: true,
-    trustProxy: true,
-  });
+  assert.equal(configured.subagents.enabled, false);
+  assert.equal(configured.oauth?.ownerToken, "persisted-owner-token-long-enough");
+  assert.equal(configured.oauth?.accessTokenTtlSeconds, 120);
+  assert.deepEqual(configured.oauth?.scopes, ["devspace", "admin"]);
+  assert.equal(configured.logging.level, "debug");
+  assert.equal(configured.logging.format, "pretty");
+  assert.equal(configured.logging.requests, false);
+  assert.equal(configured.logging.assets, true);
+  assert.equal(configured.logging.toolCalls, false);
+  assert.equal(configured.logging.shellCommands, true);
+  assert.equal(configured.logging.trustProxy, true);
 
-  assert.equal(loadConfig(env).oauth.ownerToken, env.DEVSPACE_OAUTH_OWNER_TOKEN);
+  assert.equal(loadConfig(env).oauth?.ownerToken, env.DEVSPACE_OAUTH_OWNER_TOKEN);
 } finally {
   rmSync(configDir, { recursive: true, force: true });
+}
+
+const tunnelDir = mkdtempSync(join(tmpdir(), "workbridge-tunnel-config-test-"));
+try {
+  writeDevspaceConfig({
+    configVersion: 1,
+    server: { mcpConnectionMode: "openai-secure-mcp-tunnel" },
+  }, { DEVSPACE_CONFIG_DIR: tunnelDir });
+  const tunnelConfig = loadConfig({ DEVSPACE_CONFIG_DIR: tunnelDir });
+  assert.equal(tunnelConfig.mcpConnectionMode, "openai-secure-mcp-tunnel");
+  assert.equal(tunnelConfig.oauth, undefined);
+} finally {
+  rmSync(tunnelDir, { recursive: true, force: true });
 }
 
 const missingAuthDir = mkdtempSync(join(tmpdir(), "devspace-config-no-auth-test-"));

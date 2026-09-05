@@ -1,0 +1,20 @@
+{
+  "all": true,
+  "clean": true,
+  "include": [
+    "src/mcp-session-lifecycle.ts",
+    "src/workspace-action-process-runner.ts",
+    "src/process-sessions.ts",
+    "src/soft-pause.ts",
+    "src/session-monitor-integration.ts",
+    "src/oauth-security.ts",
+    "src/roots.ts",
+    "src/workspaces.ts"
+  ],
+  "reporter": [
+    "text",
+    "json-summary",
+    "html"
+  ],
+  "reports-dir": "reports/coverage/critical"
+}

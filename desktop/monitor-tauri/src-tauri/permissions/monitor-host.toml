@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "monitor-host"
+description = "Allows only the bounded Workbridge Monitor host commands exposed to the loopback Monitor UI."
+commands.allow = [
+  "monitor_status",
+  "monitor_reachable",
+  "run_monitor_action",
+  "save_startup_config",
+]

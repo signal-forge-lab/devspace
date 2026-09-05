@@ -1,6 +1,8 @@
 import * as z from "zod/v4";
-import { logEvent, commandPreview } from "../logger.js";
+import { logEvent, loggedCommandFields } from "../logger.js";
 import type { ServerConfig } from "../config.js";
+import { captureMonitorToolLog } from "../monitor-operation-context.js";
+import { commandUsageFields, writeWorkbridgeToolUsageLog } from "../workbridge-logging.js";
 import {
   WORKSPACE_APP_URI,
   type DiffStats,
@@ -34,15 +36,22 @@ export function workspaceAppDescriptorMeta(config: ServerConfig): ToolWidgetDesc
 }
 
 export function logToolCall(config: ServerConfig, fields: ToolLogFields): void {
+  const operationId = captureMonitorToolLog(fields);
   if (!config.logging.toolCalls) return;
 
-  const { command, ...safeFields } = fields;
+  const { command, commandLength, ...safeFields } = fields;
+  writeWorkbridgeToolUsageLog(config.logging, {
+    tool: fields.tool,
+    workspaceId: fields.workspaceId,
+    operationId,
+    success: fields.success,
+    durationMs: fields.durationMs,
+    ...commandUsageFields(fields.tool, command),
+  });
   logEvent(config.logging, fields.success ? "info" : "warn", "tool_call", {
     ...safeFields,
-    commandPreview:
-      config.logging.shellCommands && command
-        ? commandPreview(command)
-        : undefined,
+    operationId,
+    ...loggedCommandFields(config.logging, fields.tool, command, commandLength),
   });
 }
 

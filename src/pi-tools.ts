@@ -10,7 +10,12 @@ import {
   type WriteToolInput,
   type AgentToolResult,
 } from "@earendil-works/pi-coding-agent";
-import { resolveAllowedPath } from "./roots.js";
+import {
+  redactPathsInText,
+  redactPathsInValue,
+  workspacePathRedactions,
+} from "./path-redaction.js";
+import { resolveAllowedRealPath } from "./roots.js";
 
 type McpContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 export type ToolResponse<TDetails = unknown> = {
@@ -39,9 +44,12 @@ function toMcpContent(result: AgentToolResult<unknown>): McpContent[] {
   });
 }
 
-function formatToolError(error: unknown): McpContent[] {
+function formatToolError(error: unknown, context: ToolContext): McpContent[] {
   const message = error instanceof Error ? error.message : String(error);
-  return [{ type: "text", text: message }];
+  return [{
+    type: "text",
+    text: redactPathsInText(message, workspacePathRedactions(context.root)),
+  }];
 }
 
 async function runTool<TInput, TDetails = unknown>(
@@ -53,15 +61,15 @@ async function runTool<TInput, TDetails = unknown>(
     const result = await execute(input);
     return {
       content: toMcpContent(result),
-      details: result.details,
+      details: redactPathsInValue(result.details, workspacePathRedactions(context.root)),
     };
   } catch (error) {
-    return { content: formatToolError(error), isError: true };
+    return { content: formatToolError(error, context), isError: true };
   }
 }
 
 export async function readFileTool(input: ReadToolInput, context: ToolContext): Promise<ToolResponse> {
-  const path = resolveAllowedPath(input.path, context.cwd, context.readRoots ?? [context.root]);
+  const path = await resolveAllowedRealPath(input.path, context.cwd, context.readRoots ?? [context.root]);
   const tool = createReadTool(context.cwd);
 
   return runTool((params) => tool.execute("read_file", params), {
@@ -72,7 +80,7 @@ export async function readFileTool(input: ReadToolInput, context: ToolContext): 
 }
 
 export async function writeFileTool(input: WriteToolInput, context: ToolContext): Promise<ToolResponse> {
-  const path = resolveAllowedPath(input.path, context.cwd, [context.root]);
+  const path = await resolveAllowedRealPath(input.path, context.cwd, [context.root]);
   const tool = createWriteTool(context.cwd);
 
   return runTool((params) => tool.execute("write_file", params), {
@@ -82,7 +90,7 @@ export async function writeFileTool(input: WriteToolInput, context: ToolContext)
 }
 
 export async function editFileTool(input: EditToolInput, context: ToolContext): Promise<ToolResponse<EditToolDetails>> {
-  const path = resolveAllowedPath(input.path, context.cwd, [context.root]);
+  const path = await resolveAllowedRealPath(input.path, context.cwd, [context.root]);
   const tool = createEditTool(context.cwd);
 
   return runTool((params) => tool.execute("edit_file", params), {

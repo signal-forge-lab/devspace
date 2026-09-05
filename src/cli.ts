@@ -2,6 +2,7 @@
 import { createRequire } from "node:module";
 import { stdin as input, stdout as output } from "node:process";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Result as BetterResult } from "better-result";
 import * as prompts from "@clack/prompts";
 import { getShellConfig } from "@earendil-works/pi-coding-agent";
@@ -52,6 +53,22 @@ import {
 import { expandHomePath } from "./roots.js";
 import { readReviewRef } from "./review-checkpoints.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
+import { PRODUCT_DISPLAY_NAME } from "./branding.js";
+import { SoftPauseController } from "./soft-pause.js";
+import { registerMonitorControlRoutes } from "./monitor-control.js";
+import { PACKAGE_VERSION, SUPPORTED_NODE_RANGE } from "./version.js";
+import { errorLogFields, logEvent } from "./logger.js";
+import {
+  WORKBRIDGE_EXTENSION_TOOL_NAMES,
+  WORKBRIDGE_REVIEW_TOOL_NAME,
+  WORKBRIDGE_UPSTREAM_TOOL_MODE,
+} from "./workbridge-tool-policy.js";
+import {
+  normalizeWorkbridgeCliCommand,
+  runWorkbridgeCliCommand,
+  WORKBRIDGE_CLI_HELP_LINES,
+  workbridgeCliCommandRequiresConfiguration,
+} from "./workbridge-cli-commands.js";
 
 type Command =
   | "serve"
@@ -63,12 +80,18 @@ type Command =
   | "help"
   | "version";
 const require = createRequire(import.meta.url);
-const SUPPORTED_NODE_RANGE = ">=20.12 <27";
+const SHUTDOWN_TIMEOUT_MS = 15_000;
 
 async function main(argv: string[]): Promise<void> {
   assertSupportedNode();
 
   const [rawCommand, ...args] = argv;
+  const workbridgeCommand = normalizeWorkbridgeCliCommand(rawCommand);
+  if (workbridgeCommand) {
+    if (workbridgeCliCommandRequiresConfiguration(workbridgeCommand)) await ensureConfigured();
+    await runWorkbridgeCliCommand(workbridgeCommand, args, fileURLToPath(import.meta.url));
+    return;
+  }
   const command = normalizeCommand(rawCommand);
 
   switch (command) {
@@ -125,7 +148,7 @@ async function ensureConfigured(): Promise<void> {
   if (!input.isTTY || !output.isTTY) {
     throw new Error(
       [
-        "DevSpace is not configured and this terminal is non-interactive.",
+        `${PRODUCT_DISPLAY_NAME} is not configured and this terminal is non-interactive.`,
         "",
         "Run:",
         "  devspace init",
@@ -141,16 +164,16 @@ async function ensureConfigured(): Promise<void> {
 async function runInit({ force }: { force: boolean }): Promise<void> {
   const files = loadDevspaceFiles();
   if (!force && files.configExists && files.authExists) {
-    prompts.log.info(`DevSpace is already configured at ${files.dir}`);
+    prompts.log.info(`${PRODUCT_DISPLAY_NAME} is already configured at ${files.dir}`);
     prompts.log.info("Run `devspace init --force` to update it.");
     return;
   }
 
   try {
-    prompts.intro("DevSpace setup");
+    prompts.intro(`${PRODUCT_DISPLAY_NAME} setup`);
 
     const destinationAnswer = await prompts.multiselect({
-      message: "Where will you use DevSpace?",
+      message: `Where will you use ${PRODUCT_DISPLAY_NAME}?`,
       options: [
         {
           value: "chatgpt",
@@ -160,7 +183,7 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
         {
           value: "coding-agents",
           label: "Coding Agents",
-          hint: "Use DevSpace from Codex, Claude Code, OpenCode, Pi, and similar tools.",
+          hint: `Use ${PRODUCT_DISPLAY_NAME} from Codex, Claude Code, OpenCode, Pi, and similar tools.`,
         },
       ],
       initialValues: files.config.server.publicBaseUrl ? ["chatgpt"] : ["coding-agents"],
@@ -175,7 +198,7 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
     if (useChatGpt) {
       const defaultRoots = files.config.workspaces.allowedRoots.join(", ") || process.cwd();
       const rootsAnswer = await textPrompt({
-        message: `Which project folders can DevSpace access? Press Enter to use ${defaultRoots}`,
+        message: `Which project folders can ${PRODUCT_DISPLAY_NAME} access? Press Enter to use ${defaultRoots}`,
         placeholder: defaultRoots,
         defaultValue: defaultRoots,
         validate: (value) => value?.trim() ? undefined : "Enter at least one project root.",
@@ -259,12 +282,12 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
       `Coding Agents: ${selectedProviders.join(", ")}`,
       ...(publicBaseUrl ? [`ChatGPT connection URL: ${publicBaseUrl}/mcp`] : []),
     ];
-    prompts.note(lines.join("\n"), "DevSpace is ready");
+    prompts.note(lines.join("\n"), `${PRODUCT_DISPLAY_NAME} is ready`);
     if (useChatGpt) {
       prompts.note(
         [
           `Owner password: ${auth.ownerToken}`,
-          "Use this when ChatGPT asks you to approve DevSpace access.",
+          `Use this when ChatGPT asks you to approve ${PRODUCT_DISPLAY_NAME} access.`,
         ].join("\n"),
         "Owner password",
       );
@@ -309,35 +332,86 @@ async function serve(): Promise<void> {
 
   const { createServer } = await import("./server.js");
   const config = loadConfig();
-  const { app, close, localAgentProviders } = createServer(config);
+  new SoftPauseController(config.stateDir).clear();
+  const { app, monitorApp, close } = createServer(config);
   const httpServer = app.listen(config.port, config.host, () => {
-    console.log(`devspace listening on http://${config.host}:${config.port}/mcp`);
+    console.log(`${PRODUCT_DISPLAY_NAME} listening on http://${config.host}:${config.port}/mcp`);
+    console.log(`session monitor: http://127.0.0.1:${config.monitorPort}/monitor`);
+    console.log(`version: ${PACKAGE_VERSION}`);
+    console.log(`tool surface: upstream ${WORKBRIDGE_UPSTREAM_TOOL_MODE} + review + Workbridge extensions`);
+    console.log(`review tool: ${WORKBRIDGE_REVIEW_TOOL_NAME}`);
+    console.log(`Workbridge extensions: ${WORKBRIDGE_EXTENSION_TOOL_NAMES.join(", ")}`);
+    console.log("workspace actions: registry enabled");
     console.log(`public base url: ${config.publicBaseUrl}`);
     console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
+    console.log(`auxiliary roots: ${config.auxiliaryRoots.join(", ") || "none"}`);
     console.log(`allowed hosts: ${config.allowedHosts.join(", ")}`);
     if (config.allowedHosts.includes("*")) {
       console.warn("warning: Host header allowlist is disabled because server.allowedHosts contains '*'");
     }
-    console.log("auth: Owner password approval required");
+    console.log(`auth: ${config.oauth ? "Owner password approval required" : "delegated to secure tunnel"}`);
     console.log(`logging: ${config.logging.level} ${config.logging.format}`);
-    console.log(`subagent providers: ${formatLocalAgentProviderStatusSummary(localAgentProviders)}`);
+    console.log(`trust proxy: ${config.logging.trustProxy ? "one-hop" : "off"}`);
   });
+  const monitorHttpServer = monitorApp.listen(config.monitorPort, "127.0.0.1");
 
-  let shuttingDown = false;
-  const shutdown = async () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    await shutdownHttpServer(httpServer, close);
-    process.exit(0);
-  };
-  const handleShutdown = () => {
-    void shutdown().catch((error) => {
-      console.error("devspace shutdown failed", error);
-      process.exit(1);
+  httpServer.ref();
+  monitorHttpServer.ref();
+
+  await new Promise<void>((resolveServe, rejectServe) => {
+    let shuttingDown = false;
+    let handleSigint: () => void;
+    let handleSigterm: () => void;
+    const removeShutdownHandlers = () => {
+      process.removeListener("SIGINT", handleSigint);
+      process.removeListener("SIGTERM", handleSigterm);
+    };
+    const shutdown = async (reason: "monitor_control" | "sigint" | "sigterm") => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      logEvent(config.logging, "info", "server_shutdown_requested", { reason, pid: process.pid });
+      const timeout = setTimeout(() => {
+        logEvent(config.logging, "error", "server_shutdown_timeout", {
+          reason,
+          pid: process.pid,
+          timeoutMs: SHUTDOWN_TIMEOUT_MS,
+        });
+        process.exit(1);
+      }, SHUTDOWN_TIMEOUT_MS);
+      try {
+        await shutdownHttpServer(
+          httpServer,
+          () => shutdownHttpServer(monitorHttpServer, close),
+          (phase) => {
+            logEvent(config.logging, "info", `server_shutdown_${phase}`, {
+              reason,
+              pid: process.pid,
+            });
+          },
+        );
+        logEvent(config.logging, "info", "server_shutdown_completed", { reason, pid: process.pid });
+        resolveServe();
+      } catch (error) {
+        logEvent(config.logging, "error", "server_shutdown_failed", {
+          reason,
+          pid: process.pid,
+          ...errorLogFields(error),
+        });
+        rejectServe(error);
+      } finally {
+        clearTimeout(timeout);
+        removeShutdownHandlers();
+      }
+    };
+    handleSigint = () => { void shutdown("sigint"); };
+    handleSigterm = () => { void shutdown("sigterm"); };
+    registerMonitorControlRoutes(monitorApp, {
+      token: process.env.WORKBRIDGE_MONITOR_CONTROL_TOKEN,
+      shutdown: () => shutdown("monitor_control"),
     });
-  };
-  process.once("SIGINT", handleShutdown);
-  process.once("SIGTERM", handleShutdown);
+    process.once("SIGINT", handleSigint);
+    process.once("SIGTERM", handleSigterm);
+  });
 }
 
 async function runDoctor(): Promise<void> {
@@ -400,7 +474,7 @@ function runConfigCommand(args: string[]): void {
 function printHelp(): void {
   console.log(
     [
-      "DevSpace",
+      PRODUCT_DISPLAY_NAME,
       "",
       "Usage:",
       "  devspace                 Run first-time setup if needed, then start the server",
@@ -409,6 +483,7 @@ function printHelp(): void {
       "  devspace doctor          Show config, runtime, and native dependency status",
       "  devspace config get      Print persisted config",
       "  devspace config set publicBaseUrl <url|null>",
+      ...WORKBRIDGE_CLI_HELP_LINES,
       "  devspace show-changes <review-ref> [--json]",
       "  devspace agents ls       List subagent sessions",
       "  devspace agents run <profile-or-provider> [--model <model>] [--effort <level>] <prompt>",
@@ -654,7 +729,7 @@ function sleep(ms: number): Promise<void> {
 function printAgentsHelp(): void {
   console.log(
     [
-      "DevSpace agents",
+      `${PRODUCT_DISPLAY_NAME} agents`,
       "",
       "Usage:",
       "  devspace agents ls [--json]",
@@ -670,7 +745,7 @@ function printAgentsHelp(): void {
 function printVersion(): void {
   const packageJson = require("../package.json") as { version?: unknown };
   if (typeof packageJson.version !== "string") {
-    throw new Error("Unable to read DevSpace package version.");
+    throw new Error(`Unable to read ${PRODUCT_DISPLAY_NAME} package version.`);
   }
 
   console.log(packageJson.version);
@@ -730,7 +805,7 @@ function assertSupportedNode(): void {
 
   throw new Error(
     [
-      `DevSpace requires Node ${SUPPORTED_NODE_RANGE}.`,
+      `${PRODUCT_DISPLAY_NAME} requires Node ${SUPPORTED_NODE_RANGE}.`,
       `Current Node: ${process.version}`,
       "",
       "Install Node 22 LTS or use a version manager such as nvm, fnm, or mise.",

@@ -58,10 +58,14 @@ try {
     ].join("\n"),
   );
 
-  const enabledConfig = loadConfig(writeTestDevspaceConfig(configDir, {
+  const enabledLoadedConfig = loadConfig(writeTestDevspaceConfig(configDir, {
     workspaces: { allowedRoots: [workspaceRoot] },
     subagents: { enabled: true, providers: [] },
   }));
+  const enabledConfig = {
+    ...enabledLoadedConfig,
+    subagents: { ...enabledLoadedConfig.subagents, enabled: true },
+  };
   const profiles = await loadLocalAgentProfiles(enabledConfig, workspaceRoot);
 
   assert.equal(profiles.length, 1);

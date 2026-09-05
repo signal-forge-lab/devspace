@@ -4,3 +4,17 @@ allowBuilds:
   esbuild: true
   node-pty: true
   protobufjs: false
+
+minimumReleaseAgeExclude:
+  - undici@8.10.2
+
+overrides:
+  '@hono/node-server': 2.0.12
+  body-parser: 2.3.0
+  brace-expansion: 5.0.9
+  fast-uri: 3.1.5
+  hono: 4.13.1
+  postcss: 8.5.25
+  protobufjs: 7.6.5
+  ws: 8.21.0
+  undici: 8.10.2

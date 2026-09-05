@@ -1,0 +1,62 @@
+{
+  "formatVersion": 3,
+  "packageVersion": "1.0.8-workbridge.1",
+  "source": "SHA-256 of canonical full in-memory MCP tools/list contracts",
+  "configuration": {
+    "toolSurface": "upstream-codex-plus-workbridge",
+    "upstreamToolMode": "codex",
+    "widgets": "off",
+    "reviewTool": "show_changes",
+    "workbridgeExtensions": [
+      "run_workspace_action",
+      "run_semantic_action"
+    ],
+    "runtimeProfileSwitching": "disabled",
+    "commandMetadata": "always",
+    "skills": "always",
+    "subagents": "disabled",
+    "disabledCapabilities": [
+      "runtime-profile-switching",
+      "subagents"
+    ],
+    "workspaceActions": "registry"
+  },
+  "tools": [
+    {
+      "name": "apply_patch",
+      "contractSha256": "3bcfc71d7c0748bc8bf41496a0a49c88d905df24a02bfbdb5c8298637997f675"
+    },
+    {
+      "name": "download_artifact",
+      "contractSha256": "3db27749ec04c38119a9e8b7cc5b4c8bbe6fc187d463801793c3eb655fea905b"
+    },
+    {
+      "name": "exec_command",
+      "contractSha256": "0d3aa0d8086bb6a3dfa8dc923845bdfcc962a8544c9b21f708de47668de6c8ea"
+    },
+    {
+      "name": "open_workspace",
+      "contractSha256": "17f46ed88d027b5b6380083b0eafeab936b55df20c4cf0d927ed9b340407a6a7"
+    },
+    {
+      "name": "read",
+      "contractSha256": "dbba9843a7c6676e61c75385886f7cdd5e6df307c0447a785a0efd270ade6e14"
+    },
+    {
+      "name": "run_semantic_action",
+      "contractSha256": "8ba5e2e2a13b35e4a9524f43396001e32cbea8b7b8b653ee81801c332247a057"
+    },
+    {
+      "name": "run_workspace_action",
+      "contractSha256": "ecd313f0160809fc3bc0df5b5210b7e2f0e71408d4aea6719055fa26fe91400f"
+    },
+    {
+      "name": "show_changes",
+      "contractSha256": "4562bebed8477de1698f034c34a17875577d2c97776d263676714f9a6fec8d5f"
+    },
+    {
+      "name": "write_stdin",
+      "contractSha256": "932b35da29204a2d5cbf36e27ec0d86186bab58116e9fca2606761420c9c3522"
+    }
+  ]
+}

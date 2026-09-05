@@ -27,11 +27,31 @@ test("tool modes expose the expected host-facing tool surface", async (t) => {
   }> = [
     {
       mode: "claude",
-      expected: ["open_workspace", "read", "write", "edit", "bash", "show_changes"],
+      expected: [
+        "open_workspace",
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "show_changes",
+        "run_workspace_action",
+        "run_semantic_action",
+        "download_artifact",
+      ],
     },
     {
       mode: "codex",
-      expected: ["open_workspace", "read", "apply_patch", "exec_command", "write_stdin", "show_changes"],
+      expected: [
+        "open_workspace",
+        "read",
+        "apply_patch",
+        "exec_command",
+        "write_stdin",
+        "show_changes",
+        "run_workspace_action",
+        "run_semantic_action",
+        "download_artifact",
+      ],
     },
   ];
 
@@ -75,7 +95,7 @@ test("open_workspace reports aggregate review availability", async (t) => {
 });
 
 test("show_changes keeps model output compact and preserves the rich review card", async (t) => {
-  const context = await fixture(t, { git: true, uiEnabled: false });
+  const context = await fixture(t, { git: true, uiEnabled: false, widgets: "full" });
   const opened = structuredContent(
     await callOpen(context.client, context.project, "review"),
   );
@@ -129,7 +149,7 @@ test("show_changes keeps model output compact and preserves the rich review card
 });
 
 test("show_changes can reopen a historical review without advancing the checkpoint", async (t) => {
-  const context = await fixture(t, { git: true });
+  const context = await fixture(t, { git: true, widgets: "full" });
   const workspaceId = structuredContent(
     await callOpen(context.client, context.project, "review-history"),
   ).workspaceId;
@@ -169,6 +189,7 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
   const providerNote = "available";
   const context = await fixture(t, {
     localAgentProviders: [{ name: "codex", available: true, note: providerNote }],
+    widgets: "full",
   });
   const first = await callOpen(context.client, context.project, "chat-1");
   const repeated = await callOpen(context.client, context.project, "chat-1");
@@ -300,6 +321,7 @@ async function fixture(
     subagents?: SubagentsConfig;
     toolMode?: ToolMode;
     uiEnabled?: boolean;
+    widgets?: ServerConfig["widgets"];
   } = {},
 ): Promise<ServerFixture> {
   const root = await mkdtemp(join(tmpdir(), "devspace-server-test-"));
@@ -342,6 +364,7 @@ async function fixture(
     ...loadedConfig,
     toolMode: options.toolMode ?? loadedConfig.toolMode,
     uiEnabled: options.uiEnabled ?? loadedConfig.uiEnabled,
+    widgets: options.widgets ?? loadedConfig.widgets,
   };
   const config: ServerConfig = options.localAgentProviders
     ? {

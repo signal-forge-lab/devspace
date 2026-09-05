@@ -48,6 +48,10 @@ export interface ToolLogFields {
   workingDirectory?: string;
   command?: string;
   commandLength?: number;
+  intent?: string;
+  retryContext?: string;
+  shell?: string;
+  tty?: boolean;
   success: boolean;
   durationMs: number;
   error?: string;
@@ -75,6 +79,7 @@ export interface ToolWidgetDescriptorMeta {
 
 export interface ToolRegistrationContext {
   server: McpServer;
+  registerTool: McpServer["registerTool"];
   config: ServerConfig;
   workspaces: WorkspaceRegistry;
   processSessions: ProcessSessionManager;

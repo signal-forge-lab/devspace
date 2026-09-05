@@ -39,9 +39,9 @@ export function registerClaudeTools(context: ToolRegistrationContext): void {
 const CLAUDE_SHELL_DESCRIPTION = `Run a shell command with the local user's authority. Commands are not sandboxed; workspace validation only selects the initial working directory. Use this for file inspection, tests, builds, package scripts, and other commands.`;
 
 function registerClaudeMutationTools(context: ToolRegistrationContext): void {
-  const { server, config, workspaces } = context;
+  const { registerTool, config, workspaces } = context;
 
-  server.registerTool(
+  registerTool(
     toolNames.write,
     {
       title: "Write file",
@@ -96,7 +96,7 @@ function registerClaudeMutationTools(context: ToolRegistrationContext): void {
     },
   );
 
-  server.registerTool(
+  registerTool(
     toolNames.edit,
     {
       title: "Edit file",
@@ -172,9 +172,9 @@ function registerClaudeMutationTools(context: ToolRegistrationContext): void {
 }
 
 function registerShellTool(context: ToolRegistrationContext): void {
-  const { server, config, workspaces } = context;
+  const { registerTool, config, workspaces } = context;
 
-  server.registerTool(
+  registerTool(
     toolNames.shell,
     {
       title: "Bash",
@@ -203,7 +203,7 @@ function registerShellTool(context: ToolRegistrationContext): void {
     async ({ workspaceId, workingDirectory, ...input }) => {
       const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
-      const cwd = workspaces.resolveWorkingDirectory(
+      const cwd = await workspaces.resolveWorkingDirectory(
         workspace,
         workingDirectory,
       );

@@ -1,5 +1,13 @@
 import { spawn } from "node:child_process";
+import { buildChildProcessEnvironment } from "./child-environment.js";
 import { resolveShellCommand, terminateProcessTree } from "./process-platform.js";
+import { redactPathsInText, type PathRedaction } from "./path-redaction.js";
+import {
+  cloneWorkspaceActionProcessContext,
+  runWorkspaceActionProcessPlan,
+  type WorkspaceActionProcessContext,
+  type WorkspaceActionProcessPlanInput,
+} from "./workspace-action-process-runner.js";
 
 const DEFAULT_EXEC_YIELD_MS = 10_000;
 const DEFAULT_INTERACTIVE_YIELD_MS = 250;
@@ -17,9 +25,19 @@ export interface StartCommandInput {
   command: string;
   cwd: string;
   workspaceRoot?: string;
+  outputRedactions?: PathRedaction[];
+  outputMode?: "full" | "status";
   tty?: boolean;
   columns?: number;
   rows?: number;
+  yieldTimeMs?: number;
+  maxOutputTokens?: number;
+  context?: WorkspaceActionProcessContext;
+}
+
+export interface StartActionPlanInput extends WorkspaceActionProcessPlanInput {
+  outputRedactions?: PathRedaction[];
+  outputMode?: "full" | "status";
   yieldTimeMs?: number;
   maxOutputTokens?: number;
 }
@@ -38,11 +56,16 @@ export interface ProcessSnapshot {
   sessionId?: number;
   output: string;
   outputTruncated: boolean;
+  outputSuppressed?: boolean;
   running: boolean;
   exitCode?: number;
   signal?: string;
   wallTimeMs: number;
+  cancelled?: boolean;
+  context?: ProcessSessionContext;
 }
+
+export type ProcessSessionContext = WorkspaceActionProcessContext;
 
 interface ManagedProcess {
   write(data: string): void;
@@ -58,9 +81,13 @@ interface ProcessSession {
   columns: number;
   rows: number;
   buffer: HeadTailBuffer;
+  outputRedactions: PathRedaction[];
+  outputMode: "full" | "status";
   running: boolean;
   exitCode?: number;
   signal?: string;
+  cancelRequested: boolean;
+  context?: ProcessSessionContext;
   exitPromise: Promise<void>;
   resolveExit: () => void;
   cleanupTimer?: NodeJS.Timeout;
@@ -69,6 +96,7 @@ interface ProcessSession {
 interface ProcessSessionManagerOptions {
   maxBufferCharacters?: number;
   completedSessionTtlMs?: number;
+  onBufferAppend?: (output: string) => void;
 }
 
 function boundedInteger(value: number | undefined, fallback: number, maximum: number): number {
@@ -85,27 +113,6 @@ function terminalSize(value: number | undefined, fallback: number): number {
     throw new Error("Terminal dimensions must be integers between 1 and 1000.");
   }
   return value;
-}
-
-function processEnvironment(input?: {
-  workspaceId?: string;
-  workspaceRoot?: string;
-}): Record<string, string> {
-  return {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
-    ),
-    NO_COLOR: "1",
-    TERM: "dumb",
-    PAGER: "cat",
-    GIT_PAGER: "cat",
-    GH_PAGER: "cat",
-    CODEX_CI: "1",
-    LANG: process.env.LANG ?? "C.UTF-8",
-    LC_ALL: process.env.LC_ALL ?? "C.UTF-8",
-    ...(input?.workspaceId ? { DEVSPACE_WORKSPACE_ID: input.workspaceId } : {}),
-    ...(input?.workspaceRoot ? { DEVSPACE_WORKSPACE_ROOT: input.workspaceRoot } : {}),
-  };
 }
 
 function codePointLength(value: string): number {
@@ -215,11 +222,13 @@ export class ProcessSessionManager {
   private readonly sessions = new Map<number, ProcessSession>();
   private readonly maxBufferCharacters: number;
   private readonly completedSessionTtlMs: number;
+  private readonly onBufferAppend?: (output: string) => void;
   private nextSessionId = 1;
 
   constructor(options: ProcessSessionManagerOptions = {}) {
     this.maxBufferCharacters = options.maxBufferCharacters ?? DEFAULT_BUFFER_CHARACTERS;
     this.completedSessionTtlMs = options.completedSessionTtlMs ?? COMPLETED_SESSION_TTL_MS;
+    this.onBufferAppend = options.onBufferAppend;
   }
 
   async start(input: StartCommandInput): Promise<ProcessSnapshot> {
@@ -233,6 +242,34 @@ export class ProcessSessionManager {
       this.sessions.delete(session.id);
       throw error;
     }
+
+    const yieldTimeMs = boundedInteger(input.yieldTimeMs, DEFAULT_EXEC_YIELD_MS, MAX_COMMAND_YIELD_MS);
+    await this.waitForExit(session, yieldTimeMs);
+
+    const snapshot = this.consume(session, input.maxOutputTokens);
+    if (!session.running) this.removeSession(session.id);
+    return snapshot;
+  }
+
+  async startPlan(input: StartActionPlanInput): Promise<ProcessSnapshot> {
+    const session = this.createSession(input);
+    this.sessions.set(session.id, session);
+
+    const context = session.context ?? cloneWorkspaceActionProcessContext(input.context);
+    session.context = context;
+    void runWorkspaceActionProcessPlan({
+      ...input,
+      columns: session.columns,
+      rows: session.rows,
+      context,
+    }, {
+      isCancellationRequested: () => session.cancelRequested,
+      append: (output) => this.append(session, output),
+      attachProcess: (processHandle) => {
+        session.process = processHandle;
+      },
+      finish: (exitCode, signal) => this.finish(session, exitCode, signal),
+    });
 
     const yieldTimeMs = boundedInteger(input.yieldTimeMs, DEFAULT_EXEC_YIELD_MS, MAX_COMMAND_YIELD_MS);
     await this.waitForExit(session, yieldTimeMs);
@@ -259,6 +296,7 @@ export class ProcessSessionManager {
 
     const interruptRequested = chars.includes("\u0003") && session.running;
     if (interruptRequested) {
+      session.cancelRequested = true;
       session.process?.kill("SIGINT");
     }
     const writableChars = chars.replaceAll("\u0003", "");
@@ -278,7 +316,10 @@ export class ProcessSessionManager {
 
   terminate(workspaceId: string, sessionId: number): void {
     const session = this.getOwnedSession(workspaceId, sessionId);
-    if (session.running) session.process?.kill("SIGTERM");
+    if (session.running) {
+      session.cancelRequested = true;
+      session.process?.kill("SIGTERM");
+    }
   }
 
   shutdown(): void {
@@ -303,7 +344,7 @@ export class ProcessSessionManager {
     }
   }
 
-  private createSession(input: StartCommandInput): ProcessSession {
+  private createSession(input: StartCommandInput | StartActionPlanInput): ProcessSession {
     let resolveExit = (): void => undefined;
     const exitPromise = new Promise<void>((resolve) => {
       resolveExit = resolve;
@@ -316,7 +357,13 @@ export class ProcessSessionManager {
       columns: terminalSize(input.columns, DEFAULT_COLUMNS),
       rows: terminalSize(input.rows, DEFAULT_ROWS),
       buffer: new HeadTailBuffer(this.maxBufferCharacters),
+      outputRedactions: input.outputRedactions ?? [],
+      outputMode: input.outputMode ?? "full",
       running: true,
+      cancelRequested: false,
+      context: input.context
+        ? cloneWorkspaceActionProcessContext(input.context)
+        : undefined,
       exitPromise,
       resolveExit,
     };
@@ -327,7 +374,7 @@ export class ProcessSessionManager {
     const detached = process.platform !== "win32";
     const child = spawn(input.command, {
       cwd: input.cwd,
-      env: processEnvironment({
+      env: buildChildProcessEnvironment({
         workspaceId: input.workspaceId,
         workspaceRoot: input.workspaceRoot,
       }),
@@ -361,7 +408,7 @@ export class ProcessSessionManager {
     try {
       pty = nodePty.spawn(shell.executable, shell.args, {
         cwd: input.cwd,
-        env: processEnvironment({
+        env: buildChildProcessEnvironment({
           workspaceId: input.workspaceId,
           workspaceRoot: input.workspaceRoot,
         }),
@@ -398,6 +445,8 @@ export class ProcessSessionManager {
   }
 
   private append(session: ProcessSession, output: string): void {
+    if (session.outputMode === "status") return;
+    this.onBufferAppend?.(output);
     session.buffer.append(output);
   }
 
@@ -405,15 +454,21 @@ export class ProcessSessionManager {
     const limit = boundedInteger(maxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS, 100_000);
     const maxCharacters = Math.max(256, limit * 4);
     const buffered = session.buffer.drain(maxCharacters);
+    const outputSuppressed = session.outputMode === "status";
 
     return {
       sessionId: session.running ? session.id : undefined,
-      output: buffered.output,
-      outputTruncated: buffered.truncated,
+      output: outputSuppressed ? "" : redactPathsInText(buffered.output, session.outputRedactions),
+      outputTruncated: outputSuppressed ? false : buffered.truncated,
+      outputSuppressed: outputSuppressed || undefined,
       running: session.running,
       exitCode: session.exitCode,
       signal: session.signal,
       wallTimeMs: Date.now() - session.startedAt,
+      cancelled: !session.running && session.cancelRequested ? true : undefined,
+      context: session.context
+        ? cloneWorkspaceActionProcessContext(session.context)
+        : undefined,
     };
   }
 

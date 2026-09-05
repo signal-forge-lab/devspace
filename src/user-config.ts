@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, scryptSync } from "node:crypto";
 import {
   existsSync,
   linkSync,
@@ -29,6 +29,7 @@ import { expandHomePath } from "./roots.js";
 
 const devspaceAuthConfigSchema = z.object({
   ownerToken: z.string().optional(),
+  clientRegistrationKey: z.string().optional(),
 }).passthrough();
 
 export type DevspaceUserConfig = DevspaceConfig;
@@ -150,6 +151,19 @@ export function writeDevspaceAuth(
 
 export function generateOwnerToken(): string {
   return randomBytes(32).toString("base64url");
+}
+
+export function generateClientRegistrationKey(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+export function deriveClientRegistrationKey(ownerToken: string): string {
+  return scryptSync(
+    ownerToken,
+    "devspace-oauth-client-registration-v1",
+    32,
+    { N: 16_384, r: 8, p: 1 },
+  ).toString("base64url");
 }
 
 function migrateLegacyConfigFile(

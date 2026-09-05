@@ -8,13 +8,16 @@ export const DEVSPACE_CONFIG_SCHEMA_URL =
 const serverConfigSchema = z.object({
   host: z.string().trim().min(1).default("127.0.0.1"),
   port: z.number().int().min(1).max(65_535).default(7676),
+  monitorPort: z.number().int().min(1).max(65_535).nullable().default(null),
   publicBaseUrl: z.string().url().nullable().default(null),
   allowedHosts: z.array(z.string().trim().min(1)).default([]),
   trustProxy: z.boolean().default(false),
+  mcpConnectionMode: z.enum(["public-url", "openai-secure-mcp-tunnel"]).default("public-url"),
 }).strict().prefault({});
 
 const workspacesConfigSchema = z.object({
   allowedRoots: z.array(z.string().trim().min(1)).default([]),
+  auxiliaryRoots: z.array(z.string().trim().min(1)).default([]),
   worktreeRoot: z.string().trim().min(1).default("~/.devspace/worktrees"),
 }).strict().prefault({});
 
@@ -44,6 +47,10 @@ const skillsConfigSchema = z.object({
 const loggingConfigSchema = z.object({
   level: z.enum(["silent", "error", "warn", "info", "debug"]).default("info"),
   format: z.enum(["json", "pretty"]).default("json"),
+  file: z.boolean().default(true),
+  filePath: z.string().trim().min(1).nullable().default(null),
+  fileMaxBytes: z.number().int().positive().nullable().default(10 * 1024 * 1024),
+  fileMaxFiles: z.number().int().positive().default(5),
   requests: z.boolean().default(true),
   assets: z.boolean().default(false),
   toolCalls: z.boolean().default(true),
@@ -59,6 +66,12 @@ const oauthConfigSchema = z.object({
     "localhost",
     "127.0.0.1",
   ]),
+  maxRegisteredClients: z.number().int().positive().default(50),
+  inactiveClientMaxAgeSeconds: z.number().int().positive().default(90 * 24 * 60 * 60),
+  authFailureLimit: z.number().int().positive().default(5),
+  authFailureWindowSeconds: z.number().int().positive().default(5 * 60),
+  authBlockSeconds: z.number().int().positive().default(15 * 60),
+  authFailureDelayMs: z.number().int().nonnegative().default(250),
 }).strict().prefault({});
 
 export const devspaceConfigSchema = z.object({

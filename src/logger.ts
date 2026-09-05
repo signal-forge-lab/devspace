@@ -1,4 +1,18 @@
 import type { Request } from "express";
+import { publishWorkbridgeMonitorLog } from "./monitor-log-view.js";
+import {
+  writeWorkbridgeJsonlLog,
+} from "./workbridge-logging.js";
+
+export {
+  classifyHttpRequest,
+  compactClientKind,
+  loggedCommandFields,
+  sanitizeRequestUrlForLog,
+  shouldSuppressSuccessfulMonitorPoll,
+  workspaceIdDisplayToken,
+} from "./workbridge-logging.js";
+export type { HttpRequestClassification } from "./workbridge-logging.js";
 
 export type LogLevel = "silent" | "error" | "warn" | "info" | "debug";
 export type LogFormat = "json" | "pretty";
@@ -6,6 +20,10 @@ export type LogFormat = "json" | "pretty";
 export interface LoggingConfig {
   level: LogLevel;
   format: LogFormat;
+  file: boolean;
+  filePath?: string;
+  fileMaxBytes?: number;
+  fileMaxFiles: number;
   requests: boolean;
   assets: boolean;
   toolCalls: boolean;
@@ -27,6 +45,27 @@ export function shouldLog(config: LoggingConfig, level: Exclude<LogLevel, "silen
   return LEVEL_WEIGHT[config.level] >= LEVEL_WEIGHT[level];
 }
 
+export function errorLogFields(error: unknown): LogFields {
+  if (!(error instanceof Error)) return { error: String(error) };
+
+  return {
+    error: error.message,
+    errorName: error.name,
+    ...(error.stack ? { errorStack: error.stack } : {}),
+    ...(error.cause !== undefined
+      ? {
+        errorCause: error.cause instanceof Error
+          ? {
+            name: error.cause.name,
+            message: error.cause.message,
+            ...(error.cause.stack ? { stack: error.cause.stack } : {}),
+          }
+          : String(error.cause),
+      }
+      : {}),
+  };
+}
+
 export function logEvent(
   config: LoggingConfig,
   level: Exclude<LogLevel, "silent">,
@@ -41,6 +80,8 @@ export function logEvent(
     event,
     ...fields,
   };
+  writeWorkbridgeJsonlLog(config, entry);
+  publishWorkbridgeMonitorLog(level, event, fields, entry);
 
   const line = config.format === "pretty" ? formatPretty(entry) : JSON.stringify(entry);
   if (level === "error") {

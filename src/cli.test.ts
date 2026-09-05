@@ -253,7 +253,7 @@ try {
     });
   }
 
-  assert.equal(loadConfig(cliConfigEnv).subagents.enabled, true);
+  assert.equal(loadConfig(cliConfigEnv).subagents.enabled, false);
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

@@ -1,5 +1,12 @@
 node_modules/
 dist/
 releases/
+.codex/
+.devspace/
+logs/
+reports/
+desktop/monitor/release/
+.workbridge/
+workbridge-oauth-debug.jsonl
 .env
 *.log

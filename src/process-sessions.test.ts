@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { HeadTailBuffer, ProcessSessionManager } from "./process-sessions.js";
+import { workspacePathRedactions } from "./path-redaction.js";
+import {
+  pendingWorkspaceActionSteps,
+  processStep,
+  workspaceActionSteps,
+  writeJsonStep,
+} from "./workspace-action-plans.js";
 
 const smallBuffer = new HeadTailBuffer(100);
 smallBuffer.append("hello\n");
@@ -48,6 +58,71 @@ assert.equal(foreground.exitCode, 0);
 assert.match(foreground.output, /foreground/);
 assert.equal(foreground.sessionId, undefined);
 
+const redactedForeground = await manager.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "console.log(process.cwd())"`,
+  workspaceRoot: process.cwd(),
+  outputRedactions: workspacePathRedactions(process.cwd()),
+  yieldTimeMs: 2_000,
+});
+assert.equal(redactedForeground.running, false);
+assert.equal(redactedForeground.exitCode, 0);
+assert.equal(redactedForeground.output.trim(), "<workspace>");
+
+const statusOnly = await manager.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "console.log('sensitive-path:C:/Users/example/project/file.py')"`,
+  outputMode: "status",
+  yieldTimeMs: 2_000,
+});
+assert.equal(statusOnly.running, false);
+assert.equal(statusOnly.exitCode, 0);
+assert.equal(statusOnly.output, "");
+assert.equal(statusOnly.outputTruncated, false);
+assert.equal(statusOnly.outputSuppressed, true);
+
+const statusOnlyBackground = await manager.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "setTimeout(() => console.log('sensitive-later:C:/Users/example/project/file.py'), 100)"`,
+  outputMode: "status",
+  yieldTimeMs: 5,
+});
+assert.equal(statusOnlyBackground.running, true);
+assert.ok(statusOnlyBackground.sessionId);
+assert.equal(statusOnlyBackground.output, "");
+assert.equal(statusOnlyBackground.outputSuppressed, true);
+
+const statusOnlyCompleted = await manager.write({
+  workspaceId: "workspace-a",
+  sessionId: statusOnlyBackground.sessionId,
+  yieldTimeMs: 2_000,
+});
+assert.equal(statusOnlyCompleted.running, false);
+assert.equal(statusOnlyCompleted.exitCode, 0);
+assert.equal(statusOnlyCompleted.output, "");
+assert.equal(statusOnlyCompleted.outputSuppressed, true);
+
+let statusOnlyBufferedCharacters = 0;
+const statusOnlyBufferProbe = new ProcessSessionManager({
+  onBufferAppend: (output) => {
+    statusOnlyBufferedCharacters += output.length;
+  },
+});
+const statusOnlyUnbuffered = await statusOnlyBufferProbe.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "console.log('x'.repeat(10000))"`,
+  outputMode: "status",
+  yieldTimeMs: 2_000,
+});
+assert.equal(statusOnlyUnbuffered.running, false);
+assert.equal(statusOnlyUnbuffered.outputSuppressed, true);
+assert.equal(statusOnlyBufferedCharacters, 0);
+statusOnlyBufferProbe.shutdown();
+
 const environment = await manager.start({
   workspaceId: "workspace-a",
   workspaceRoot: "/tmp/devspace-workspace-a",
@@ -57,6 +132,30 @@ const environment = await manager.start({
 });
 assert.equal(environment.running, false);
 assert.match(environment.output, /1,dumb,cat,cat,cat,1,workspace-a,\/tmp\/devspace-workspace-a/);
+
+const previousOwnerToken = process.env.DEVSPACE_OAUTH_OWNER_TOKEN;
+const previousTestToken = process.env.WORKBRIDGE_TEST_TOKEN;
+const previousAllowedValue = process.env.WORKBRIDGE_TEST_VALUE;
+const previousAllowlist = process.env.DEVSPACE_CHILD_ENV_ALLOWLIST;
+process.env.DEVSPACE_OAUTH_OWNER_TOKEN = "owner-secret";
+process.env.WORKBRIDGE_TEST_TOKEN = "hidden-token";
+process.env.WORKBRIDGE_TEST_VALUE = "visible-value";
+process.env.DEVSPACE_CHILD_ENV_ALLOWLIST = "WORKBRIDGE_TEST_VALUE,DEVSPACE_OAUTH_OWNER_TOKEN";
+try {
+  const filteredEnvironment = await manager.start({
+    workspaceId: "workspace-a",
+    cwd: process.cwd(),
+    command: `${node} -e "console.log([process.env.DEVSPACE_OAUTH_OWNER_TOKEN, process.env.WORKBRIDGE_TEST_TOKEN, process.env.WORKBRIDGE_TEST_VALUE].join(','))"`,
+    yieldTimeMs: 2_000,
+  });
+  assert.equal(filteredEnvironment.running, false);
+  assert.match(filteredEnvironment.output, /^,,visible-value\s*$/);
+} finally {
+  restoreEnvironment("DEVSPACE_OAUTH_OWNER_TOKEN", previousOwnerToken);
+  restoreEnvironment("WORKBRIDGE_TEST_TOKEN", previousTestToken);
+  restoreEnvironment("WORKBRIDGE_TEST_VALUE", previousAllowedValue);
+  restoreEnvironment("DEVSPACE_CHILD_ENV_ALLOWLIST", previousAllowlist);
+}
 
 const background = await manager.start({
   workspaceId: "workspace-a",
@@ -85,6 +184,203 @@ const completed = await manager.write({
 assert.equal(completed.running, false);
 assert.equal(completed.exitCode, 0);
 assert.match(completed.output, /finished/);
+
+const actionPlan = workspaceActionSteps([
+  processStep("first", "First action step", process.execPath, [
+    "-e",
+    "setTimeout(() => console.log('action-first'), 100)",
+  ]),
+  processStep("second", "Second action step", process.execPath, [
+    "-e",
+    "console.log('action-second')",
+  ]),
+]);
+const actionBackground = await manager.startPlan({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  plan: actionPlan,
+  yieldTimeMs: 5,
+  context: {
+    kind: "workspace_action",
+    contractVersion: 2,
+    action: "workspace_verify",
+    preset: "standard",
+    profile: "workbridge",
+    policy: ["workspace_modify", "long_running"],
+    commandPreview: "workspace verification",
+    profileEvidence: ["test profile evidence"],
+    warnings: ["test warning"],
+    artifacts: [],
+    steps: pendingWorkspaceActionSteps(actionPlan),
+  },
+});
+assert.equal(actionBackground.running, true);
+assert.ok(actionBackground.sessionId);
+assert.equal(actionBackground.context?.kind, "workspace_action");
+assert.equal(actionBackground.context?.action, "workspace_verify");
+assert.equal(actionBackground.context?.profile, "workbridge");
+assert.equal(actionBackground.context?.steps[0]?.status, "running");
+assert.equal(actionBackground.context?.steps[1]?.status, "pending");
+
+const actionCompleted = await manager.write({
+  workspaceId: "workspace-a",
+  sessionId: actionBackground.sessionId,
+  yieldTimeMs: 2_000,
+});
+assert.equal(actionCompleted.running, false);
+assert.equal(actionCompleted.exitCode, 0);
+assert.equal(actionCompleted.context?.kind, "workspace_action");
+assert.equal(actionCompleted.context?.action, "workspace_verify");
+assert.equal(actionCompleted.context?.profile, "workbridge");
+assert.deepEqual(actionCompleted.context?.policy, ["workspace_modify", "long_running"]);
+assert.deepEqual(actionCompleted.context?.profileEvidence, ["test profile evidence"]);
+assert.deepEqual(actionCompleted.context?.warnings, ["test warning"]);
+assert.deepEqual(
+  actionCompleted.context?.steps.map((step) => step.status),
+  ["completed", "completed"],
+);
+assert.match(actionCompleted.output, /action-first/);
+assert.match(actionCompleted.output, /action-second/);
+const actionOutput = `${actionBackground.output}${actionCompleted.output}`;
+assert.match(actionOutput, /==> \[first\] First action step/);
+assert.match(actionOutput, /<== \[first\] completed in \d+ms/);
+assert.match(actionOutput, /==> \[second\] Second action step/);
+assert.match(actionOutput, /<== \[second\] completed in \d+ms/);
+
+const failingPlan = workspaceActionSteps([
+  processStep("pass", "Passing step", process.execPath, ["-e", "console.log('pass')"]),
+  processStep("fail", "Failing step", process.execPath, ["-e", "process.exit(7)"]),
+  processStep("after", "Skipped step", process.execPath, ["-e", "console.log('should-not-run')"]),
+]);
+const failedAction = await manager.startPlan({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  plan: failingPlan,
+  yieldTimeMs: 2_000,
+  context: {
+    kind: "workspace_action",
+    contractVersion: 2,
+    action: "test_action",
+    preset: "standard",
+    policy: ["workspace_modify"],
+    profileEvidence: [],
+    warnings: [],
+    artifacts: [],
+    steps: pendingWorkspaceActionSteps(failingPlan),
+  },
+});
+assert.equal(failedAction.running, false);
+assert.equal(failedAction.exitCode, 7);
+assert.deepEqual(
+  failedAction.context?.steps.map((step) => step.status),
+  ["completed", "failed", "skipped"],
+);
+assert.equal(failedAction.context?.steps[1]?.exitCode, 7);
+assert.doesNotMatch(failedAction.output, /should-not-run/);
+assert.match(failedAction.output, /<== \[fail\] failed with exit code 7 in \d+ms/);
+
+const cancellablePlan = workspaceActionSteps([
+  processStep("wait", "Waiting step", process.execPath, [
+    "-e",
+    "setInterval(() => console.log('action-tick'), 10)",
+  ]),
+  processStep("after-cancel", "Step after cancellation", process.execPath, [
+    "-e",
+    "console.log('after-cancel')",
+  ]),
+]);
+const cancellableAction = await manager.startPlan({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  plan: cancellablePlan,
+  yieldTimeMs: 50,
+  context: {
+    kind: "workspace_action",
+    contractVersion: 2,
+    action: "test_action",
+    preset: "standard",
+    policy: ["workspace_modify", "long_running"],
+    profileEvidence: [],
+    warnings: [],
+    artifacts: [],
+    steps: pendingWorkspaceActionSteps(cancellablePlan),
+  },
+});
+assert.equal(cancellableAction.running, true);
+assert.ok(cancellableAction.sessionId);
+const cancelledAction = await manager.write({
+  workspaceId: "workspace-a",
+  sessionId: cancellableAction.sessionId,
+  chars: "\u0003",
+  yieldTimeMs: 2_000,
+});
+assert.equal(cancelledAction.running, false);
+assert.equal(cancelledAction.cancelled, true);
+assert.deepEqual(
+  cancelledAction.context?.steps.map((step) => step.status),
+  ["cancelled", "skipped"],
+);
+
+const directProcessRoot = await mkdtemp(join(tmpdir(), "workbridge-process-step-test-"));
+try {
+  const scriptDirectory = join(directProcessRoot, "scripts");
+  await mkdir(scriptDirectory);
+  const relativeScript = "scripts/日本 語.js";
+  await writeFile(join(directProcessRoot, relativeScript), "console.log('unicode-process-ok');\n");
+  const directPlan = workspaceActionSteps([
+    processStep("unicode", "Unicode process path", process.execPath, [relativeScript]),
+    writeJsonStep(
+      "artifact",
+      "Write JSON artifact",
+      ".workbridge/reports/process-step.json",
+      { status: "ok" },
+    ),
+  ]);
+  const directResult = await manager.startPlan({
+    workspaceId: "workspace-a",
+    cwd: directProcessRoot,
+    plan: directPlan,
+    plannedArtifacts: [{
+      path: ".workbridge/reports/process-step.json",
+      kind: "report",
+      description: "Process step test report.",
+    }],
+    yieldTimeMs: 2_000,
+    context: {
+      kind: "workspace_action",
+      contractVersion: 2,
+      action: "direct_process_test",
+      preset: "standard",
+      policy: ["workspace_modify"],
+      profileEvidence: [],
+      warnings: [],
+      artifacts: [],
+      steps: pendingWorkspaceActionSteps(directPlan),
+    },
+  });
+  assert.equal(directResult.exitCode, 0);
+  assert.match(directResult.output, /unicode-process-ok/);
+  assert.match(directResult.output, /Generated artifact/);
+  assert.deepEqual(
+    directResult.context?.steps.map((step) => step.status),
+    ["completed", "completed"],
+  );
+  assert.deepEqual(directResult.context?.artifacts, [{
+    path: ".workbridge/reports/process-step.json",
+    kind: "report",
+    description: "Process step test report.",
+  }]);
+  const generated = JSON.parse(
+    await readFile(join(directProcessRoot, ".workbridge", "reports", "process-step.json"), "utf8"),
+  ) as { status?: unknown };
+  assert.equal(generated.status, "ok");
+} finally {
+  await rm(directProcessRoot, { recursive: true, force: true });
+}
+assert.match(
+  `${cancellableAction.output}${cancelledAction.output}`,
+  /<== \[wait\] cancelled in \d+ms/,
+);
 
 const interactive = await manager.start({
   workspaceId: "workspace-a",
@@ -158,6 +454,7 @@ const interrupted = await manager.write({
   yieldTimeMs: 2_000,
 });
 assert.equal(interrupted.running, false);
+assert.equal(interrupted.cancelled, true);
 if (process.platform !== "win32") assert.equal(interrupted.signal, "SIGINT");
 
 let buffered = await manager.start({
@@ -214,4 +511,9 @@ try {
   }
 } finally {
   manager.shutdown();
+}
+
+function restoreEnvironment(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
 }

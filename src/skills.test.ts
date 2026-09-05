@@ -162,11 +162,12 @@ try {
   );
 
   const configDir = join(root, ".devspace");
-  const disabledConfig = loadConfig(writeTestDevspaceConfig(configDir, {
+  const disabledLoadedConfig = loadConfig(writeTestDevspaceConfig(configDir, {
     server: { port: 1 },
     workspaces: { allowedRoots: [projectRoot] },
     skills: { agentDir, paths: [explicitSkills], enabled: false },
   }));
+  const disabledConfig = { ...disabledLoadedConfig, skillsEnabled: false };
   assert.deepEqual(loadWorkspaceSkills(disabledConfig, projectRoot).skills, []);
 
   const config = loadConfig(writeTestDevspaceConfig(configDir, {
@@ -195,12 +196,16 @@ try {
     false,
   );
 
-  const experimentalConfig = loadConfig(writeTestDevspaceConfig(configDir, {
+  const experimentalLoadedConfig = loadConfig(writeTestDevspaceConfig(configDir, {
     server: { port: 1 },
     workspaces: { allowedRoots: [projectRoot] },
     skills: { agentDir },
     subagents: { enabled: true, providers: [] },
   }));
+  const experimentalConfig = {
+    ...experimentalLoadedConfig,
+    subagents: { ...experimentalLoadedConfig.subagents, enabled: true },
+  };
   assert.equal(
     loadWorkspaceSkills(experimentalConfig, projectRoot).skills.some(
       (skill) => skill.name === "subagents",

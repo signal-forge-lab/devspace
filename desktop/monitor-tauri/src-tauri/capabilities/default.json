@@ -1,0 +1,22 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "enables the default permissions",
+  "windows": [
+    "main"
+  ],
+  "local": true,
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:*/monitor",
+      "http://localhost:*/monitor",
+      "http://[\\:\\:1]:*/monitor",
+      "https://127.0.0.1:*/monitor",
+      "https://localhost:*/monitor",
+      "https://[\\:\\:1]:*/monitor"
+    ]
+  },
+  "permissions": [
+    "monitor-host"
+  ]
+}

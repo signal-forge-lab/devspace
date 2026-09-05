@@ -5,7 +5,7 @@ import type {
   WorkspaceMode,
   WorkspaceStore,
 } from "./workspace-store.js";
-import { mkdir, opendir, readFile, realpath, stat } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { loadProjectContextFiles } from "@earendil-works/pi-coding-agent";
 import type { ServerConfig } from "./config.js";
@@ -15,9 +15,11 @@ import {
   assertAllowedPath,
   isPathInsideRoot,
   resolveAllowedPath,
+  resolveAllowedRealPath,
 } from "./roots.js";
 import {
   loadWorkspaceSkills,
+  formatPathForPrompt,
   markSkillActivated,
   resolveSkillReadPath,
   type LoadedSkills,
@@ -27,6 +29,19 @@ import {
   loadLocalAgentProfiles,
   type LocalAgentProfile,
 } from "./local-agent-profiles.js";
+import {
+  assertCheckoutPathAllowed,
+  assertRestoredManagedWorktreePathAllowed,
+} from "./workbridge-root-policy.js";
+import {
+  discoverInstructionPaths,
+  type IncompleteInstructionDiscoveryReason,
+  type InstructionPathFinder,
+} from "./workspace-instruction-discovery.js";
+
+const MAX_NESTED_INSTRUCTION_FILES = 100;
+const MAX_NESTED_INSTRUCTION_PATH_BYTES = 16 * 1024;
+const MAX_NESTED_INSTRUCTION_DISCOVERY_MS = 2_000;
 
 export interface LoadedAgentsFile {
   path: string;
@@ -35,6 +50,22 @@ export interface LoadedAgentsFile {
 
 export interface AvailableAgentsFile {
   path: string;
+}
+
+export type WorkspaceInstructionDiscovery =
+  | {
+      status: "complete";
+      finder: InstructionPathFinder;
+    }
+  | {
+      status: "incomplete";
+      finder: InstructionPathFinder;
+      reason: IncompleteInstructionDiscoveryReason;
+    };
+
+interface WorkspaceInstructionSnapshot {
+  availableAgentsFiles: AvailableAgentsFile[];
+  discovery: WorkspaceInstructionDiscovery;
 }
 
 export interface WorkspaceWorktree {
@@ -56,12 +87,14 @@ export interface Workspace {
   skillDiagnostics: LoadedSkills["diagnostics"];
   agentProfiles: LocalAgentProfile[];
   activatedSkillDirs: Set<string>;
+  instructionSnapshot?: WorkspaceInstructionSnapshot;
 }
 
 export interface WorkspaceContext {
   workspace: Workspace;
   agentsFiles: LoadedAgentsFile[];
   availableAgentsFiles: AvailableAgentsFile[];
+  instructionDiscovery: WorkspaceInstructionDiscovery;
   workspaceReused: boolean;
   includeBootstrapContext: boolean;
 }
@@ -220,7 +253,9 @@ export class WorkspaceRegistry {
   }
 
   private async conversationProjectKey(input: OpenWorkspaceInput): Promise<string> {
-    const path = assertAllowedPath(input.path, this.config.allowedRoots);
+    const path = (input.mode ?? "checkout") === "worktree"
+      ? assertAllowedPath(input.path, this.config.allowedRoots)
+      : assertCheckoutPathAllowed(input.path, this.config);
     return canonicalPath(path);
   }
 
@@ -231,12 +266,15 @@ export class WorkspaceRegistry {
   private async reusedWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
     workspace.agentProfiles = await loadLocalAgentProfiles(this.config, workspace.root);
     const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
-    const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
+    const snapshot = workspace.instructionSnapshot
+      ?? await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
+    workspace.instructionSnapshot = snapshot;
 
     return {
       workspace,
       agentsFiles,
-      availableAgentsFiles,
+      availableAgentsFiles: snapshot.availableAgentsFiles,
+      instructionDiscovery: snapshot.discovery,
       workspaceReused: true,
       includeBootstrapContext: true,
     };
@@ -283,6 +321,13 @@ export class WorkspaceRegistry {
     return restoredWorkspace;
   }
 
+  getWorkspaceStartedAt(workspaceId: string): number | undefined {
+    const createdAt = this.store?.getSession(workspaceId)?.createdAt;
+    if (!createdAt) return undefined;
+    const timestamp = Date.parse(createdAt);
+    return Number.isFinite(timestamp) ? timestamp : undefined;
+  }
+
   resolvePath(workspace: Workspace, inputPath: string): string {
     const absolutePath = resolveAllowedPath(inputPath, workspace.root, [workspace.root]);
     if (!isPathInsideRoot(absolutePath, workspace.root)) {
@@ -293,25 +338,23 @@ export class WorkspaceRegistry {
   }
 
   resolveReadPath(workspace: Workspace, inputPath: string): WorkspaceReadPath {
-    try {
-      return {
-        absolutePath: this.resolvePath(workspace, inputPath),
-        readRoots: [workspace.root],
-      };
-    } catch (workspaceError) {
-      const skillRead = resolveSkillReadPath(
-        workspace.skills,
-        workspace.activatedSkillDirs,
-        inputPath,
-      );
-      if (!skillRead) throw workspaceError;
-
+    const skillRead = resolveSkillReadPath(
+      workspace.skills,
+      workspace.activatedSkillDirs,
+      inputPath,
+    );
+    if (skillRead) {
       return {
         absolutePath: skillRead.absolutePath,
         readRoots: [workspace.root, skillRead.skill.baseDir],
         skillRead,
       };
     }
+
+    return {
+      absolutePath: this.resolvePath(workspace, inputPath),
+      readRoots: [workspace.root],
+    };
   }
 
   markReadPathLoaded(workspace: Workspace, readPath: WorkspaceReadPath): void {
@@ -320,13 +363,21 @@ export class WorkspaceRegistry {
     }
   }
 
-  resolveWorkingDirectory(workspace: Workspace, workingDirectory: string | undefined): string {
+  async resolveWorkingDirectory(
+    workspace: Workspace,
+    workingDirectory: string | undefined,
+  ): Promise<string> {
     const directory = workingDirectory ? this.resolvePath(workspace, workingDirectory) : workspace.root;
-    return assertAllowedPath(directory, [workspace.root]);
+    const resolvedDirectory = await resolveAllowedRealPath(directory, workspace.root, [workspace.root]);
+    const metadata = await stat(resolvedDirectory);
+    if (!metadata.isDirectory()) {
+      throw new Error(`Working directory must be a directory: ${workingDirectory ?? "."}`);
+    }
+    return resolvedDirectory;
   }
 
   private async openCheckoutWorkspace(path: string): Promise<WorkspaceContext> {
-    const root = assertAllowedPath(path, this.config.allowedRoots);
+    const root = assertCheckoutPathAllowed(path, this.config);
     const rootStats = await ensureCheckoutWorkspaceRoot(root);
     if (!rootStats.isDirectory()) {
       throw new Error(`Workspace root must be a directory: ${path}`);
@@ -378,12 +429,14 @@ export class WorkspaceRegistry {
     });
     this.workspaces.set(workspace.id, workspace);
     const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
-    const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
+    const snapshot = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
+    workspace.instructionSnapshot = snapshot;
 
     return {
       workspace,
       agentsFiles,
-      availableAgentsFiles,
+      availableAgentsFiles: snapshot.availableAgentsFiles,
+      instructionDiscovery: snapshot.discovery,
       workspaceReused: false,
       includeBootstrapContext: true,
     };
@@ -403,10 +456,10 @@ export class WorkspaceRegistry {
         throw new Error(`Stored worktree workspace is missing sourceRoot: ${root}`);
       }
       assertAllowedPath(sourceRoot, this.config.allowedRoots);
-      return assertAllowedPath(root, [this.config.worktreeRoot]);
+      return assertRestoredManagedWorktreePathAllowed(root, this.config.worktreeRoot);
     }
 
-    return assertAllowedPath(root, this.config.allowedRoots);
+    return assertCheckoutPathAllowed(root, this.config);
   }
 
   private async loadInitialAgentsFiles(root: string): Promise<LoadedAgentsFile[]> {
@@ -438,26 +491,41 @@ export class WorkspaceRegistry {
   private async findAvailableAgentsFiles(
     root: string,
     loadedFiles: LoadedAgentsFile[],
-  ): Promise<AvailableAgentsFile[]> {
+  ): Promise<WorkspaceInstructionSnapshot> {
     const loadedPaths = new Set(loadedFiles.map((file) => resolve(file.path)));
     const loadedRealPaths = new Set<string>();
     for (const file of loadedFiles) {
       const realPath = await tryRealpath(file.path);
       if (realPath) loadedRealPaths.add(realPath);
     }
-    const discovered: AvailableAgentsFile[] = [];
-
-    await walkWorkspace(root, async (path, entry) => {
-      if (!entry.isFile()) return;
-      if (!CONTEXT_FILE_NAMES.has(entry.name)) return;
-      if (loadedPaths.has(path)) return;
-      const realPath = await tryRealpath(path);
-      if (realPath && loadedRealPaths.has(realPath)) return;
-
-      discovered.push({ path });
+    const discovery = await discoverInstructionPaths(root, {
+      excludedPaths: loadedPaths,
+      limits: {
+        maxFiles: MAX_NESTED_INSTRUCTION_FILES,
+        maxPathBytes: MAX_NESTED_INSTRUCTION_PATH_BYTES,
+        maxDurationMs: MAX_NESTED_INSTRUCTION_DISCOVERY_MS,
+      },
     });
+    if (discovery.status === "incomplete") {
+      return {
+        availableAgentsFiles: [],
+        discovery: {
+          status: "incomplete",
+          finder: discovery.finder,
+          reason: discovery.reason,
+        },
+      };
+    }
 
-    return discovered.sort((a, b) => a.path.localeCompare(b.path));
+    const candidates = await Promise.all(
+      discovery.paths.map(async (path) => ({ path, realPath: await tryRealpath(path) })),
+    );
+    return {
+      availableAgentsFiles: candidates
+        .filter(({ realPath }) => !realPath || !loadedRealPaths.has(realPath))
+        .map(({ path }) => ({ path })),
+      discovery: { status: "complete", finder: discovery.finder },
+    };
   }
 }
 
@@ -497,22 +565,8 @@ export async function ensureCheckoutWorkspaceRoot(
   return await ops.stat(path);
 }
 
-const CONTEXT_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
-const SKIPPED_CONTEXT_DIRS = new Set([
-  ".git",
-  ".hg",
-  ".svn",
-  ".devspace",
-  "node_modules",
-  "dist",
-  "build",
-  ".next",
-  ".turbo",
-  ".cache",
-]);
-
 export function formatAgentsPath(path: string, workspaceRoot: string | undefined): string {
-  if (!workspaceRoot) return path.split(sep).join("/");
+  if (!workspaceRoot) return formatPathForPrompt(path);
 
   const relationship = relative(workspaceRoot, path);
   if (
@@ -521,7 +575,7 @@ export function formatAgentsPath(path: string, workspaceRoot: string | undefined
     relationship === ".." ||
     relationship.includes(`..${sep}`)
   ) {
-    return path.split(sep).join("/");
+    return formatPathForPrompt(path);
   }
 
   return relationship.split(sep).join("/");
@@ -552,30 +606,6 @@ async function tryRealpath(path: string): Promise<string | undefined> {
     return await realpath(path);
   } catch {
     return undefined;
-  }
-}
-
-async function walkWorkspace(
-  directory: string,
-  visit: (path: string, entry: { name: string; isFile(): boolean; isDirectory(): boolean }) => Promise<void> | void,
-): Promise<void> {
-  let entries;
-  try {
-    entries = await opendir(directory);
-  } catch {
-    return;
-  }
-
-  for await (const entry of entries) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (!SKIPPED_CONTEXT_DIRS.has(entry.name)) {
-        await walkWorkspace(path, visit);
-      }
-      continue;
-    }
-
-    await visit(path, entry);
   }
 }
 

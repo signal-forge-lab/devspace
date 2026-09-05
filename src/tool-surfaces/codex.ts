@@ -1,6 +1,13 @@
 import * as z from "zod/v4";
 import { applyPatch } from "../apply-patch.js";
 import type { ProcessSnapshot } from "../process-sessions.js";
+import { redactPathsInText, workspacePathRedactions } from "../path-redaction.js";
+import { resolveShellCommand } from "../process-platform.js";
+import {
+  WORKBRIDGE_COMMAND_METADATA_INTENTS,
+  WORKBRIDGE_COMMAND_METADATA_RETRY_CONTEXTS,
+  WORKBRIDGE_WINDOWS_SHELL_GUIDANCE,
+} from "../workbridge-tool-registration.js";
 import {
   EDIT_TOOL_ANNOTATIONS,
   SHELL_TOOL_ANNOTATIONS,
@@ -74,9 +81,9 @@ function processToolResponse(snapshot: ProcessSnapshot) {
 }
 
 function registerApplyPatchTool(context: ToolRegistrationContext): void {
-  const { server, config, workspaces } = context;
+  const { registerTool, config, workspaces } = context;
 
-  server.registerTool(
+  registerTool(
     "apply_patch",
     {
       title: "Apply patch",
@@ -132,17 +139,17 @@ function registerApplyPatchTool(context: ToolRegistrationContext): void {
 }
 
 function registerCodexProcessTools(context: ToolRegistrationContext): void {
-  const { server, config, workspaces, processSessions } = context;
+  const { registerTool, config, workspaces, processSessions } = context;
 
-  server.registerTool(
+  registerTool(
     "exec_command",
     {
       title: "Execute command",
       description:
-        "Run a command with the local user's authority. Commands are not sandboxed; workspace validation only selects the initial working directory. Returns the result when it exits during the yield window, otherwise returns a sessionId for write_stdin. Use this for file inspection, tests, builds, package scripts, and long-running processes.",
+        `Run a command with the local user's authority. Commands are not sandboxed; workspace validation only selects the initial working directory. Returns the result when it exits during the yield window, otherwise returns a sessionId for write_stdin. Use this for file inspection, tests, builds, package scripts, and long-running processes. ${WORKBRIDGE_WINDOWS_SHELL_GUIDANCE}`,
       inputSchema: {
         workspaceId: z.string().describe(workspaceIdDescription),
-        cmd: z.string().min(1).describe("Shell command to execute."),
+        cmd: z.string().min(1).describe(`Shell command to execute. ${WORKBRIDGE_WINDOWS_SHELL_GUIDANCE}`),
         tty: z
           .boolean()
           .optional()
@@ -185,6 +192,12 @@ function registerCodexProcessTools(context: ToolRegistrationContext): void {
           .max(100_000)
           .optional()
           .describe("Approximate output token budget. Defaults to 10000."),
+        intent: z.enum(WORKBRIDGE_COMMAND_METADATA_INTENTS).optional().describe(
+          "Optional experimental command metadata. Set the closest value when the purpose is obvious. If unsure, omit this field; do not guess.",
+        ),
+        retryContext: z.enum(WORKBRIDGE_COMMAND_METADATA_RETRY_CONTEXTS).optional().describe(
+          "Optional experimental command metadata. Use previous_host_safecheck_self_reported only when retrying after a host-side safety check or blocked tool call. If unsure, omit this field or use none; do not guess. Do not include secrets or sensitive payloads.",
+        ),
       },
       outputSchema: processOutputSchema(),
       annotations: SHELL_TOOL_ANNOTATIONS,
@@ -198,21 +211,30 @@ function registerCodexProcessTools(context: ToolRegistrationContext): void {
       workingDirectory,
       yieldTimeMs,
       maxOutputTokens,
+      intent,
+      retryContext,
     }) => {
       const startedAt = performance.now();
+      const workspace = workspaces.getWorkspace(workspaceId);
+      const redactions = workspacePathRedactions(workspace.root);
+      const displayCommand = redactPathsInText(cmd, redactions);
+      const displayWorkingDirectory = redactPathsInText(workingDirectory ?? ".", redactions);
       const snapshot = await runLoggedToolOperation(
         config,
         {
           tool: "exec_command",
           workspaceId,
-          workingDirectory: workingDirectory ?? ".",
-          command: cmd,
-          commandLength: cmd.length,
+          workingDirectory: displayWorkingDirectory,
+          command: displayCommand,
+          commandLength: displayCommand.length,
+          shell: redactPathsInText(resolveShellCommand(cmd).executable, redactions),
+          tty: Boolean(tty),
+          intent,
+          retryContext,
         },
         startedAt,
         async () => {
-          const workspace = workspaces.getWorkspace(workspaceId);
-          const cwd = workspaces.resolveWorkingDirectory(
+          const cwd = await workspaces.resolveWorkingDirectory(
             workspace,
             workingDirectory,
           );
@@ -221,6 +243,7 @@ function registerCodexProcessTools(context: ToolRegistrationContext): void {
             command: cmd,
             cwd,
             workspaceRoot: workspace.root,
+            outputRedactions: redactions,
             tty,
             columns,
             rows,
@@ -234,19 +257,19 @@ function registerCodexProcessTools(context: ToolRegistrationContext): void {
     },
   );
 
-  server.registerTool(
+  registerTool(
     "write_stdin",
     {
       title: "Write to process",
       description:
-        "Poll or write characters to a process returned by exec_command. Omit chars or pass an empty string to poll. Pass \\u0003 to send Ctrl-C.",
+        "Poll or write characters to a process returned by exec_command or run_workspace_action. Omit chars or pass an empty string to poll. Pass \\u0003 to send Ctrl-C.",
       inputSchema: {
         workspaceId: z
           .string()
           .describe("Workspace identifier used to start the process."),
         sessionId: z
           .number()
-          .describe("Process session identifier returned by exec_command."),
+          .describe("Process session identifier returned by exec_command or run_workspace_action."),
         chars: z
           .string()
           .optional()

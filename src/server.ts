@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { access, realpath } from "node:fs/promises";
@@ -9,6 +10,8 @@ import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middlew
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { checkResourceAllowed, resourceUrlFromServerUrl } from "@modelcontextprotocol/sdk/shared/auth-utils.js";
+import { createMcpHandler, isLegacyRequest } from "@modelcontextprotocol/server";
+import { toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
 import {
   registerAppResource,
   registerAppTool,
@@ -34,14 +37,26 @@ import {
 } from "./logger.js";
 import { readFileTool } from "./pi-tools.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
+import { SoftPauseController } from "./soft-pause.js";
 import {
   McpSessionRegistry,
   type McpSessionCloseResult,
 } from "./mcp-sessions.js";
+import { McpSessionLifecycle, isOpenAiMcpClient } from "./mcp-session-lifecycle.js";
+import { ModernMcpRequestMetrics } from "./mcp-modern-metrics.js";
+import { NodeSaturationMetrics } from "./node-saturation-metrics.js";
+import { detectModernMcpProbe } from "./mcp-modern-probe.js";
+import { createModernMcpServerAdapter } from "./mcp-modern-server.js";
+import {
+  bindMcpToolCatalog,
+  createMcpToolCatalogRecorder,
+  type CompiledMcpToolCatalog,
+} from "./mcp-tool-catalog.js";
 import { ProcessSessionManager } from "./process-sessions.js";
+import { SerenaSemanticManager } from "./serena-semantic.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { openAiConversationScopeId } from "./request-meta.js";
-import { shutdownHttpServer } from "./server-shutdown.js";
+import { runCleanupSteps, shutdownHttpServer } from "./server-shutdown.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
 import { formatAgentsPath, WorkspaceRegistry } from "./workspaces.js";
@@ -70,6 +85,22 @@ import {
   type ToolContent,
   type ToolSurface,
 } from "./tool-surfaces/types.js";
+import {
+  registerSessionMonitorRoutes,
+  type AppToolRegistrar,
+  type SessionMonitorContext,
+  type SessionMonitorRuntimeStatus,
+} from "./session-monitor-integration.js";
+import { SessionMonitor } from "./session-monitor.js";
+import {
+  createWorkbridgeToolRegistrars,
+  registerWorkbridgeExtensionTools,
+  workbridgeServerInstructions,
+} from "./workbridge-tool-registration.js";
+import { configProvenance } from "./workbridge-config-provenance.js";
+import { runtimeBuildIdentity } from "./workbridge-runtime-identity.js";
+import { LEGACY_SERVICE_NAME, PRODUCT_DISPLAY_NAME } from "./branding.js";
+import { PACKAGE_VERSION } from "./version.js";
 
 type Transport = StreamableHTTPServerTransport;
 // MCP clients can reconnect without closing the previous transport. Bound stale
@@ -80,9 +111,25 @@ const WORKSPACE_APP_MANIFEST_ENTRY = "workspace-app.html";
 
 interface RunningServer {
   app: ReturnType<typeof createMcpExpressApp>;
+  monitorApp: ReturnType<typeof express>;
   config: ServerConfig;
   localAgentProviders: LocalAgentProviderStatus[];
+  runtimeStatus(): SessionMonitorRuntimeStatus;
   close(): Promise<void>;
+}
+
+function mcpServerInfo() {
+  return {
+    name: LEGACY_SERVICE_NAME,
+    title: PRODUCT_DISPLAY_NAME,
+    version: PACKAGE_VERSION,
+    description:
+      "Coding tools for project workspaces. Open each project or worktree once, then reuse its workspaceId.",
+  };
+}
+
+function mcpServerOptions() {
+  return { instructions: workbridgeServerInstructions() };
 }
 
 interface WorkspaceAppManifestEntry {
@@ -99,7 +146,7 @@ function serverInstructions(
 ): string {
   const artifactInstruction =
     config.artifactsEnabled && isArtifactDownloadSupportedPlatform()
-      ? " When the user supplies or generates a file that is not present on the DevSpace host, use download_artifact with its native file value, the existing workspace ID, and a suitable relative destination path chosen from the user's request and project structure. The tool refuses to overwrite an existing destination and returns the normalized workspace-relative path. Use normal workspace tools when explicit inspection, replacement, movement, renaming, or deletion is needed. Do not recreate binary files with write/edit calls or place signed URLs, native file objects, base64 content, or invented host paths in shell commands or logs."
+      ? ` When the user supplies or generates a file that is not present on the ${PRODUCT_DISPLAY_NAME} host, use download_artifact with its native file value, the existing workspace ID, and a suitable relative destination path chosen from the user's request and project structure. The tool refuses to overwrite an existing destination and returns the normalized workspace-relative path. Use normal workspace tools when explicit inspection, replacement, movement, renaming, or deletion is needed. Do not recreate binary files with write/edit calls or place signed URLs, native file objects, base64 content, or invented host paths in shell commands or logs.`
       : "";
   const showChangesInstruction =
     " If the turn successfully modifies files by creating, editing, overwriting, deleting, moving, or applying patches, call show_changes exactly once for that workspace after the final related file change and before your final response so the user can inspect the aggregate diff for that turn. Do not call it after every individual file change.";
@@ -107,7 +154,7 @@ function serverInstructions(
     ? `When ${toolNames.openWorkspace} returns available skills and a task matches a skill, use ${toolNames.read} to read that skill's path before proceeding. Skill paths may be outside the workspace, but ${toolNames.read} only permits advertised SKILL.md files and files under already-loaded skill directories. `
     : "";
   const agents = `Follow instructions returned by ${toolNames.openWorkspace}. Before working under a path listed in availableAgentsFiles, use ${toolNames.read} to inspect that instruction file and follow it. `;
-  const common = `Use DevSpace for coding work. Call ${toolNames.openWorkspace} once for each project folder or isolated worktree, then keep using its workspaceId. During continued work in the same project or worktree, do not call ${toolNames.openWorkspace} again. Open another workspace only when changing projects, switching checkout/worktree mode, creating another isolated worktree, or when the current workspaceId is rejected.`;
+  const common = `Use ${PRODUCT_DISPLAY_NAME} for coding work. Call ${toolNames.openWorkspace} once for each project folder or isolated worktree, then keep using its workspaceId. During continued work in the same project or worktree, do not call ${toolNames.openWorkspace} again. Open another workspace only when changing projects, switching checkout/worktree mode, creating another isolated worktree, or when the current workspaceId is rejected.`;
 
   return `${common} ${toolSurface.instructions({ agents, skills })}${artifactInstruction}${showChangesInstruction}`;
 }
@@ -233,7 +280,7 @@ function workspaceAppHtml(config: ServerConfig): string {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DevSpace Workspace</title>
+    <title>${PRODUCT_DISPLAY_NAME} Workspace</title>
     <script type="module" crossorigin src="${assetUrl(baseUrl, entry.file)}"></script>
 ${stylesheets}
   </head>
@@ -285,27 +332,42 @@ export function createMcpServer(
   processSessions: ProcessSessionManager,
   resolveLocalAgentProviders: () => LocalAgentProviderStatus[],
   incomingArtifactAdapters: readonly IncomingArtifactAdapter[],
+  softPause = new SoftPauseController(config.stateDir),
+  monitorContext?: SessionMonitorContext,
+  semanticManager = new SerenaSemanticManager({ stateDir: config.stateDir }),
+  registration: {
+    server?: McpServer;
+    baseRegisterTool?: AppToolRegistrar;
+    registerAppResources?: boolean;
+  } = {},
 ): McpServer {
   const toolSurface = getToolSurface(config.toolMode);
-  const server = new McpServer(
-    {
-      name: "devspace",
-      title: "DevSpace",
-      version: "0.1.0",
-      description:
-        "Coding tools for project workspaces. Open each project or worktree once, then reuse its workspaceId.",
-    },
-    {
-      instructions: serverInstructions(config, toolSurface),
-    },
-  );
+  const server = registration.server ?? new McpServer(mcpServerInfo(), mcpServerOptions());
+  const sdkBaseRegisterTool = ((
+    sdkServer: McpServer,
+    name: string,
+    definition: unknown,
+    handler: unknown,
+  ) => (sdkServer.registerTool as (...args: unknown[]) => unknown)(name, definition, handler)) as AppToolRegistrar;
+  const {
+    registerTool,
+    artifactRegisterTool,
+  } = createWorkbridgeToolRegistrars({
+    config,
+    softPause,
+    workspaces,
+    monitorContext,
+    baseRegisterTool: registration.baseRegisterTool ?? sdkBaseRegisterTool,
+  });
+  const registerSdkTool = ((name, definition, handler) =>
+    (registerTool as (...args: unknown[]) => unknown)(server, name, definition, handler)) as McpServer["registerTool"];
 
-  registerAppResource(
+  if (registration.registerAppResources !== false && config.widgets !== "off") registerAppResource(
     server,
-    "DevSpace Diff Card",
+    `${PRODUCT_DISPLAY_NAME} Diff Card`,
     WORKSPACE_APP_URI,
     {
-      description: "Interactive card for viewing DevSpace file diffs.",
+      description: `Interactive card for viewing ${PRODUCT_DISPLAY_NAME} file diffs.`,
       _meta: {
         ui: {
           csp: appCsp(config),
@@ -331,7 +393,7 @@ export function createMcpServer(
     },
   );
 
-  registerAppTool(
+  registerTool(
     server,
     "open_workspace",
     {
@@ -622,12 +684,13 @@ export function createMcpServer(
 
   toolSurface.register({
     server,
+    registerTool: registerSdkTool,
     config,
     workspaces,
     processSessions,
   });
 
-  registerAppTool(
+  registerTool(
     server,
     "show_changes",
     {
@@ -696,10 +759,54 @@ export function createMcpServer(
       config,
       workspaces,
       incomingArtifactAdapters,
+      registerTool: artifactRegisterTool,
     });
   }
 
+  registerWorkbridgeExtensionTools({
+    server,
+    config,
+    workspaces,
+    processSessions,
+    semanticManager,
+    incomingArtifactAdapters,
+    registerTool,
+    artifactRegisterTool,
+    shellToolMeta: { _meta: {} },
+  });
+
   return server;
+}
+
+function compileModernMcpToolCatalog(
+  config: ServerConfig,
+  workspaces: WorkspaceRegistry,
+  reviewCheckpoints: ReturnType<typeof createReviewCheckpointManager>,
+  processSessions: ProcessSessionManager,
+  resolveLocalAgentProviders: () => LocalAgentProviderStatus[],
+  incomingArtifactAdapters: readonly IncomingArtifactAdapter[],
+  softPause: SoftPauseController,
+  sessionMonitor: SessionMonitor,
+  semanticManager: SerenaSemanticManager,
+): CompiledMcpToolCatalog {
+  const recorder = createMcpToolCatalogRecorder();
+  createMcpServer(
+    config,
+    workspaces,
+    reviewCheckpoints,
+    processSessions,
+    resolveLocalAgentProviders,
+    incomingArtifactAdapters,
+    softPause,
+    { monitor: sessionMonitor, sessionId: () => undefined },
+    semanticManager,
+    {
+      server: new McpServer(mcpServerInfo(), mcpServerOptions()),
+      baseRegisterTool: recorder.registrar,
+      registerAppResources: false,
+    },
+  );
+  return recorder.compile();
 }
 
 export interface CreateServerOptions {
@@ -719,61 +826,79 @@ export function createServer(
     host: config.host,
     ...(allowedHosts ? { allowedHosts } : {}),
   });
-  const transports = new McpSessionRegistry<Transport>();
+  const monitorApp = express();
+  monitorApp.disable("x-powered-by");
+  const sessionLifecycle = new McpSessionLifecycle<Transport>({
+    log: (level, event, fields) => logEvent(config.logging, level, event, fields),
+  });
+  const modernMcpMetrics = new ModernMcpRequestMetrics();
+  const modernMcpRequestContext = new AsyncLocalStorage<symbol>();
   const mcpUrl = new URL("/mcp", config.publicBaseUrl);
   const resourceServerUrl = resourceUrlFromServerUrl(mcpUrl);
-  const oauthProvider = new SingleUserOAuthProvider(config.oauth, mcpUrl, config.stateDir);
-  const bearerAuth = requireBearerAuth({
-    verifier: oauthProvider,
-    requiredScopes: [config.oauth.scopes[0] ?? "devspace"],
-    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(resourceServerUrl),
-  });
-  const workspaceStore = createWorkspaceStore(config.stateDir);
+  const oauthProvider = config.oauth
+    ? new SingleUserOAuthProvider(config.oauth, mcpUrl, config.stateDir)
+    : undefined;
+  const bearerAuth = oauthProvider && config.oauth
+    ? requireBearerAuth({
+        verifier: oauthProvider,
+        requiredScopes: [config.oauth.scopes[0] ?? "devspace"],
+        resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(resourceServerUrl),
+      })
+    : undefined;
+  const workspaceStore = createWorkspaceStore(config.stateDir, config.workspaceSessionMaxAgeMs);
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
   const reviewCheckpoints = createReviewCheckpointManager();
   const processSessions = new ProcessSessionManager();
-  const localAgentProviders = buildLocalAgentProviderStatuses(
-    config.subagents,
-    getLocalAgentProviderAvailabilitySnapshot(),
-  );
   const resolveLocalAgentProviders = () => buildLocalAgentProviderStatuses(
     config.subagents,
     getLocalAgentProviderAvailabilitySnapshot(),
   );
-
-  const logSessionCloseResults = (
-    reason: "idle_timeout" | "server_shutdown",
-    results: McpSessionCloseResult[],
-  ) => {
-    for (const result of results) {
-      if (result.error) {
-        logEvent(config.logging, "warn", "mcp_session_close_failed", {
-          reason,
-          sessionIdPrefix: sessionIdPrefix(result.sessionId),
-          error:
-            result.error instanceof Error
-              ? result.error.message
-              : String(result.error),
+  const localAgentProviders = resolveLocalAgentProviders();
+  const semanticManager = new SerenaSemanticManager({ stateDir: config.stateDir });
+  const softPause = new SoftPauseController(config.stateDir);
+  const sessionMonitor = new SessionMonitor();
+  const nodeSaturation = new NodeSaturationMetrics();
+  nodeSaturation.start();
+  const serverStartedAt = Date.now();
+  const buildIdentity = runtimeBuildIdentity();
+  const runtimeConfigProvenance = config.provenance ?? configProvenance();
+  const modernMcpToolCatalog = compileModernMcpToolCatalog(
+    config,
+    workspaces,
+    reviewCheckpoints,
+    processSessions,
+    resolveLocalAgentProviders,
+    incomingArtifactAdapters,
+    softPause,
+    sessionMonitor,
+    semanticManager,
+  );
+  sessionLifecycle.start();
+  const modernMcpHandler = createMcpHandler(() => {
+    const registrationStartedAt = performance.now();
+    const requestReference = modernMcpRequestContext.getStore();
+    if (requestReference) modernMcpMetrics.beginRegistration(requestReference);
+    try {
+      const adapter = createModernMcpServerAdapter(mcpServerInfo(), mcpServerOptions());
+      bindMcpToolCatalog(adapter.registerTool, modernMcpToolCatalog);
+      if (requestReference) {
+        modernMcpMetrics.recordTimings(requestReference, {
+          registrationMs: performance.now() - registrationStartedAt,
         });
-        continue;
       }
-
-      logEvent(config.logging, "info", "mcp_session_closed", {
-        reason,
-        sessionIdPrefix: sessionIdPrefix(result.sessionId),
-      });
+      return adapter.server;
+    } finally {
+      if (requestReference) modernMcpMetrics.endRegistration(requestReference);
     }
-  };
-
-  const sessionCleanupTimer = setInterval(() => {
-    void transports
-      .closeIdle(MCP_SESSION_IDLE_TIMEOUT_MS)
-      .then((results) => logSessionCloseResults("idle_timeout", results));
-  }, MCP_SESSION_CLEANUP_INTERVAL_MS);
-  sessionCleanupTimer.unref();
+  }, { legacy: "reject" });
+  const modernNodeHandler = toNodeHandler(modernMcpHandler, {
+    onerror: (error) => logEvent(config.logging, "error", "mcp_modern_adapter_error", {
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  });
 
   if (config.logging.trustProxy) {
-    app.set("trust proxy", true);
+    app.set("trust proxy", 1);
   }
 
   app.use((req, res, next) => {
@@ -799,16 +924,18 @@ export function createServer(
     next();
   });
 
-  app.use(
-    mcpAuthRouter({
-      provider: oauthProvider,
-      issuerUrl: new URL(config.publicBaseUrl),
-      baseUrl: new URL(config.publicBaseUrl),
-      resourceServerUrl,
-      scopesSupported: config.oauth.scopes,
-      resourceName: "DevSpace",
-    }),
-  );
+  if (oauthProvider && config.oauth) {
+    app.use(
+      mcpAuthRouter({
+        provider: oauthProvider,
+        issuerUrl: new URL(config.publicBaseUrl),
+        baseUrl: new URL(config.publicBaseUrl),
+        resourceServerUrl,
+        scopesSupported: config.oauth.scopes,
+        resourceName: PRODUCT_DISPLAY_NAME,
+      }),
+    );
+  }
 
   app.options("/mcp-app-assets/{*asset}", (_req, res) => {
     setAssetHeaders(res);
@@ -826,59 +953,170 @@ export function createServer(
   );
 
   app.get("/healthz", (_req, res) => {
-    res.json({ ok: true, name: "devspace" });
+    res.json({ ok: true, name: LEGACY_SERVICE_NAME });
   });
 
+  const runtimeStatus = (): SessionMonitorRuntimeStatus => {
+    const pauseState = softPause.status();
+    const memory = process.memoryUsage();
+    return {
+      server: {
+        status: "running",
+        pid: process.pid,
+        startedAt: new Date(serverStartedAt).toISOString(),
+        uptimeMs: Math.max(0, Date.now() - serverStartedAt),
+        version: PACKAGE_VERSION,
+        port: config.port,
+        monitorPort: config.monitorPort,
+        controlEnabled: Boolean(process.env.WORKBRIDGE_MONITOR_CONTROL_TOKEN?.trim()),
+        stateDir: config.stateDir,
+        mcpConnectionMode: config.mcpConnectionMode,
+        buildIdentity,
+        configProvenance: runtimeConfigProvenance,
+        startupConfig: {
+          publicBaseUrl: config.publicBaseUrl,
+          allowedRoots: [...config.allowedRoots],
+          auxiliaryRoots: [...config.auxiliaryRoots],
+          worktreeRoot: config.worktreeRoot,
+          stateDir: config.stateDir,
+          trustProxy: config.logging.trustProxy,
+        },
+        memory: {
+          rssBytes: memory.rss,
+          heapUsedBytes: memory.heapUsed,
+        },
+      },
+      mcpSessions: sessionLifecycle.snapshot(8),
+      modernMcpRequests: modernMcpMetrics.snapshot(8),
+      nodeSaturation: nodeSaturation.snapshot(),
+      ...(pauseState ? { softPause: pauseState } : {}),
+    };
+  };
+  const sessionMonitorRoutes = registerSessionMonitorRoutes(
+    monitorApp,
+    sessionMonitor,
+    undefined,
+    runtimeStatus,
+  );
+
   app.all("/mcp", async (req, res) => {
+    const requestStartedAt = performance.now();
     const requestId = res.locals.requestId as string | undefined;
     const sessionId = req.header("mcp-session-id");
     const initializeRequest = req.method === "POST" && isInitializeRequest(req.body);
+    const requestMethods = mcpRequestMethods(req.method, req.body);
+    const modernProbe = detectModernMcpProbe({ headers: req.headers, body: req.body });
 
-    await new Promise<void>((resolve, reject) => {
-      bearerAuth(req, res, (error?: unknown) => {
-        if (error) reject(error);
-        else resolve();
-      });
-    });
-    if (res.headersSent) return;
-
-    if (!req.auth?.resource || !checkResourceAllowed({ requestedResource: req.auth.resource, configuredResource: resourceServerUrl })) {
-      logEvent(config.logging, "warn", "auth_denied", {
+    if (modernProbe) {
+      logEvent(config.logging, "info", "mcp_modern_probe_detected", {
         requestId,
-        method: req.method,
-        path: requestPath(req),
-        reason: "invalid_oauth_resource",
-        ...requestLogFields(req, config),
+        protocolEra: "modern",
+        ...modernProbe,
       });
-      sendJsonRpcError(res, 401, -32001, "Unauthorized");
-      return;
+    }
+
+    let authMs = 0;
+    if (bearerAuth) {
+      const authStartedAt = performance.now();
+      await new Promise<void>((resolve, reject) => {
+        bearerAuth(req, res, (error?: unknown) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+      authMs = performance.now() - authStartedAt;
+      if (res.headersSent) return;
+
+      if (!req.auth?.resource || !checkResourceAllowed({ requestedResource: req.auth.resource, configuredResource: resourceServerUrl })) {
+        logEvent(config.logging, "warn", "auth_denied", {
+          requestId,
+          method: req.method,
+          path: requestPath(req),
+          reason: "invalid_oauth_resource",
+          ...requestLogFields(req, config),
+        });
+        sendJsonRpcError(res, 401, -32001, "Unauthorized");
+        return;
+      }
     }
 
     logEvent(config.logging, "debug", "mcp_request", {
       requestId,
       method: req.method,
+      requestMethods,
       sessionIdPresent: Boolean(sessionId),
       sessionIdPrefix: sessionIdPrefix(sessionId),
       isInitialize: initializeRequest,
     });
 
     try {
+      const classifyStartedAt = performance.now();
+      const webRequest = await toWebRequest(req, req.body);
+      const legacyRequest = await isLegacyRequest(webRequest, req.body);
+      const classifyMs = performance.now() - classifyStartedAt;
+      if (!legacyRequest) {
+        const modernRequest = modernMcpMetrics.begin({
+          requestId,
+          method: modernProbe?.rpcMethod ?? requestMethods[0]?.slice(0, 160) ?? req.method,
+          tool: modernProbe?.mcpNameHeader,
+          clientName: modernProbe?.clientName,
+          clientVersion: modernProbe?.clientVersion,
+          protocolVersion: modernProbe?.protocolVersion,
+        });
+        modernMcpMetrics.recordTimings(modernRequest, { authMs, classifyMs });
+        const handlerStartedAt = performance.now();
+        modernMcpMetrics.beginHandler(modernRequest);
+        try {
+          await modernMcpRequestContext.run(
+            modernRequest,
+            () => modernNodeHandler(req, res, req.body),
+          );
+          modernMcpMetrics.recordTimings(modernRequest, {
+            handlerMs: performance.now() - handlerStartedAt,
+            totalMs: performance.now() - requestStartedAt,
+          });
+          modernMcpMetrics.finish(modernRequest, res.statusCode < 400);
+        } catch (error) {
+          modernMcpMetrics.recordTimings(modernRequest, {
+            handlerMs: performance.now() - handlerStartedAt,
+            totalMs: performance.now() - requestStartedAt,
+          });
+          modernMcpMetrics.finish(modernRequest, false);
+          throw error;
+        } finally {
+          modernMcpMetrics.endHandler(modernRequest);
+        }
+        return;
+      }
+
       let transport: Transport | undefined;
 
       if (sessionId) {
-        transport = transports.get(sessionId);
+        transport = sessionLifecycle.beginRequest(sessionId, requestMethods);
         if (!transport) {
           sendJsonRpcError(res, 404, -32000, "Unknown MCP session");
           return;
         }
+        sessionLifecycle.trackRequestUntilResponseEnd(sessionId, res);
       } else if (initializeRequest) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (newSessionId) => {
-            if (transport) transports.register(newSessionId, transport);
+            const metadata = mcpInitializeMetadata(req);
+            if (transport) {
+              sessionLifecycle.register(newSessionId, transport, metadata, {
+                requestActive: true,
+                oneShotCleanupEligible: isOpenAiMcpClient(metadata),
+              });
+              sessionLifecycle.trackRequestUntilResponseEnd(newSessionId, res);
+            }
             logEvent(config.logging, "info", "mcp_session_created", {
               requestId,
               sessionIdPrefix: sessionIdPrefix(newSessionId),
+              activeSessionCount: sessionLifecycle.size,
+              clientName: metadata.clientName,
+              clientVersion: metadata.clientVersion,
+              protocolVersion: metadata.protocolVersion,
               ...requestLogFields(req, config),
             });
           },
@@ -886,12 +1124,7 @@ export function createServer(
 
         transport.onclose = () => {
           const closedSessionId = transport?.sessionId;
-          if (closedSessionId && transports.remove(closedSessionId)) {
-            logEvent(config.logging, "info", "mcp_session_closed", {
-              reason: "transport_close",
-              sessionIdPrefix: sessionIdPrefix(closedSessionId),
-            });
-          }
+          if (closedSessionId) sessionLifecycle.remove(closedSessionId, "transport_close");
         };
 
         const server = createMcpServer(
@@ -901,6 +1134,9 @@ export function createServer(
           processSessions,
           resolveLocalAgentProviders,
           incomingArtifactAdapters,
+          softPause,
+          { monitor: sessionMonitor, sessionId: () => transport?.sessionId },
+          semanticManager,
         );
         await server.connect(transport);
       } else {
@@ -923,19 +1159,57 @@ export function createServer(
   let closePromise: Promise<void> | undefined;
   return {
     app,
+    monitorApp,
     config,
     localAgentProviders,
+    runtimeStatus,
     close: () => {
       closePromise ??= (async () => {
-        clearInterval(sessionCleanupTimer);
-        const results = await transports.closeAll();
-        logSessionCloseResults("server_shutdown", results);
-        processSessions.shutdown();
-        oauthProvider.close();
-        workspaceStore.close?.();
+        await runCleanupSteps([
+          () => sessionMonitorRoutes.close(),
+          () => nodeSaturation.close(),
+          () => modernMcpHandler.close(),
+          () => sessionLifecycle.close(),
+          () => semanticManager.close(),
+          () => processSessions.shutdown(),
+          () => oauthProvider?.close(),
+          () => workspaceStore.close?.(),
+        ]);
       })();
       return closePromise;
     },
+  };
+}
+
+function mcpRequestMethods(httpMethod: string, body: unknown): string[] {
+  if (httpMethod !== "POST") return [`http/${httpMethod.toLowerCase()}`];
+  const messages = Array.isArray(body) ? body : [body];
+  return messages.flatMap((message) => {
+    if (!message || typeof message !== "object") return [];
+    const method = (message as { method?: unknown }).method;
+    return typeof method === "string" && method ? [method] : [];
+  });
+}
+
+function mcpInitializeMetadata(req: Request): {
+  clientName?: string;
+  clientVersion?: string;
+  protocolVersion?: string;
+  userAgent?: string;
+} {
+  const body = req.body;
+  const message = Array.isArray(body) ? body.find((entry) => isInitializeRequest(entry)) : body;
+  if (!message || typeof message !== "object") return {};
+  const params = (message as { params?: unknown }).params;
+  const paramsRecord = params && typeof params === "object" ? params as Record<string, unknown> : {};
+  const clientInfo = paramsRecord.clientInfo && typeof paramsRecord.clientInfo === "object"
+    ? paramsRecord.clientInfo as Record<string, unknown>
+    : {};
+  return {
+    clientName: typeof clientInfo.name === "string" ? clientInfo.name : undefined,
+    clientVersion: typeof clientInfo.version === "string" ? clientInfo.version : undefined,
+    protocolVersion: typeof paramsRecord.protocolVersion === "string" ? paramsRecord.protocolVersion : undefined,
+    userAgent: req.header("user-agent"),
   };
 }
 
@@ -954,7 +1228,7 @@ if (await isMainModule()) {
       `devspace listening on http://${config.host}:${config.port}/mcp`,
     );
     console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
-    console.log("auth: oauth owner-token flow required");
+    console.log(`auth: ${config.oauth ? "oauth owner-token flow required" : "delegated to secure tunnel"}`);
     console.log(`logging: ${config.logging.level} ${config.logging.format}`);
     console.log(`request logging: ${config.logging.requests ? "enabled" : "disabled"}`);
     console.log(`asset logging: ${config.logging.assets ? "enabled" : "disabled"}`);

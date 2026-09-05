@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js";
 import { InvalidRequestError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { PRODUCT_DISPLAY_NAME } from "./branding.js";
 import { openDatabase, type DatabaseHandle } from "./db/client.js";
+import { isAllowedOAuthRedirectUri } from "./oauth-security.js";
+import {
+  createRecoverableClientId,
+  recoverClientRegistration,
+} from "./oauth-client-registration.js";
 
 export interface PersistedAccessTokenRecord {
   clientId: string;
@@ -25,24 +31,16 @@ export interface PersistedTokenPair {
   refreshToken: PersistedRefreshTokenRecord;
 }
 
-function redirectHostAllowed(redirectUri: string, allowedHosts: string[]): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(redirectUri);
-  } catch {
-    return false;
-  }
-
-  if (["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)) return true;
-  return allowedHosts.includes(parsed.hostname);
-}
-
 export class SqliteOAuthStore {
   private readonly database: DatabaseHandle;
 
-  constructor(stateDir: string) {
+  constructor(stateDir: string, inactiveClientMaxAgeSeconds?: number) {
     this.database = openDatabase(stateDir);
-    this.deleteExpiredTokens(Math.floor(Date.now() / 1000));
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    this.deleteExpiredTokens(nowSeconds);
+    if (inactiveClientMaxAgeSeconds !== undefined) {
+      this.deleteInactiveClients(nowSeconds - inactiveClientMaxAgeSeconds);
+    }
   }
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
@@ -56,26 +54,66 @@ export class SqliteOAuthStore {
   registerClient(
     client: Omit<OAuthClientInformationFull, "client_id" | "client_id_issued_at">,
     allowedRedirectHosts: string[],
+    clientRegistrationKey: string,
+    maxRegisteredClients = 50,
   ): OAuthClientInformationFull {
-    if (!client.redirect_uris.every((uri) => redirectHostAllowed(String(uri), allowedRedirectHosts))) {
-      throw new InvalidRequestError("Client redirect_uri is not allowed for this DevSpace server");
+    if (!client.redirect_uris.every((uri) => isAllowedOAuthRedirectUri(String(uri), allowedRedirectHosts))) {
+      throw new InvalidRequestError(`Client redirect_uri is not allowed for this ${PRODUCT_DISPLAY_NAME} server`);
+    }
+
+    const registeredClients = this.database.sqlite
+      .prepare("select count(*) from oauth_clients")
+      .pluck()
+      .get() as number;
+    if (registeredClients >= maxRegisteredClients) {
+      throw new InvalidRequestError(`OAuth client registration limit reached (${maxRegisteredClients})`);
     }
 
     const now = Math.floor(Date.now() / 1000);
-    const registered: OAuthClientInformationFull = {
+    const registration = {
       ...client,
-      client_id: `devspace-${randomUUID()}`,
       client_id_issued_at: now,
       token_endpoint_auth_method: client.token_endpoint_auth_method ?? "none",
       grant_types: client.grant_types ?? ["authorization_code", "refresh_token"],
       response_types: client.response_types ?? ["code"],
     };
+    const recoverable = createRecoverableClientId(registration, clientRegistrationKey);
+    if (recoverable.kind === "too_large") {
+      throw new InvalidRequestError(
+        `Client registration is too large for a recoverable client identifier (${recoverable.length} > ${recoverable.maxLength})`,
+      );
+    }
 
-    this.database.sqlite
-      .prepare("insert into oauth_clients (client_id, client_json, issued_at) values (?, ?, ?)")
-      .run(registered.client_id, JSON.stringify(registered), now);
+    const registered: OAuthClientInformationFull = recoverable.kind === "recoverable"
+      ? {
+          ...recoverable.registration,
+          client_id: recoverable.clientId,
+        }
+      : {
+          ...registration,
+          client_id: `devspace-${randomUUID()}`,
+        };
+
+    this.saveClient(registered);
 
     return registered;
+  }
+
+  restoreClient(client: OAuthClientInformationFull, allowedRedirectHosts: string[]): void {
+    if (!client.redirect_uris.every((uri) => isAllowedOAuthRedirectUri(String(uri), allowedRedirectHosts))) {
+      throw new InvalidRequestError(`Client redirect_uri is not allowed for this ${PRODUCT_DISPLAY_NAME} server`);
+    }
+    this.saveClient(client);
+  }
+
+  private saveClient(client: OAuthClientInformationFull): void {
+    this.database.sqlite
+      .prepare(
+        `insert into oauth_clients (client_id, client_json, issued_at)
+         values (?, ?, ?)
+         on conflict(client_id) do nothing`,
+      )
+      .run(client.client_id, JSON.stringify(client), client.client_id_issued_at ?? 0);
   }
 
   saveAccessToken(tokenHash: string, record: PersistedAccessTokenRecord): void {
@@ -181,6 +219,23 @@ export class SqliteOAuthStore {
     this.database.close();
   }
 
+  deleteInactiveClients(beforeSeconds: number): number {
+    return this.database.sqlite
+      .prepare(
+        `delete from oauth_clients
+         where issued_at < ?
+           and not exists (
+             select 1 from oauth_access_tokens
+             where oauth_access_tokens.client_id = oauth_clients.client_id
+           )
+           and not exists (
+             select 1 from oauth_refresh_tokens
+             where oauth_refresh_tokens.client_id = oauth_clients.client_id
+           )`,
+      )
+      .run(beforeSeconds).changes;
+  }
+
   private deleteExpiredTokens(nowSeconds: number): void {
     this.database.sqlite.prepare("delete from oauth_access_tokens where expires_at < ?").run(nowSeconds);
     this.database.sqlite.prepare("delete from oauth_refresh_tokens where expires_at < ?").run(nowSeconds);
@@ -191,16 +246,31 @@ export class SqliteOAuthClientsStore implements OAuthRegisteredClientsStore {
   constructor(
     private readonly store: SqliteOAuthStore,
     private readonly allowedRedirectHosts: string[],
+    private readonly clientRegistrationKey: string,
+    private readonly maxRegisteredClients = 50,
   ) {}
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
-    return this.store.getClient(clientId);
+    const stored = this.store.getClient(clientId);
+    if (stored) return stored;
+
+    const recovered = recoverClientRegistration(clientId, this.clientRegistrationKey);
+    if (!recovered) return undefined;
+    if (!recovered.redirect_uris.every((uri) => isAllowedOAuthRedirectUri(String(uri), this.allowedRedirectHosts))) {
+      return undefined;
+    }
+    return recovered;
   }
 
   registerClient(
     client: Omit<OAuthClientInformationFull, "client_id" | "client_id_issued_at">,
   ): OAuthClientInformationFull {
-    return this.store.registerClient(client, this.allowedRedirectHosts);
+    return this.store.registerClient(
+      client,
+      this.allowedRedirectHosts,
+      this.clientRegistrationKey,
+      this.maxRegisteredClients,
+    );
   }
 }
 

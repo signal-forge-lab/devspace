@@ -96,7 +96,7 @@ test("show-changes prints a Git-backed historical review", async (t) => {
     (error: unknown) => {
       assert.match(
         (error as { stderr?: string }).stderr ?? "",
-        /Unknown DevSpace review reference/,
+        /Unknown Workbridge review reference/,
       );
       return true;
     },

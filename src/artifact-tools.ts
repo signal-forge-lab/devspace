@@ -50,6 +50,7 @@ export interface ArtifactToolRegistrationOptions {
   config: ServerConfig;
   workspaces: WorkspaceRegistry;
   incomingArtifactAdapters?: readonly IncomingArtifactAdapter[];
+  registerTool?: typeof registerAppTool;
 }
 
 export interface DownloadIncomingArtifactInput {
@@ -88,11 +89,12 @@ export function registerArtifactTools(
     config,
     workspaces,
     incomingArtifactAdapters = [],
+    registerTool = registerAppTool,
   }: ArtifactToolRegistrationOptions,
 ): void {
   const incomingRegistry = new IncomingArtifactAdapterRegistry(incomingArtifactAdapters);
 
-  registerAppTool(
+  registerTool(
     server,
     "download_artifact",
     {

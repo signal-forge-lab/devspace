@@ -27,7 +27,7 @@ if (SandboxManager.isSupportedPlatform() && dependencies.errors.length === 0) {
   const tools = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
 
   try {
-    createPiSandboxExtension(workspace, modeRef)({
+    await createPiSandboxExtension(workspace, modeRef)({
       registerTool: (tool: { name: string; execute: (...args: any[]) => Promise<unknown> }) =>
         tools.set(tool.name, tool),
     } as never);

@@ -11,10 +11,19 @@ import { SqliteOAuthClientsStore, SqliteOAuthStore } from "./oauth-store.js";
 const root = await mkdtemp(join(tmpdir(), "devspace-oauth-test-"));
 const oauthConfig = {
   ownerToken: "test-owner-token-that-is-long-enough",
+  clientRegistrationKey: "test-client-registration-key-that-is-long-enough",
   accessTokenTtlSeconds: 3600,
   refreshTokenTtlSeconds: 2592000,
   scopes: ["devspace"],
   allowedRedirectHosts: ["chatgpt.com"],
+  maxRegisteredClients: 50,
+  inactiveClientMaxAgeSeconds: 90 * 24 * 60 * 60,
+  authorizationRateLimit: {
+    maxFailures: 5,
+    failureWindowMs: 300_000,
+    blockDurationMs: 900_000,
+    failureDelayMs: 0,
+  },
 };
 const mcpUrl = new URL("https://agent.example.com/mcp");
 const redirectUri = "https://chatgpt.com/connector_platform_oauth_redirect";
@@ -62,7 +71,11 @@ function testPersistenceAndTokenHashing(stateDir: string): void {
   const accessToken = "access-token-example";
   const refreshToken = "refresh-token-example";
   const firstStore = new SqliteOAuthStore(stateDir);
-  const firstClients = new SqliteOAuthClientsStore(firstStore, oauthConfig.allowedRedirectHosts);
+  const firstClients = new SqliteOAuthClientsStore(
+    firstStore,
+    oauthConfig.allowedRedirectHosts,
+    oauthConfig.clientRegistrationKey,
+  );
   const client = firstClients.registerClient({
     redirect_uris: [redirectUri],
     client_name: "ChatGPT",
@@ -117,9 +130,11 @@ function testPersistenceAndTokenHashing(stateDir: string): void {
 
 function testExpiredTokenCleanup(stateDir: string): void {
   const store = new SqliteOAuthStore(stateDir);
-  const client = new SqliteOAuthClientsStore(store, oauthConfig.allowedRedirectHosts).registerClient({
-    redirect_uris: [redirectUri],
-  });
+  const client = new SqliteOAuthClientsStore(
+    store,
+    oauthConfig.allowedRedirectHosts,
+    oauthConfig.clientRegistrationKey,
+  ).registerClient({ redirect_uris: [redirectUri] });
   const expiredAt = Math.floor(Date.now() / 1000) - 1;
   store.saveTokenPair({
     accessTokenHash: "expired-access-hash",
@@ -141,9 +156,11 @@ function testExpiredTokenCleanup(stateDir: string): void {
 function testTransactionalTokenRotation(stateDir: string): void {
   const store = new SqliteOAuthStore(stateDir);
   try {
-    const client = new SqliteOAuthClientsStore(store, oauthConfig.allowedRedirectHosts).registerClient({
-      redirect_uris: [redirectUri],
-    });
+    const client = new SqliteOAuthClientsStore(
+      store,
+      oauthConfig.allowedRedirectHosts,
+      oauthConfig.clientRegistrationKey,
+    ).registerClient({ redirect_uris: [redirectUri] });
     const expiresAt = Math.floor(Date.now() / 1000) + 3600;
     store.saveRefreshToken("old-refresh-hash", {
       clientId: client.client_id,
