@@ -13,6 +13,12 @@ import {
 } from "./artifact-tools.js";
 import { PRODUCT_DISPLAY_NAME } from "./branding.js";
 import type { ServerConfig } from "./config.js";
+import {
+  CODEBASE_MEMORY_ACTIONS,
+  CodebaseMemoryManager,
+  type CodebaseMemoryAction,
+  type CodebaseMemoryParameters,
+} from "./codebase-memory-code-intelligence.js";
 import type { IncomingArtifactAdapter } from "./incoming-artifacts.js";
 import {
   GRAFT_ACTIONS,
@@ -155,6 +161,7 @@ export interface RegisterWorkbridgeExtensionToolsOptions {
   workspaces: WorkspaceRegistry;
   processSessions: ProcessSessionManager;
   semanticManager: SerenaSemanticManager;
+  codebaseMemoryManager: CodebaseMemoryManager;
   incomingArtifactAdapters: readonly IncomingArtifactAdapter[];
   registerTool: AppToolRegistrar;
   artifactRegisterTool: AppToolRegistrar;
@@ -222,7 +229,7 @@ export function workbridgeServerInstructions(): string {
   const outgoingArtifactInstruction =
     " To return an existing workspace ZIP to the user, call run_workspace_action with action=publish_artifact, preset=embedded_zip, and parameters.path. Never print ZIP or binary Base64 through exec_command.";
 
-  return `Use ${PRODUCT_DISPLAY_NAME} as a local coding workspace. The public tool surface follows the upstream Codex profile, adds Workbridge-owned extensions, and keeps explicitly disabled capabilities out of the runtime. Call open_workspace once per project folder or worktree and reuse its workspaceId. Use read for direct file reads, run_semantic_action for precise read-only symbol/reference/implementation/declaration/diagnostics queries, run_graft_action for read-only repository orientation, conceptual candidate discovery, caller/callee blast-radius views, API skeletons, and indexed exhaustive search, apply_patch for all file modifications, ${WORKBRIDGE_REVIEW_TOOL_NAME} once after the final related file change for the combined change review, exec_command for ad hoc inspection, tests, builds, and commands, write_stdin to poll or interact with running processes, run_workspace_action for registered repeatable actions whose implementation and policy are owned by Workbridge, and download_artifact for MCP-host native files.${artifactInstruction}${outgoingArtifactInstruction}${patchConsolidationInstruction} Follow instructions returned by open_workspace; read applicable instruction and skill files before working in their scope.${SOFT_PAUSE_SERVER_INSTRUCTION}`;
+  return `Use ${PRODUCT_DISPLAY_NAME} as a local coding workspace. The public tool surface follows the upstream Codex profile, adds Workbridge-owned extensions, and keeps explicitly disabled capabilities out of the runtime. Call open_workspace once per project folder or worktree and reuse its workspaceId. Use read for direct file reads, run_semantic_action for precise read-only symbol/reference/implementation/declaration/diagnostics queries, run_graft_action for lightweight read-only repository orientation and graph lookup, run_codebase_memory_action for persistent architecture/impact/semantic/deep-graph analysis, apply_patch for all file modifications, ${WORKBRIDGE_REVIEW_TOOL_NAME} once after the final related file change for the combined change review, exec_command for ad hoc inspection, tests, builds, and commands, write_stdin to poll or interact with running processes, run_workspace_action for registered repeatable actions whose implementation and policy are owned by Workbridge, and download_artifact for MCP-host native files.${artifactInstruction}${outgoingArtifactInstruction}${patchConsolidationInstruction} Follow instructions returned by open_workspace; read applicable instruction and skill files before working in their scope.${SOFT_PAUSE_SERVER_INSTRUCTION}`;
 }
 
 export function logToolCall(config: ServerConfig, fields: ToolLogFields): void {
@@ -316,6 +323,7 @@ export function registerWorkbridgeExtensionTools({
   workspaces,
   processSessions,
   semanticManager,
+  codebaseMemoryManager,
   incomingArtifactAdapters,
   registerTool,
   artifactRegisterTool,
@@ -350,6 +358,14 @@ export function registerWorkbridgeExtensionTools({
     config,
     workspaces,
     processSessions,
+    registerTool,
+  });
+
+  registerCodebaseMemoryActionTool({
+    server,
+    config,
+    workspaces,
+    codebaseMemoryManager,
     registerTool,
   });
 
@@ -712,6 +728,117 @@ function graftActionParametersSchema(): z.ZodRawShape {
     ignoreCase: z.boolean().optional().describe("Case-insensitive grep."),
     fixed: z.boolean().optional().describe("Treat grep pattern as a literal string."),
     maxDirs: z.number().int().min(1).max(100).optional().describe("Maximum directory entries in map output."),
+  };
+}
+
+interface RegisterCodebaseMemoryActionToolOptions {
+  server: McpServer;
+  config: ServerConfig;
+  workspaces: WorkspaceRegistry;
+  codebaseMemoryManager: CodebaseMemoryManager;
+  registerTool: AppToolRegistrar;
+}
+
+function registerCodebaseMemoryActionTool({
+  server,
+  config,
+  workspaces,
+  codebaseMemoryManager,
+  registerTool,
+}: RegisterCodebaseMemoryActionToolOptions): void {
+  registerTool(
+    server,
+    "run_codebase_memory_action",
+    {
+      title: "Run Codebase Memory action",
+      description:
+        `Run one read-only Codebase Memory persistent-graph query against the exact root of an open workspace. Use architecture for repository structure and boundaries, search for structural/BM25/semantic discovery, trace for caller/callee paths, impact for Git-diff blast radius, snippet for indexed source retrieval, coverage for best-effort index coverage, and query for read-only Cypher-style graph analysis. Prefer Serena when exact symbol/reference/implementation/diagnostics evidence matters; prefer Graft for lightweight repository orientation and quick graph lookup. Workbridge owns the initial moderate index and ongoing local cache outside the repository. Coverage freshness is best-effort on Windows v0.10.8 and must not replace direct source verification for negative or completeness claims. ${WORKSPACE_REUSE_DESCRIPTION}`,
+      inputSchema: {
+        workspaceId: z.string().describe(WORKSPACE_ID_DESCRIPTION),
+        action: z.enum(CODEBASE_MEMORY_ACTIONS).describe("Codebase Memory read-only graph action."),
+        parameters: z.object(codebaseMemoryActionParametersSchema()).optional().describe(
+          "Action-specific parameters. Only the documented allowlisted fields are forwarded to Codebase Memory.",
+        ),
+      },
+      outputSchema: {
+        workspaceId: z.string(),
+        action: z.enum(CODEBASE_MEMORY_ACTIONS),
+        result: z.string(),
+      },
+      _meta: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ workspaceId, action, parameters }) => {
+      const startedAt = performance.now();
+      const workspace = workspaces.getWorkspace(workspaceId);
+      const redactions = workspacePathRedactions(workspace.root);
+      const typedAction = action as CodebaseMemoryAction;
+      try {
+        const rawResult = await codebaseMemoryManager.run(
+          workspaceId,
+          workspace.root,
+          typedAction,
+          (parameters ?? {}) as CodebaseMemoryParameters,
+        );
+        const result = redactPathsInText(rawResult, redactions);
+        logToolCall(config, {
+          tool: "run_codebase_memory_action",
+          workspaceId,
+          action: typedAction,
+          success: true,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        return {
+          content: [textBlock(result)],
+          structuredContent: { workspaceId, action: typedAction, result },
+        };
+      } catch (error) {
+        const message = redactPathsInText(
+          error instanceof Error ? error.message : String(error),
+          redactions,
+        );
+        logToolCall(config, {
+          tool: "run_codebase_memory_action",
+          workspaceId,
+          action: typedAction,
+          success: false,
+          durationMs: Math.round(performance.now() - startedAt),
+          error: message,
+        });
+        return {
+          isError: true,
+          content: [textBlock(message)],
+          structuredContent: { workspaceId, action: typedAction, result: message },
+        };
+      }
+    },
+  );
+}
+
+function codebaseMemoryActionParametersSchema(): z.ZodRawShape {
+  return {
+    path: z.string().min(1).max(2_000).optional().describe("architecture workspace-relative directory prefix."),
+    aspects: z.array(z.string().min(1).max(100)).max(20).optional().describe("architecture aspects such as overview, dependencies, hotspots, layers, clusters, or cycles."),
+    query: z.string().min(1).max(4_000).optional().describe("search BM25/natural-language query."),
+    semanticQuery: z.array(z.string().min(1).max(500)).min(1).max(20).optional().describe("search semantic keywords; moderate indexing is enabled."),
+    namePattern: z.string().min(1).max(4_000).optional().describe("search symbol-name regex."),
+    label: z.string().min(1).max(200).optional().describe("search graph node label."),
+    filePattern: z.string().min(1).max(2_000).optional().describe("search file-path pattern."),
+    relationship: z.string().min(1).max(200).optional().describe("search relationship filter."),
+    limit: z.number().int().min(1).max(100).optional().describe("Maximum search rows."),
+    functionName: z.string().min(1).max(2_000).optional().describe("trace function name or qualified name."),
+    direction: z.enum(["inbound", "outbound", "both"]).optional().describe("trace/impact traversal direction."),
+    depth: z.number().int().min(1).max(15).optional().describe("trace/impact traversal depth."),
+    mode: z.enum(["calls", "data_flow", "cross_service"]).optional().describe("trace relationship mode."),
+    qualifiedName: z.string().min(1).max(4_000).optional().describe("snippet qualified symbol name from Codebase Memory search."),
+    paths: z.array(z.string().min(1).max(2_000)).min(1).max(128).optional().describe("coverage exact workspace-relative file paths."),
+    scopes: z.array(z.string().min(1).max(2_000)).min(1).max(32).optional().describe("coverage workspace-relative scope prefixes."),
+    cypher: z.string().min(1).max(20_000).optional().describe("Read-only Codebase Memory Cypher-subset query."),
   };
 }
 

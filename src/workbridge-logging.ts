@@ -25,7 +25,14 @@ export interface WorkbridgeToolUsageLogEntry {
 const initializedLogDirectories = new Set<string>();
 const TOOL_USAGE_LOG_MAX_BYTES = 5 * 1024 * 1024;
 const TOOL_USAGE_LOG_MAX_FILES = 5;
-const TOOL_USAGE_TOOLS = new Set(["exec_command", "run_semantic_action", "run_graft_action", "read", "apply_patch"]);
+const TOOL_USAGE_TOOLS = new Set([
+  "exec_command",
+  "run_semantic_action",
+  "run_graft_action",
+  "run_codebase_memory_action",
+  "read",
+  "apply_patch",
+]);
 
 export function sanitizeRequestUrlForLog(value: string | undefined): string | undefined {
   if (!value) return undefined;

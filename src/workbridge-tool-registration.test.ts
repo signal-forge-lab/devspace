@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ServerConfig } from "./config.js";
+import type { CodebaseMemoryManager } from "./codebase-memory-code-intelligence.js";
 import type { ProcessSessionManager } from "./process-sessions.js";
 import type { AppToolRegistrar } from "./session-monitor-integration.js";
 import { SoftPauseController } from "./soft-pause.js";
@@ -30,6 +31,7 @@ assert.deepEqual(WORKBRIDGE_EXTENSION_TOOL_NAMES, [
   "check_ao_credential_status",
   "run_semantic_action",
   "run_graft_action",
+  "run_codebase_memory_action",
 ]);
 assert.equal(WORKBRIDGE_UPSTREAM_TOOL_MODE, "codex");
 assert.equal(WORKBRIDGE_WIDGET_MODE, "off");
@@ -56,6 +58,7 @@ registerWorkbridgeExtensionTools({
   workspaces: {} as WorkspaceRegistry,
   processSessions: {} as ProcessSessionManager,
   semanticManager: {} as SerenaSemanticManager,
+  codebaseMemoryManager: {} as CodebaseMemoryManager,
   incomingArtifactAdapters: [],
   registerTool: registrar,
   artifactRegisterTool: registrar,
@@ -67,10 +70,12 @@ assert.deepEqual(registeredNames, [
   "check_ao_credential_status",
   "run_semantic_action",
   "run_graft_action",
+  "run_codebase_memory_action",
   "download_artifact",
 ]);
 assert.match(workbridgeServerInstructions(), /run_semantic_action/);
 assert.match(workbridgeServerInstructions(), /run_graft_action/);
+assert.match(workbridgeServerInstructions(), /run_codebase_memory_action/);
 
 assert.deepEqual(processLogOutcome({
   output: "",
@@ -138,6 +143,13 @@ try {
       durationMs: 31,
     });
     logToolCall(loggingConfig, {
+      tool: "run_codebase_memory_action",
+      workspaceId: "ws_usage_test",
+      action: "impact",
+      success: true,
+      durationMs: 27,
+    });
+    logToolCall(loggingConfig, {
       tool: "write_stdin",
       workspaceId: "ws_usage_test",
       success: true,
@@ -150,7 +162,7 @@ try {
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line) as Record<string, unknown>);
-  assert.equal(usageLines.length, 3);
+  assert.equal(usageLines.length, 4);
   assert.deepEqual(
     {
       schemaVersion: usageLines[0]?.schemaVersion,
@@ -178,6 +190,8 @@ try {
   assert.equal(usageLines[1]?.action, "find_referencing_symbols");
   assert.equal(usageLines[2]?.tool, "run_graft_action");
   assert.equal(usageLines[2]?.action, "callers");
+  assert.equal(usageLines[3]?.tool, "run_codebase_memory_action");
+  assert.equal(usageLines[3]?.action, "impact");
 
   let decoratedDescription = "";
   let capturedHandler: (() => Promise<unknown>) | undefined;

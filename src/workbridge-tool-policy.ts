@@ -6,6 +6,7 @@ export const WORKBRIDGE_EXTENSION_TOOL_NAMES = [
   "check_ao_credential_status",
   "run_semantic_action",
   "run_graft_action",
+  "run_codebase_memory_action",
 ] as const;
 export const WORKBRIDGE_SUBAGENTS_ENABLED = false as const;
 

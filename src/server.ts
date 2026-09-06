@@ -54,6 +54,7 @@ import {
 } from "./mcp-tool-catalog.js";
 import { ProcessSessionManager } from "./process-sessions.js";
 import { SerenaSemanticManager } from "./serena-semantic.js";
+import { CodebaseMemoryManager } from "./codebase-memory-code-intelligence.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { openAiConversationScopeId } from "./request-meta.js";
 import { runCleanupSteps, shutdownHttpServer } from "./server-shutdown.js";
@@ -335,6 +336,7 @@ export function createMcpServer(
   softPause = new SoftPauseController(config.stateDir),
   monitorContext?: SessionMonitorContext,
   semanticManager = new SerenaSemanticManager({ stateDir: config.stateDir }),
+  codebaseMemoryManager = new CodebaseMemoryManager({ stateDir: config.stateDir }),
   registration: {
     server?: McpServer;
     baseRegisterTool?: AppToolRegistrar;
@@ -769,6 +771,7 @@ export function createMcpServer(
     workspaces,
     processSessions,
     semanticManager,
+    codebaseMemoryManager,
     incomingArtifactAdapters,
     registerTool,
     artifactRegisterTool,
@@ -788,6 +791,7 @@ function compileModernMcpToolCatalog(
   softPause: SoftPauseController,
   sessionMonitor: SessionMonitor,
   semanticManager: SerenaSemanticManager,
+  codebaseMemoryManager: CodebaseMemoryManager,
 ): CompiledMcpToolCatalog {
   const recorder = createMcpToolCatalogRecorder();
   createMcpServer(
@@ -800,6 +804,7 @@ function compileModernMcpToolCatalog(
     softPause,
     { monitor: sessionMonitor, sessionId: () => undefined },
     semanticManager,
+    codebaseMemoryManager,
     {
       server: new McpServer(mcpServerInfo(), mcpServerOptions()),
       baseRegisterTool: recorder.registrar,
@@ -855,6 +860,7 @@ export function createServer(
   );
   const localAgentProviders = resolveLocalAgentProviders();
   const semanticManager = new SerenaSemanticManager({ stateDir: config.stateDir });
+  const codebaseMemoryManager = new CodebaseMemoryManager({ stateDir: config.stateDir });
   const softPause = new SoftPauseController(config.stateDir);
   const sessionMonitor = new SessionMonitor();
   const nodeSaturation = new NodeSaturationMetrics();
@@ -872,6 +878,7 @@ export function createServer(
     softPause,
     sessionMonitor,
     semanticManager,
+    codebaseMemoryManager,
   );
   sessionLifecycle.start();
   const modernMcpHandler = createMcpHandler(() => {
@@ -1137,6 +1144,7 @@ export function createServer(
           softPause,
           { monitor: sessionMonitor, sessionId: () => transport?.sessionId },
           semanticManager,
+          codebaseMemoryManager,
         );
         await server.connect(transport);
       } else {
@@ -1171,6 +1179,7 @@ export function createServer(
           () => modernMcpHandler.close(),
           () => sessionLifecycle.close(),
           () => semanticManager.close(),
+          () => codebaseMemoryManager.close(),
           () => processSessions.shutdown(),
           () => oauthProvider?.close(),
           () => workspaceStore.close?.(),
