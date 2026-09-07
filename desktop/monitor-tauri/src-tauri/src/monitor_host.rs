@@ -688,9 +688,123 @@ fn operation_line(action: &str) -> &'static str {
 fn configured_startup_config() -> Value {
     startup_config_file()
         .and_then(|file| fs::read_to_string(file).ok())
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|text| parse_jsonc_value(&text))
         .map(|value| normalize_startup_config(&value))
         .unwrap_or_else(|| json!({}))
+}
+
+fn parse_jsonc_value(text: &str) -> Option<Value> {
+    serde_json::from_str(text).ok().or_else(|| {
+        let without_comments = strip_jsonc_comments(text)?;
+        let without_trailing_commas = strip_jsonc_trailing_commas(&without_comments);
+        serde_json::from_str(&without_trailing_commas).ok()
+    })
+}
+
+fn strip_jsonc_comments(text: &str) -> Option<String> {
+    let mut output = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
+
+    while let Some(ch) = chars.next() {
+        if in_string {
+            output.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if ch == '"' {
+            in_string = true;
+            output.push(ch);
+            continue;
+        }
+
+        if ch == '/' {
+            match chars.peek().copied() {
+                Some('/') => {
+                    chars.next();
+                    for next in chars.by_ref() {
+                        if next == '\n' {
+                            output.push('\n');
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                Some('*') => {
+                    chars.next();
+                    let mut closed = false;
+                    while let Some(next) = chars.next() {
+                        if matches!(next, '\r' | '\n') {
+                            output.push(next);
+                        }
+                        if next == '*' && chars.peek() == Some(&'/') {
+                            chars.next();
+                            closed = true;
+                            break;
+                        }
+                    }
+                    if !closed {
+                        return None;
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+        }
+
+        output.push(ch);
+    }
+
+    Some(output)
+}
+
+fn strip_jsonc_trailing_commas(text: &str) -> String {
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut output = String::with_capacity(text.len());
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (index, ch) in chars.iter().copied().enumerate() {
+        if in_string {
+            output.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if ch == '"' {
+            in_string = true;
+            output.push(ch);
+            continue;
+        }
+
+        if ch == ',' {
+            let next = chars[index + 1..]
+                .iter()
+                .copied()
+                .find(|candidate| !candidate.is_whitespace());
+            if matches!(next, Some(']') | Some('}')) {
+                continue;
+            }
+        }
+
+        output.push(ch);
+    }
+
+    output
 }
 
 fn environment_startup_config() -> Value {
@@ -1292,23 +1406,40 @@ mod tests {
 
     #[test]
     fn startup_config_normalizes_versioned_jsonc_shape() {
-        let normalized = normalize_startup_config(&json!({
-            "server": {
-                "publicBaseUrl": "https://example.test/",
-                "trustProxy": true
-            },
-            "workspaces": {
-                "allowedRoots": ["~/projects"],
-                "auxiliaryRoots": ["~/.codex", "~/.agents"],
-                "worktreeRoot": "~/projects/.workbridge/worktrees"
-            },
-            "storage": { "stateDir": "~/.workbridge-state" }
-        }));
+        let parsed = parse_jsonc_value(
+            r#"
+        {
+          // JSONC comments and trailing commas are valid in the canonical config.
+          "server": {
+            "publicBaseUrl": "https://example.test/path//kept/",
+            "trustProxy": true,
+          },
+          "workspaces": {
+            "allowedRoots": ["~/projects"],
+            "auxiliaryRoots": ["~/.codex", "~/.agents"],
+            "worktreeRoot": "~/projects/.workbridge/worktrees",
+          },
+          /* Block comments must also be ignored. */
+          "storage": { "stateDir": "~/.workbridge-state" },
+        }
+        "#,
+        )
+        .expect("parse JSONC startup config");
+        let normalized = normalize_startup_config(&parsed);
 
-        assert_eq!(normalized["publicBaseUrl"], "https://example.test");
+        assert_eq!(
+            normalized["publicBaseUrl"],
+            "https://example.test/path//kept"
+        );
         assert_eq!(normalized["allowedRoots"], json!(["~/projects"]));
-        assert_eq!(normalized["auxiliaryRoots"], json!(["~/.codex", "~/.agents"]));
-        assert_eq!(normalized["worktreeRoot"], "~/projects/.workbridge/worktrees");
+        assert_eq!(
+            normalized["auxiliaryRoots"],
+            json!(["~/.codex", "~/.agents"])
+        );
+        assert_eq!(
+            normalized["worktreeRoot"],
+            "~/projects/.workbridge/worktrees"
+        );
         assert_eq!(normalized["stateDir"], "~/.workbridge-state");
         assert_eq!(normalized["trustProxy"], true);
     }
