@@ -1,6 +1,7 @@
 "use strict";
 
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 const {
   SUPPORTED_ACTIONS,
   WorkbridgeSupervisor,
@@ -35,10 +36,23 @@ async function run(argv = process.argv, environment = process.env) {
     environment.WORKBRIDGE_PROJECT_ROOT,
     [process.cwd(), __dirname],
   );
+  const userConfig = await import(pathToFileURL(path.join(projectRoot, "dist", "user-config.js")).href);
+  const readStartupConfigFile = () => startupConfigFromDevspace(userConfig.loadDevspaceFiles(environment).config);
+  const writeStartupConfigFile = (_file, config) => userConfig.setDevspaceConfigValues([
+    { path: ["server", "publicBaseUrl"], value: config.publicBaseUrl },
+    { path: ["server", "trustProxy"], value: config.trustProxy },
+    { path: ["workspaces", "allowedRoots"], value: config.allowedRoots },
+    { path: ["workspaces", "auxiliaryRoots"], value: config.auxiliaryRoots || [] },
+    { path: ["workspaces", "worktreeRoot"], value: config.worktreeRoot },
+    { path: ["storage", "stateDir"], value: config.stateDir },
+  ], environment);
   const supervisor = new WorkbridgeSupervisor({
     monitorUrl,
     projectRoot,
     tokenFile: supervisorStateFile(environment),
+    readStartupConfigFile,
+    writeStartupConfigFile,
+    configSource: "config.jsonc",
   });
 
   let status;
@@ -64,6 +78,17 @@ async function run(argv = process.argv, environment = process.env) {
   })}\n`);
 }
 
+function startupConfigFromDevspace(config) {
+  return {
+    publicBaseUrl: config?.server?.publicBaseUrl,
+    allowedRoots: config?.workspaces?.allowedRoots,
+    auxiliaryRoots: config?.workspaces?.auxiliaryRoots,
+    worktreeRoot: config?.workspaces?.worktreeRoot,
+    stateDir: config?.storage?.stateDir,
+    trustProxy: config?.server?.trustProxy,
+  };
+}
+
 if (require.main === module) {
   run().catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
@@ -71,4 +96,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { parseInvocation, supervisorStateFile };
+module.exports = { parseInvocation, startupConfigFromDevspace, supervisorStateFile };

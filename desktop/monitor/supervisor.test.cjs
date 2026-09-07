@@ -195,6 +195,35 @@ const migratedSupervisorState = JSON.parse(fs.readFileSync(
 assert.equal(migratedSupervisorState.startupConfigSources.publicBaseUrl, "environment");
 assert.equal(migratedSupervisorState.startupConfigSources.allowedRoots, "config.json");
 
+let injectedConfigWrite;
+const injectedConfigSupervisor = new WorkbridgeSupervisor({
+  monitorUrl: "http://127.0.0.1:9/monitor",
+  projectRoot,
+  tokenFile: path.join(temporaryRoot, "injected-config-state.json"),
+  environment: {},
+  readStartupConfigFile: () => ({
+    publicBaseUrl: "https://jsonc.example.test",
+    allowedRoots: ["C:\\jsonc-workspace"],
+    auxiliaryRoots: ["C:\\jsonc-aux"],
+    worktreeRoot: "C:\\jsonc-workspace\\.workbridge\\worktrees",
+    stateDir: "C:\\jsonc-state",
+    trustProxy: true,
+  }),
+  writeStartupConfigFile: (_file, config) => { injectedConfigWrite = config; },
+  configSource: "config.jsonc",
+});
+assert.equal(injectedConfigSupervisor.status().startupConfigSources.allowedRoots, "config.jsonc");
+const injectedSavedConfig = {
+  publicBaseUrl: "https://jsonc-saved.example.test",
+  allowedRoots: ["C:\\jsonc-saved-workspace"],
+  auxiliaryRoots: [],
+  worktreeRoot: "C:\\jsonc-saved-workspace\\.workbridge\\worktrees",
+  stateDir: "C:\\jsonc-saved-state",
+  trustProxy: false,
+};
+injectedConfigSupervisor.setStartupConfig(injectedSavedConfig);
+assert.deepEqual(injectedConfigWrite, injectedSavedConfig);
+
 const startupConfig = {
   publicBaseUrl: "https://wb.example.test",
   allowedRoots: ["C:\\workspace"],

@@ -24,7 +24,7 @@ export interface ManagedRestartState {
   };
   startupConfigSources?: Partial<Record<
     "publicBaseUrl" | "allowedRoots" | "auxiliaryRoots" | "worktreeRoot" | "stateDir" | "trustProxy",
-    "environment" | "config.json" | "saved" | "runtime"
+    "environment" | "config.json" | "config.jsonc" | "saved" | "runtime"
   >>;
 }
 
@@ -364,7 +364,7 @@ function optionalStartupConfigSources(
   if (value === undefined) return undefined;
   const record = objectRecord(value, "Workbridge Monitor startupConfigSources");
   const result: NonNullable<ManagedRestartState["startupConfigSources"]> = {};
-  const allowed = new Set(["environment", "config.json", "saved", "runtime"]);
+  const allowed = new Set(["environment", "config.json", "config.jsonc", "saved", "runtime"]);
   for (const key of [
     "publicBaseUrl",
     "allowedRoots",

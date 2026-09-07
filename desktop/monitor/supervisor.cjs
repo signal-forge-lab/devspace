@@ -36,6 +36,9 @@ class WorkbridgeSupervisor extends EventEmitter {
     this.spawnProcess = options.spawnProcess || spawn;
     this.environment = options.environment || process.env;
     this.configFile = options.configFile || startupConfigFile(this.environment);
+    this.readStartupConfigFile = options.readStartupConfigFile || readStartupConfigFile;
+    this.writeStartupConfigFile = options.writeStartupConfigFile || writeStartupConfigFile;
+    this.configSource = options.configSource || "config.json";
     this.processExists = options.processExists || processExists;
     this.managedProcessExitGraceMs = options.managedProcessExitGraceMs ?? MANAGED_PROCESS_EXIT_GRACE_MS;
     this.managedProcessForceExitMs = options.managedProcessForceExitMs ?? MANAGED_PROCESS_FORCE_EXIT_MS;
@@ -47,7 +50,7 @@ class WorkbridgeSupervisor extends EventEmitter {
       ?? DEFAULT_DESKTOP_MEMORY_SAMPLE_INTERVAL_MS;
     const persistedState = readPersistedState(this.tokenFile);
     this.controlToken = persistedState.controlToken;
-    this.configuredStartupConfig = safeNormalizeStartupConfig(readStartupConfigFile(this.configFile));
+    this.configuredStartupConfig = safeNormalizeStartupConfig(this.readStartupConfigFile(this.configFile));
     const environmentStartupConfig = safeNormalizeStartupConfig(startupConfigFromEnvironment(this.environment));
     this.environmentStartupConfig = environmentStartupConfig;
     this.startupConfig = mergeStartupConfigs(
@@ -55,7 +58,7 @@ class WorkbridgeSupervisor extends EventEmitter {
       environmentStartupConfig,
     );
     this.startupConfigSources = mergeStartupConfigSources(
-      startupConfigSourcesFor(this.configuredStartupConfig, "config.json"),
+      startupConfigSourcesFor(this.configuredStartupConfig, this.configSource),
       startupConfigSourcesFor(environmentStartupConfig, "environment"),
     );
     this.stateDir = this.startupConfig.stateDir;
@@ -268,11 +271,11 @@ class WorkbridgeSupervisor extends EventEmitter {
 
   setStartupConfig(value) {
     const startupConfig = normalizeStartupConfig(value, { requireComplete: true });
-    writeStartupConfigFile(this.configFile, startupConfig);
+    this.writeStartupConfigFile(this.configFile, startupConfig);
     this.configuredStartupConfig = startupConfig;
     this.startupConfig = mergeStartupConfigs(startupConfig, this.environmentStartupConfig);
     this.startupConfigSources = mergeStartupConfigSources(
-      startupConfigSourcesFor(startupConfig, "config.json"),
+      startupConfigSourcesFor(startupConfig, this.configSource),
       startupConfigSourcesFor(this.environmentStartupConfig, "environment"),
     );
     this.stateDir = this.startupConfig.stateDir;
@@ -880,7 +883,7 @@ function normalizeStartupConfigSources(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const normalized = {};
   for (const key of ["publicBaseUrl", "allowedRoots", "auxiliaryRoots", "worktreeRoot", "stateDir", "trustProxy"]) {
-    if (["environment", "config.json", "saved", "runtime"].includes(value[key])) normalized[key] = value[key];
+    if (["environment", "config.json", "config.jsonc", "saved", "runtime"].includes(value[key])) normalized[key] = value[key];
   }
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }

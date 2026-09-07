@@ -86,7 +86,7 @@ impl MonitorState {
         let environment = environment_startup_config();
         let effective = merge_startup_configs(&configured, &environment);
         let sources = merge_sources(
-            startup_config_sources(&configured, "config.json"),
+            startup_config_sources(&configured, "config.jsonc"),
             startup_config_sources(&environment, "environment"),
         );
         let server = runtime.as_ref().and_then(|value| value.get("server"));
@@ -712,16 +712,23 @@ fn startup_config_file() -> Option<PathBuf> {
     if let Some(dir) = env::var_os("DEVSPACE_CONFIG_DIR") {
         let value = dir.to_string_lossy().trim().to_string();
         if !value.is_empty() {
-            return expand_home_path(&value).map(|path| path.join("config.json"));
+            return expand_home_path(&value).map(|path| path.join("config.jsonc"));
         }
     }
-    home_dir().map(|home| home.join(".devspace").join("config.json"))
+    home_dir().map(|home| home.join(".devspace").join("config.jsonc"))
 }
 
 fn normalize_startup_config(value: &Value) -> Value {
+    let server = value.get("server").unwrap_or(value);
+    let workspaces = value.get("workspaces").unwrap_or(value);
+    let storage = value.get("storage").unwrap_or(value);
     let mut config = Map::new();
-    for key in ["publicBaseUrl", "worktreeRoot", "stateDir"] {
-        if let Some(text) = value
+    for (key, source) in [
+        ("publicBaseUrl", server),
+        ("worktreeRoot", workspaces),
+        ("stateDir", storage),
+    ] {
+        if let Some(text) = source
             .get(key)
             .and_then(Value::as_str)
             .map(str::trim)
@@ -738,11 +745,11 @@ fn normalize_startup_config(value: &Value) -> Value {
         }
     }
     for key in ["allowedRoots", "auxiliaryRoots"] {
-        if let Some(list) = normalize_string_list(value.get(key)) {
+        if let Some(list) = normalize_string_list(workspaces.get(key)) {
             config.insert(key.to_string(), list);
         }
     }
-    if let Some(value) = value.get("trustProxy") {
+    if let Some(value) = server.get("trustProxy") {
         let parsed = value
             .as_bool()
             .or_else(|| value.as_str().and_then(parse_bool));
@@ -1281,6 +1288,29 @@ mod tests {
             path_identity("~/Documents/Workbridge"),
             path_identity("~/Documents/Other")
         );
+    }
+
+    #[test]
+    fn startup_config_normalizes_versioned_jsonc_shape() {
+        let normalized = normalize_startup_config(&json!({
+            "server": {
+                "publicBaseUrl": "https://example.test/",
+                "trustProxy": true
+            },
+            "workspaces": {
+                "allowedRoots": ["~/projects"],
+                "auxiliaryRoots": ["~/.codex", "~/.agents"],
+                "worktreeRoot": "~/projects/.workbridge/worktrees"
+            },
+            "storage": { "stateDir": "~/.workbridge-state" }
+        }));
+
+        assert_eq!(normalized["publicBaseUrl"], "https://example.test");
+        assert_eq!(normalized["allowedRoots"], json!(["~/projects"]));
+        assert_eq!(normalized["auxiliaryRoots"], json!(["~/.codex", "~/.agents"]));
+        assert_eq!(normalized["worktreeRoot"], "~/projects/.workbridge/worktrees");
+        assert_eq!(normalized["stateDir"], "~/.workbridge-state");
+        assert_eq!(normalized["trustProxy"], true);
     }
 
     #[test]
