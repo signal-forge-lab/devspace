@@ -631,7 +631,7 @@ void (async () => {
         tunnelEnsureInvocation = { command, args, options };
       };
       await tunnelEnsureSupervisor.ensureSecureTunnel();
-      assert.equal(tunnelEnsureInvocation.command, "powershell.exe");
+      assert.match(tunnelEnsureInvocation.command, /^(?:pwsh|powershell)\.exe$/);
       assert.deepEqual(tunnelEnsureInvocation.args.slice(-2), ["-Action", "ensure"]);
       assert.equal(tunnelEnsureInvocation.options.purpose, "tunnel-ensure");
     }

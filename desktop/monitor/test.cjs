@@ -154,6 +154,8 @@ assert.deepEqual(publishedDesktopFiles, [
   "desktop/monitor/package-lock.json",
   "desktop/monitor/memory-log.cjs",
   "desktop/monitor/memory-log.test.cjs",
+  "desktop/monitor/powershell.cjs",
+  "desktop/monitor/powershell.test.cjs",
   "desktop/monitor/supervisor.cjs",
   "desktop/monitor/supervisor.test.cjs",
   "desktop/monitor/test.cjs",
@@ -163,11 +165,11 @@ assert.deepEqual(publishedDesktopFiles, [
 assert.equal(publishedDesktopFiles.includes("desktop/monitor"), false);
 assert.match(monitorPackage.scripts["pack:win"], /--icon=.*workbridge-monitor-icon\.ico/);
 assert.equal(fs.existsSync(path.join(__dirname, "assets", "workbridge-monitor-icon.ico")), true);
-assert.equal(rootPackage.scripts["monitor:launch"], "npm run monitor:tauri:launch");
+assert.equal(rootPackage.scripts["monitor:launch"], "pnpm monitor:tauri:launch");
 assert.equal(rootPackage.scripts["monitor:desktop:setup"], "npm run setup:win --prefix desktop/monitor");
 assert.equal(
   monitorPackage.scripts["setup:win"],
-  "npm run pack:win && powershell -NoProfile -ExecutionPolicy Bypass -File ./install-windows.ps1",
+  "npm run pack:win && node ./powershell.cjs -NoProfile -ExecutionPolicy Bypass -File ./install-windows.ps1",
 );
 
 const windowsInstallerSource = fs.readFileSync(path.join(__dirname, "install-windows.ps1"), "utf8");

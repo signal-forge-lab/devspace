@@ -9,6 +9,7 @@ const https = require("node:https");
 const os = require("node:os");
 const path = require("node:path");
 const { MemoryHistoryLogger } = require("./memory-log.cjs");
+const { resolvePowerShellExecutable } = require("./powershell.cjs");
 
 const SUPPORTED_ACTIONS = new Set([
   "start",
@@ -336,7 +337,7 @@ class WorkbridgeSupervisor extends EventEmitter {
     if (!fs.existsSync(script)) return;
     this.setPhase("starting", "Ensuring Secure Tunnel…");
     await this.runCommand(
-      "powershell.exe",
+      resolvePowerShellExecutable(),
       ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Action", "ensure"],
       { purpose: "tunnel-ensure", env: this.commandEnvironment() },
     );

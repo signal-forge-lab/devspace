@@ -3,11 +3,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import powerShellRunner from "../desktop/monitor/powershell.cjs";
 
 if (process.platform !== "win32") {
   console.log("workbridge secure tunnel runtime test skipped: Windows only");
   process.exit(0);
 }
+
+const powershell = powerShellRunner.resolvePowerShellExecutable();
 
 const root = mkdtempSync(path.join(tmpdir(), "workbridge-tunnel-runtime-test-"));
 const fakeClient = path.join(root, "tunnel-client.cmd");
@@ -48,8 +51,8 @@ writeFileSync(fakeClient, [
 const fakeSops = path.join(root, "sops.cmd");
 writeFileSync(fakeSops, [
   "@echo off",
-  "if \"%1 %2\"==\"decrypt --extract\" (",
-  "  echo sops-test-secret-never-log",
+  "if \"%1\"==\"decrypt\" (",
+  "  echo {\"CONTROL_PLANE_API_KEY\":\"sops-test-secret-never-log\"}",
   "  exit /b 0",
   ")",
   "exit /b 1",
@@ -67,7 +70,7 @@ const environment = {
   CONTROL_PLANE_API_KEY: "test-secret-never-log",
 };
 
-const connect = spawnSync("powershell", [
+const connect = spawnSync(powershell, [
   "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
   "-Action", "connect",
   "-TunnelId", "tunnel_0123456789abcdef0123456789abcdef",
@@ -80,7 +83,7 @@ assert.match(invocations, /runtimes connect/);
 assert.match(invocations, /--runtime-api-key env:CONTROL_PLANE_API_KEY/);
 assert.match(invocations, /runtimes status workbridge-mcp --json/);
 
-const missingTunnelId = spawnSync("powershell", [
+const missingTunnelId = spawnSync(powershell, [
   "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
   "-Action", "connect",
 ], { encoding: "utf8", env: environment });
@@ -88,7 +91,7 @@ assert.notEqual(missingTunnelId.status, 0);
 assert.match(`${missingTunnelId.stdout}${missingTunnelId.stderr}`, /TunnelId is required/);
 
 for (const action of ["status", "stop"]) {
-  const result = spawnSync("powershell", [
+  const result = spawnSync(powershell, [
     "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
     "-Action", action,
   ], { encoding: "utf8", env: environment });
@@ -98,7 +101,7 @@ for (const action of ["status", "stop"]) {
 }
 
 const beforeEnsure = readFileSync(invocationLog, "utf8");
-const ensure = spawnSync("powershell", [
+const ensure = spawnSync(powershell, [
   "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
   "-Action", "ensure",
 ], { encoding: "utf8", env: environment });
@@ -109,7 +112,7 @@ assert.doesNotMatch(ensureInvocations, /runtimes connect/);
 
 const beforeReconnect = readFileSync(invocationLog, "utf8");
 rmSync(runtimeState, { force: true });
-const reconnect = spawnSync("powershell", [
+const reconnect = spawnSync(powershell, [
   "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
   "-Action", "ensure",
 ], {
@@ -123,7 +126,7 @@ assert.match(reconnectInvocations, /runtimes connect/);
 assert.match(reconnectInvocations, /--tunnel-id tunnel_0123456789abcdef0123456789abcdef/);
 assert.doesNotMatch(reconnect.stdout, /test-secret-never-log/);
 
-const sopsFallback = spawnSync("powershell", [
+const sopsFallback = spawnSync(powershell, [
   "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
   "-Action", "connect",
   "-TunnelId", "tunnel_0123456789abcdef0123456789abcdef",
@@ -138,7 +141,7 @@ const sopsFallback = spawnSync("powershell", [
 assert.equal(sopsFallback.status, 0, sopsFallback.stderr);
 assert.doesNotMatch(sopsFallback.stdout, /sops-test-secret-never-log/);
 
-const neverReady = spawnSync("powershell", [
+const neverReady = spawnSync(powershell, [
   "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
   "-Action", "ensure",
 ], {
@@ -153,7 +156,7 @@ const neverReady = spawnSync("powershell", [
 assert.notEqual(neverReady.status, 0);
 assert.match(`${neverReady.stdout}${neverReady.stderr}`, /did not become ready after reconnect/);
 
-const unconfigured = spawnSync("powershell", [
+const unconfigured = spawnSync(powershell, [
   "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
   "-Action", "ensure",
 ], {
@@ -169,6 +172,6 @@ assert.match(unconfigured.stdout, /"configured":false/);
 
 const scriptSource = readFileSync(script, "utf8");
 assert.match(scriptSource, /global\.sops\.json/);
-assert.match(scriptSource, /GetEnvironmentVariable\("CONTROL_PLANE_API_KEY", "User"\)/);
+assert.doesNotMatch(scriptSource, /GetEnvironmentVariable\("CONTROL_PLANE_API_KEY", "User"\)/);
 
 console.log("workbridge secure tunnel runtime tests passed");

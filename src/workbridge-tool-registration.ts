@@ -208,7 +208,7 @@ const WORKSPACE_ACTION_STATUSES = [
 ] as const;
 type WorkspaceActionStatus = (typeof WORKSPACE_ACTION_STATUSES)[number];
 
-export const WORKBRIDGE_WINDOWS_SHELL_GUIDANCE = "On Windows, commands run through cmd.exe, not PowerShell. Do not pass PowerShell syntax such as Select-Object, Where-Object, Get-ChildItem, $env:, or [pscustomobject] directly. When PowerShell is required, wrap the entire command explicitly with powershell -NoProfile -Command \"<PowerShell command>\".";
+export const WORKBRIDGE_WINDOWS_SHELL_GUIDANCE = "On Windows, commands run through cmd.exe, not PowerShell. Do not pass PowerShell syntax such as Select-Object, Where-Object, Get-ChildItem, $env:, or [pscustomobject] directly. When PowerShell is required, prefer PowerShell 7 with pwsh -NoProfile -Command \"<PowerShell command>\"; use powershell.exe only when pwsh is unavailable.";
 export const WORKBRIDGE_COMMAND_METADATA_INTENTS = ["inspect", "modify", "verify", "run", "git", "other"] as const;
 export const WORKBRIDGE_COMMAND_METADATA_RETRY_CONTEXTS = [
   "none",
